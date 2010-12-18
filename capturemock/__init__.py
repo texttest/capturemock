@@ -136,6 +136,10 @@ class capturemock(object):
         return wrapped_func
 
     def checkMatching(self, recordFile, replayFile):
+        if not os.path.isfile(recordFile):
+            raise CaptureMockReplayError("No interaction was registered when replaying. " +
+                                         "Either correct your capturemock setup or disable it.")
+            
         if filecmp.cmp(recordFile, replayFile, 0):
             os.remove(recordFile)
         else:
