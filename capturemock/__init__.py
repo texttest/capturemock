@@ -121,15 +121,18 @@ class capturemock(object):
         if self.mode == config.RECORD_ONLY_MODE:
             recordFile = fileNameRoot
             replayFile = None
-        else:
+        elif self.mode == config.REPLAY_ONLY_MODE:
             replayFile = fileNameRoot
             recordFile = fileNameRoot + ".tmp"
+        else:
+            replayFile = fileNameRoot
+            recordFile = fileNameRoot
         def wrapped_func(*funcargs, **funckw):
             try:
                 setUp(self.mode, recordFile, replayFile, self.pythonAttrs, useServer=True, **self.kw)
                 process_startup()
                 func(*funcargs, **funckw)
-                if replayFile:
+                if self.mode == config.REPLAY_ONLY_MODE:
                     self.checkMatching(recordFile, replayFile)
             finally:
                 terminate()

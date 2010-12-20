@@ -57,8 +57,8 @@ class TrafficServer(TCPServer):
         self.setUpLogging()
         self.filesToIgnore = self.rcHandler.getList("ignore_edits", [ "command line" ])
         self.useThreads = self.rcHandler.getboolean("server_multithreaded", [ "general" ], True)
-        self.recordFileHandler = RecordFileHandler(options.record)
         self.replayInfo = ReplayInfo(options.replay, self.rcHandler)
+        self.recordFileHandler = RecordFileHandler(options.record)
         self.requestCount = 0
         self.diag = logging.getLogger("Server")
         self.topLevelForEdit = [] # contains only paths explicitly given. Always present.
