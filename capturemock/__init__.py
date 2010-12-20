@@ -136,17 +136,14 @@ class capturemock(object):
         return wrapped_func
 
     def checkMatching(self, recordFile, replayFile):
-        if not os.path.isfile(recordFile):
-            raise CaptureMockReplayError("No interaction was registered when replaying. " +
-                                         "Either correct your capturemock setup or disable it.")
-            
-        if filecmp.cmp(recordFile, replayFile, 0):
-            os.remove(recordFile)
-        else:
-            # files don't match
-            raise CaptureMockReplayError("Replayed calls do not match those recorded. " +
-                                         "Either rerun with capturemock in record mode " +
-                                         "or update the stored mock file by hand.")
+        if os.path.isfile(recordFile):
+            if filecmp.cmp(recordFile, replayFile, 0):
+                os.remove(recordFile)
+            else:
+                # files don't match
+                raise CaptureMockReplayError("Replayed calls do not match those recorded. " +
+                                             "Either rerun with capturemock in record mode " +
+                                             "or update the stored mock file by hand.")
 
     def getFileNameRoot(self, funcName, callingFile):
         dirName = os.path.join(os.path.dirname(callingFile), "capturemock")
