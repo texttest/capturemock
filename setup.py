@@ -1,11 +1,23 @@
 #!/usr/bin/env python
 from distutils.core import setup
-import os
+import os, shutil
+
+def make_windows_script(src):
+    outFile = open(src + ".py", "w")
+    outFile.write("#!python.exe\nimport site\n\n")
+    outFile.write(open(src).read())
 
 if os.name == "nt":
     package_data= { "capturemock" : [ "python_script.exe" ]}
 else:
     package_data = {}
+
+if os.name == "nt":
+    make_windows_script("bin/capturemock")
+    shutil.copyfile("capturemock/python_script.exe", "capturemock_server.exe")
+    scripts=["bin/capturemock.py", "capturemock.exe"]
+else:
+    scripts=["bin/capturemock"]
 
 setup(name='CaptureMock',
       version="0.1",
@@ -25,5 +37,6 @@ setup(name='CaptureMock',
                     "Intended Audience :: Developers",
                     "Intended Audience :: Information Technology",
                     "Topic :: Software Development :: Testing",
-                    "Topic :: Software Development :: Libraries :: Python Modules" ]
+                    "Topic :: Software Development :: Libraries :: Python Modules" ],
+      scripts=scripts
       )

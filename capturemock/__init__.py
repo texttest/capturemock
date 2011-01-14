@@ -2,7 +2,8 @@
 from capturepython import interceptPython
 from capturecommand import interceptCommand
 
-import os, sys, shutil, socket, config, filecmp
+import os, sys, shutil, socket, config, cmdlineutils, filecmp, subprocess
+from tempfile import mkdtemp
 
 class CaptureMockReplayError(RuntimeError):
     pass
@@ -105,6 +106,18 @@ def terminate():
     if manager:
         manager.terminate()
 
+def commandline():
+    parser = cmdlineutils.create_option_parser()
+    options, args = parser.parse_args()
+    interceptDir = mkdtemp() 
+    setUp(options.mode, options.record, options.replay,  
+          recordEditDir=options.record_file_edits, replayEditDir=options.replay_file_edits,
+          rcFiles=options.rcfiles.split(","), interceptDir=interceptDir)
+    subprocess.call(args, shell=True)
+    shutil.rmtree(interceptDir)
+    terminate()
+
+    
 # For use as a decorator in coded tests
 class capturemock(object):
     def __init__(self, pythonAttrs=[], **kw):

@@ -1,30 +1,9 @@
 
-import optparse, os, stat, sys, logging, logging.config, socket, threading, time, subprocess
-import config, commandlinetraffic, pythontraffic, fileedittraffic, clientservertraffic
+import os, stat, sys, logging, logging.config, socket, threading, time, subprocess
+import config, cmdlineutils, commandlinetraffic, pythontraffic, fileedittraffic, clientservertraffic
 from SocketServer import TCPServer, StreamRequestHandler
 from ordereddict import OrderedDict
 from replayinfo import ReplayInfo
-
-def create_option_parser():
-    usage = """usage: %prog [options] 
-
-Standalone traffic server program. Basic usage is to grab the
-address it writes out and run a program with CAPTUREMOCK_SERVER set to it.
-capturecommand.py can then intercept command-line programs, .py can
-intercept python modules while the system itself can be modified to "internally"
-react to the above module to repoint where it sends socket interactions"""
-
-    parser = optparse.OptionParser(usage)
-    parser.add_option("-p", "--replay", 
-                      help="replay traffic recorded in FILE.", metavar="FILE")
-    parser.add_option("-f", "--replay-file-edits", 
-                      help="restore edited files referred to in replayed file from DIR.", metavar="DIR")
-    parser.add_option("-r", "--record", 
-                      help="record traffic to FILE.", metavar="FILE")
-    parser.add_option("-F", "--record-file-edits", 
-                      help="store edited files under DIR.", metavar="DIR")
-    parser.add_option("-R", "--rcfiles", help="Read configuration from given rc files, defaults to ~/.capturemock/config")
-    return parser
 
 def startServer(rcFiles, mode, replayFile, replayEditDir,
                 recordFile, recordEditDir, sutDirectory, environment):
@@ -391,7 +370,7 @@ class RecordFileHandler:
         
         
 if __name__ == "__main__":
-    parser = create_option_parser()
+    parser = cmdlineutils.create_option_parser()
     options = parser.parse_args()[0] # no positional arguments
     
     fileedittraffic.FileEditTraffic.configure(options)
