@@ -56,7 +56,7 @@ class TrafficServer(TCPServer):
         logging.config.fileConfig(logConfigFile, defaults)
         
     def run(self):
-        self.diag.info("Starting traffic server")
+        self.diag.info("Starting capturemock server")
         while not self.terminate:
             self.handle_request()
         # Join all remaining request threads so they don't
@@ -64,7 +64,7 @@ class TrafficServer(TCPServer):
         for t in threading.enumerate():
             if t.name == "request":
                 t.join()
-        self.diag.info("Shut down traffic server")
+        self.diag.info("Shut down capturemock server")
 
     @staticmethod
     def sendTerminateMessage(serverAddress):
