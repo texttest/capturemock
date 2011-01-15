@@ -128,7 +128,7 @@ class CommandLineTraffic(traffic.Traffic):
             del CommandLineKillTraffic.pidMap[self.proxyPid]
             return response
         except OSError:
-            return self.makeResponse("", "ERROR: Traffic server could not find command '" + self.commandName + "' in PATH\n", 1)
+            return self.makeResponse("", "ERROR: CaptureMock Server could not find command '" + self.commandName + "' in PATH\n", 1)
 
     def makeResponse(self, output, errors, exitCode):
         return [ StdoutTraffic(output, self.responseFile), StderrTraffic(errors, self.responseFile), \
