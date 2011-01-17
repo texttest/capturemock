@@ -2,8 +2,7 @@
 from capturepython import interceptPython
 from capturecommand import interceptCommand
 
-import os, sys, shutil, socket, config, cmdlineutils, filecmp, subprocess
-from tempfile import mkdtemp
+import os, sys, shutil, socket, config, cmdlineutils, filecmp, subprocess, tempfile
 
 class CaptureMockReplayError(RuntimeError):
     pass
@@ -109,7 +108,7 @@ def terminate():
 def commandline():
     parser = cmdlineutils.create_option_parser()
     options, args = parser.parse_args()
-    interceptDir = mkdtemp() 
+    interceptDir = tempfile.mkdtemp() 
     setUp(options.mode, options.record, options.replay,  
           recordEditDir=options.record_file_edits, replayEditDir=options.replay_file_edits,
           rcFiles=options.rcfiles.split(","), interceptDir=interceptDir)
@@ -136,7 +135,7 @@ class capturemock(object):
             replayFile = None
         elif self.mode == config.REPLAY_ONLY_MODE:
             replayFile = fileNameRoot
-            recordFile = fileNameRoot + ".tmp"
+            recordFile = tempfile.mktemp()
         else:
             replayFile = fileNameRoot
             recordFile = fileNameRoot
@@ -151,12 +150,26 @@ class capturemock(object):
                 terminate()
         return wrapped_func
 
+    def fileContentsEqual(self, fn1, fn2):
+        bufsize = 8*1024
+        # copied from filecmp.py, adding universal line ending support
+        fp1 = open(fn1, "rU")
+        fp2 = open(fn2, "rU")
+        while True:
+            b1 = fp1.read(bufsize)
+            b2 = fp2.read(bufsize)
+            if b1 != b2:
+                return False
+            if not b1:
+                return True
+
     def checkMatching(self, recordFile, replayFile):
         if os.path.isfile(recordFile):
-            if filecmp.cmp(recordFile, replayFile, 0):
+            if self.fileContentsEqual(recordFile, replayFile):
                 os.remove(recordFile)
             else:
                 # files don't match
+                shutil.move(recordFile, replayFile + ".tmp")
                 raise CaptureMockReplayError("Replayed calls do not match those recorded. " +
                                              "Either rerun with capturemock in record mode " +
                                              "or update the stored mock file by hand.")
