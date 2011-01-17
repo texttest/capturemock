@@ -52,8 +52,9 @@ class TrafficServer(TCPServer):
     def setUpLogging(self):
         logConfigFile = self.rcHandler.get("log_config_file", [ "general" ],
                                            self.rcHandler.getPersonalPath("logging.conf"))
-        defaults = { "LOCAL_DIR" : os.path.dirname(logConfigFile) }
-        logging.config.fileConfig(logConfigFile, defaults)
+        if os.path.isfile(logConfigFile):
+            defaults = { "LOCAL_DIR" : os.path.dirname(logConfigFile) }
+            logging.config.fileConfig(logConfigFile, defaults)
         
     def run(self):
         self.diag.info("Starting capturemock server")
@@ -62,7 +63,7 @@ class TrafficServer(TCPServer):
         # Join all remaining request threads so they don't
         # execute after Python interpreter has started to shut itself down.
         for t in threading.enumerate():
-            if t.name == "request":
+            if t.getName() == "request":
                 t.join()
         self.diag.info("Shut down capturemock server")
 
