@@ -111,7 +111,7 @@ def commandline():
     interceptDir = tempfile.mkdtemp() 
     setUp(options.mode, options.record, options.replay,  
           recordEditDir=options.record_file_edits, replayEditDir=options.replay_file_edits,
-          rcFiles=options.rcfiles.split(","), interceptDir=interceptDir)
+          rcFiles=options.rcfiles.split(","), interceptDir=interceptDir, useServer=True)
     subprocess.call(args)
     shutil.rmtree(interceptDir)
     terminate()
