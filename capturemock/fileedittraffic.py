@@ -5,8 +5,8 @@ import traffic, os, logging, shutil
 
 class FileEditTraffic(traffic.ResponseTraffic):
     typeId = "FIL"
-    linkSuffix = ".TEXTTEST_SYMLINK"
-    deleteSuffix = ".TEXTTEST_DELETION"
+    linkSuffix = ".CAPTUREMOCK_SYMLINK"
+    deleteSuffix = ".CAPTUREMOCK_DELETION"
     replayFileEditDir = None
     recordFileEditDir = None
     fileRequestCount = {} # also only for recording
