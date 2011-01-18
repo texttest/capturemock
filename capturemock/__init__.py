@@ -112,7 +112,7 @@ def commandline():
     setUp(options.mode, options.record, options.replay,  
           recordEditDir=options.record_file_edits, replayEditDir=options.replay_file_edits,
           rcFiles=options.rcfiles.split(","), interceptDir=interceptDir)
-    subprocess.call(args, shell=True)
+    subprocess.call(args)
     shutil.rmtree(interceptDir)
     terminate()
 
