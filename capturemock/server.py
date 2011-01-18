@@ -260,11 +260,13 @@ class TrafficServer(TCPServer):
     def makeResponseTraffic(self, traffic, responseClass, text, filesMatched):
         if responseClass is fileedittraffic.FileEditTraffic:
             fileName = text.strip()
+            self.diag.info("Looking up file edit data for " + repr(fileName)) 
             storedFile, fileType = fileedittraffic.FileEditTraffic.getFileWithType(fileName)
             if storedFile:
+                self.diag.info("Found file " + repr(storedFile) + " of type " + fileType)
                 editedFile = self.getFileBeingEdited(fileName, fileType, filesMatched)
                 if editedFile:
-                    self.diag.info("File being edited for '" + fileName + "' : will replace " + str(editedFile) + " with " + str(storedFile))
+                    self.diag.info("Will use it to edit file at " + str(editedFile))
                     changedPaths = self.findFilesAndLinks(storedFile)
                     return fileedittraffic.FileEditTraffic(fileName, editedFile, storedFile, changedPaths, reproduce=True)
         else:
