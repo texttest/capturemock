@@ -285,6 +285,7 @@ class TrafficServer(TCPServer):
         traffic = []
         removedPaths = []
         for file in self.topLevelForEdit:
+            self.diag.info("Looking for file edits under " + file)
             changedPaths = []
             newPaths = self.findFilesAndLinks(file)
             for subPath in newPaths:
@@ -294,7 +295,7 @@ class TrafficServer(TCPServer):
                     self.fileEditData[subPath] = newEditInfo
 
             for oldPath in self.fileEditData.keys():
-                if (oldPath == file or oldPath.startswith(file + "/")) and oldPath not in newPaths:
+                if (oldPath == file or oldPath.startswith(file + os.sep)) and oldPath not in newPaths:
                     removedPath = self.findRemovedPath(oldPath)
                     self.diag.info("Deletion of " + oldPath + "\n - registering " + removedPath)
                     removedPaths.append(oldPath)
