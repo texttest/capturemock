@@ -14,7 +14,7 @@ else:
 
 if os.name == "nt":
     make_windows_script("bin/capturemock")
-    shutil.copyfile("capturemock/python_script.exe", "capturemock_server.exe")
+    shutil.copyfile("capturemock/python_script.exe", "capturemock.exe")
     scripts=["bin/capturemock.py", "capturemock.exe"]
 else:
     scripts=["bin/capturemock"]
