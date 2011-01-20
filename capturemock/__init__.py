@@ -16,7 +16,7 @@ class CaptureMockManager:
     def isActive(self, mode, replayFile):
         return mode != config.REPLAY_ONLY_MODE or (replayFile is not None and os.path.isfile(replayFile))
         
-    def start(self, mode, recordFile, replayFile=None, pythonAttrs=[], 
+    def start(self, mode, recordFile, replayFile=None,
               recordEditDir=None, replayEditDir=None, rcFiles=[], interceptDir=None,
               sutDirectory=os.getcwd(), environment=os.environ, useServer=False):
         if self.isActive(mode, replayFile):
@@ -38,7 +38,8 @@ class CaptureMockManager:
                 if self.makePathIntercepts(commands, interceptDir, replayFile, mode):
                     environment["PATH"] = interceptDir + os.pathsep + environment.get("PATH", "")
             else:
-                pythonAttrs += rcHandler.getIntercepts("python")
+                pass
+#                pythonAttrs += rcHandler.getIntercepts("python")
                 # not ready yet
                 ## if replayFile and mode != config.RECORD_ONLY_MODE:
 ##                     import replayinfo
@@ -120,12 +121,22 @@ def commandline():
 # For use as a decorator in coded tests
 class capturemock(object):
     def __init__(self, pythonAttrs=[], **kw):
-        self.pythonAttrs = pythonAttrs
-        if not isinstance(pythonAttrs, list):
-            self.pythonAttrs = [ pythonAttrs ]
         self.kw = kw
         self.mode = int(os.getenv("CAPTUREMOCK_MODE", "0"))
+        pythonAttrsToUse = pythonAttrs
+        if not isinstance(pythonAttrs, list):
+            pythonAttrsToUse = [ pythonAttrs ]
+        self.tmpRcFile = None
+        if pythonAttrsToUse:
+            self.tmpRcFile = self.makeTmpRcFile(pythonAttrsToUse)
+            self.kw.setdefault("rcFiles", []).append(self.tmpRcFile)
 
+    def makeTmpRcFile(self, pythonAttrs):
+        fileName = tempfile.mktemp()
+        with open(fileName, "w") as f:
+            f.write("[python]\nintercepts = " + ",".join(pythonAttrs) + "\n")
+        return fileName
+        
     def __call__(self, func):
         from inspect import stack
         callingFile = stack()[1][1]
@@ -141,12 +152,14 @@ class capturemock(object):
             recordFile = fileNameRoot
         def wrapped_func(*funcargs, **funckw):
             try:
-                setUp(self.mode, recordFile, replayFile, self.pythonAttrs, useServer=True, **self.kw)
+                setUp(self.mode, recordFile, replayFile, useServer=True, **self.kw)
                 process_startup()
                 func(*funcargs, **funckw)
                 if self.mode == config.REPLAY_ONLY_MODE:
                     self.checkMatching(recordFile, replayFile)
             finally:
+                if self.tmpRcFile:
+                    os.remove(self.tmpRcFile)
                 terminate()
         return wrapped_func
 
