@@ -1,9 +1,13 @@
 #!/usr/bin/env python
 
+import os, sys
+binDir = os.path.normpath(os.path.dirname(__file__))
+if binDir in sys.path:
+   sys.path.remove(binDir)
+
 if __name__ == "__main__":
-   import os, sys
-   binDir = os.path.normpath(os.path.dirname(__file__))
-   if binDir in sys.path:
-      sys.path.remove(binDir)
    from capturemock import commandline
    commandline()
+else:
+   del sys.modules["capturemock"]
+   from capturemock import *
