@@ -28,6 +28,9 @@ class CaptureMockManager:
             commands = rcHandler.getIntercepts("command line")
             if useServer or len(commands) > 0: # command line has to go via server
                 from server import startServer
+                for var in [ "CAPTUREMOCK_PROCESS_START", "CAPTUREMOCK_SERVER" ]:
+                    if var in environment:
+                        del environment[var]
                 self.serverProcess = startServer(rcFiles, mode, replayFile, replayEditDir,
                                                  recordFile, recordEditDir, sutDirectory,
                                                  environment)
