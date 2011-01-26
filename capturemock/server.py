@@ -5,9 +5,21 @@ from SocketServer import TCPServer, StreamRequestHandler
 from ordereddict import OrderedDict
 from replayinfo import ReplayInfo
 
+def getPython():
+    if os.name == "nt":
+        basename = os.path.basename(sys.executable).lower()
+        if "python" not in basename:
+            # 'Native launcher' on Windows, such as PyUseCase
+            # Look on sys.path instead. Tip from Brian Curtin on comp.lang.python
+            for path in sys.path:
+                full = os.path.join(path, "python.exe")
+                if os.path.exists(full):
+                    return full
+    return sys.executable
+            
 def startServer(rcFiles, mode, replayFile, replayEditDir,
                 recordFile, recordEditDir, sutDirectory, environment):
-    cmdArgs = [ sys.executable, __file__, "--rcfiles", ",".join(rcFiles),
+    cmdArgs = [ getPython(), __file__, "--rcfiles", ",".join(rcFiles),
                 "-r", recordFile ]
     if recordEditDir:
         cmdArgs += [ "-F", recordEditDir ]
