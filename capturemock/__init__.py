@@ -114,9 +114,12 @@ def commandline():
     
 # For use as a decorator in coded tests
 class capturemock(object):
-    def __init__(self, pythonAttrs=[], **kw):
+    def __init__(self, pythonAttrs=[], mode=None, **kw):
         self.kw = kw
-        self.mode = int(os.getenv("CAPTUREMOCK_MODE", "0"))
+        if mode is not None:
+            self.mode = mode
+        else:
+            self.mode = int(os.getenv("CAPTUREMOCK_MODE", "0"))
         pythonAttrsToUse = pythonAttrs
         if not isinstance(pythonAttrs, list):
             pythonAttrsToUse = [ pythonAttrs ]
