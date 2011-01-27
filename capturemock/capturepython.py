@@ -228,7 +228,8 @@ class CallStackChecker:
         # TODO - ignore_callers list should be able to vary between different calls
         self.ignoreModuleCalls = set([ "capturecommand" ] + rcHandler.getList("ignore_callers", [ "python" ]))
         self.inCallStackChecker = False
-
+        self.stdlibDir = os.path.dirname(os.path.realpath(os.__file__))
+        
     def callerExcluded(self):
         if self.inCallStackChecker:
             # If we get called recursively, must call the real thing to avoid infinite loop...
@@ -236,14 +237,13 @@ class CallStackChecker:
 
         # Don't intercept if we've been called from within the standard library
         self.inCallStackChecker = True
-        stdlibDir = os.path.dirname(os.path.realpath(os.__file__))
         framerecord = inspect.stack()[2] # parent of parent. If you extract method you need to change this number :)
         fileName = framerecord[1]
         dirName = self.getDirectory(fileName)
         moduleName = self.getModuleName(fileName)
         moduleNames = set([ moduleName, os.path.basename(dirName) ])
         self.inCallStackChecker = False
-        return dirName == stdlibDir or len(moduleNames.intersection(self.ignoreModuleCalls)) > 0
+        return dirName == self.stdlibDir or len(moduleNames.intersection(self.ignoreModuleCalls)) > 0
 
     def getModuleName(self, fileName):
         given = inspect.getmodulename(fileName)
@@ -259,12 +259,45 @@ class CallStackChecker:
         else:
             return dirName
 
+    def moduleExcluded(self, modName, mod):
+        if not hasattr(mod, "__file__"):
+            return False
+        return os.path.realpath(mod.__file__).startswith(self.stdlibDir) or \
+               modName.split(".")[0] in self.ignoreModuleCalls
+               
+
 
 
 class ImportHandler:
     def __init__(self, moduleNames, callStackChecker):
         self.moduleNames = moduleNames
         self.callStackChecker = callStackChecker
+        self.handleImportedModules()
+
+    def handleImportedModules(self):
+        for modName in self.moduleNames:
+            if modName in sys.modules:
+                # Fix global imports in other modules
+                loadingMods = self.modulesLoading(modName)
+                if loadingMods:
+                    newModule = FullModuleProxy(modName, self)
+                    sys.modules[modName] = newModule
+                    for otherMod in loadingMods:
+                        setattr(otherMod, modName, newModule)
+                else:
+                    del sys.modules[modName]
+
+    def modulesLoading(self, modName):
+        modules = []
+        oldModule = sys.modules.get(modName)
+        for otherName, otherMod in sys.modules.items():
+            if not otherName.startswith("capturemock") and \
+               not isinstance(otherMod, ModuleProxy) and \
+               not self.callStackChecker.moduleExcluded(otherName, otherMod) and \
+               hasattr(otherMod, modName) and \
+               getattr(otherMod, modName) is oldModule:
+                modules.append(otherMod)
+        return modules
 
     def shouldIntercept(self, name):
         if name in self.moduleNames:
@@ -322,8 +355,6 @@ class InterceptHandler:
                         del sys.modules[attrName] # We imported the real version, get rid of it again...
                         self.fullIntercepts.append(attrName)
             else:
-                if attrName in sys.modules:
-                    del sys.modules[attrName]
                 self.fullIntercepts.append(attrName)
 
     def makeIntercepts(self, rcHandler):
