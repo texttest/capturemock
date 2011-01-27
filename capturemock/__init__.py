@@ -18,7 +18,7 @@ class CaptureMockManager:
         
     def start(self, mode, recordFile, replayFile=None,
               recordEditDir=None, replayEditDir=None, rcFiles=[], interceptDir=None,
-              sutDirectory=os.getcwd(), environment=os.environ, useServer=False):
+              sutDirectory=os.getcwd(), environment=os.environ, useServer=True):
         if self.isActive(mode, replayFile):
             # Environment which the server should get
             environment["CAPTUREMOCK_MODE"] = str(mode)
@@ -26,28 +26,19 @@ class CaptureMockManager:
                 environment["CAPTUREMOCK_FILE"] = replayFile
             rcHandler = config.RcFileHandler(rcFiles)
             commands = rcHandler.getIntercepts("command line")
-            if useServer or len(commands) > 0: # command line has to go via server
-                from server import startServer
-                for var in [ "CAPTUREMOCK_PROCESS_START", "CAPTUREMOCK_SERVER" ]:
-                    if var in environment:
-                        del environment[var]
-                self.serverProcess = startServer(rcFiles, mode, replayFile, replayEditDir,
+            from server import startServer
+            for var in [ "CAPTUREMOCK_PROCESS_START", "CAPTUREMOCK_SERVER" ]:
+                if var in environment:
+                    del environment[var]
+            self.serverProcess = startServer(rcFiles, mode, replayFile, replayEditDir,
                                                  recordFile, recordEditDir, sutDirectory,
                                                  environment)
-                self.serverAddress = self.serverProcess.stdout.readline().strip()
-                # And environment it shouldn't get...
-                environment["CAPTUREMOCK_PROCESS_START"] = ",".join(rcFiles)
-                environment["CAPTUREMOCK_SERVER"] = self.serverAddress
-                if self.makePathIntercepts(commands, interceptDir, replayFile, mode):
-                    environment["PATH"] = interceptDir + os.pathsep + environment.get("PATH", "")
-            else:
-                pass
-#                pythonAttrs += rcHandler.getIntercepts("python")
-                # not ready yet
-                ## if replayFile and mode != config.RECORD_ONLY_MODE:
-##                     import replayinfo
-##                     pythonAttrs = replayinfo.filterPython(pythonAttrs, replayFile)
-##                 interceptPython(pythonAttrs, rcHandler)
+            self.serverAddress = self.serverProcess.stdout.readline().strip()
+            # And environment it shouldn't get...
+            environment["CAPTUREMOCK_PROCESS_START"] = ",".join(rcFiles)
+            environment["CAPTUREMOCK_SERVER"] = self.serverAddress
+            if self.makePathIntercepts(commands, interceptDir, replayFile, mode):
+                environment["PATH"] = interceptDir + os.pathsep + environment.get("PATH", "")
             return True
         else:
             return False
