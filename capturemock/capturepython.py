@@ -237,8 +237,9 @@ class CallStackChecker:
 
         # Don't intercept if we've been called from within the standard library
         self.inCallStackChecker = True
-        # Recompute this: mostly a workaround for applications that reset os.sep
-        self.stdlibDir = os.path.dirname(os.path.realpath(os.__file__))
+        if os.name == "nt":
+            # Recompute this: mostly a workaround for applications that reset os.sep on Windows
+            self.stdlibDir = os.path.dirname(os.path.realpath(os.__file__))
         framerecord = inspect.stack()[2] # parent of parent. If you extract method you need to change this number :)
         fileName = framerecord[1]
         dirName = self.getDirectory(fileName)
