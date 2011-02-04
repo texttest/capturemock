@@ -146,6 +146,15 @@ def interceptPython(attributeNames, rcHandler):
     handler = InterceptHandler(attributeNames)
     handler.makeIntercepts(rcHandler)
 
+# Workaround for stuff where we can't do setattr
+class TransparentProxy:
+    def __init__(self, obj):
+        self.obj = obj
+        
+    def __getattr__(self, name):
+        return getattr(self.obj, name)
+
+
 class InterceptHandler:
     def __init__(self, attributeNames):
         self.fullIntercepts = []
@@ -167,8 +176,7 @@ class InterceptHandler:
         if len(self.fullIntercepts):
             sys.meta_path.append(ImportHandler(self.fullIntercepts, callStackChecker))
         for moduleName, attributes in self.partialIntercepts.items():
-            proxy = pythonclient.PartialModuleProxy(moduleName)
-            proxy.interceptAttributes(attributes, callStackChecker)
+            self.interceptAttributes(moduleName, attributes, callStackChecker)
 
     def splitByModule(self, attrName):
         if self.canImport(attrName):
@@ -189,3 +197,28 @@ class InterceptHandler:
         except ImportError:
             return False
     
+    def interceptAttributes(self, moduleName, attrNames, callStackChecker):
+        proxy = pythonclient.ModuleProxy(moduleName)
+        for attrName in attrNames:
+            attrProxy = pythonclient.AttributeProxy(moduleName, proxy, attrName, callStackChecker)
+            self.interceptAttribute(attrProxy, sys.modules.get(moduleName), attrName)
+            
+    def interceptAttribute(self, proxyObj, realObj, attrName):
+        parts = attrName.split(".", 1)
+        currAttrName = parts[0]
+        if not hasattr(realObj, currAttrName):
+            return # If the real object doesn't have it, assume the fake one doesn't either...
+
+        currRealAttr = getattr(realObj, currAttrName)
+        if len(parts) == 1:
+            proxyObj.realVersion = currRealAttr
+            setattr(realObj, currAttrName, proxyObj.tryEvaluate())
+        else:
+            try:
+                self.interceptAttribute(proxyObj, currRealAttr, parts[1])
+            except TypeError: # it's a builtin (assume setattr threw), so we hack around...
+                realAttrProxy = TransparentProxy(currRealAttr)
+                self.interceptAttribute(proxyObj, realAttrProxy, parts[1])
+                setattr(realObj, currAttrName, realAttrProxy)
+
+
