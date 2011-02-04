@@ -48,13 +48,9 @@ class ModuleProxy:
 
     def handleResponse(self, response):
         if response.startswith("raise "):
-            rest = response.replace("raise ", "")
-            raise self.makeResponse(rest)
+            exec response in self.trafficServerNameFinder
         else:
-            return self.makeResponse(response)
-
-    def makeResponse(self, response):
-        return eval(response, self.trafficServerNameFinder)
+            return eval(response, self.trafficServerNameFinder)
         
     def makeInstance(self, className, instanceName):
         if "(" in className:
