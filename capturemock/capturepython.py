@@ -281,26 +281,49 @@ class ImportHandler:
         for modName in self.moduleNames:
             if modName in sys.modules:
                 # Fix global imports in other modules
-                loadingMods = self.modulesLoading(modName)
-                if loadingMods:
-                    newModule = FullModuleProxy(modName, self)
-                    sys.modules[modName] = newModule
-                    for otherMod in loadingMods:
-                        setattr(otherMod, modName, newModule)
-                else:
-                    del sys.modules[modName]
+                oldModule = sys.modules.get(modName)
+                for currModName in [ modName ] + self.findSubModules(modName, oldModule):
+                    loadingMods = self.modulesLoading(currModName, modName)
+                    if loadingMods:
+                        newModule = FullModuleProxy(currModName, self)
+                        sys.modules[currModName] = newModule
+                        for attrName, otherMod in loadingMods:
+                            varName = otherMod.__name__ + "." + attrName
+                            print "WARNING: having to reset the variable '" + varName + "'.\n" + \
+                                  "This implies you are intercepting the module '" + modName + "'" + \
+                                  " after importing it.\nWhile this might work, it may well be very slow and " + \
+                                  "is not recommended.\n"
+                            setattr(otherMod, attrName, newModule)
+                    else:
+                        del sys.modules[currModName]
 
-    def modulesLoading(self, modName):
+    def findSubModules(self, modName, oldModule):
+        subModNames = []
+        for subModName, subMod in sys.modules.items():
+            if subModName.startswith(modName + ".") and hasattr(subMod, "__file__") and \
+                   subMod.__file__.startswith(os.path.dirname(oldModule.__file__)):
+                subModNames.append(subModName)
+        return subModNames
+
+    def modulesLoading(self, modName, interceptModName):
         modules = []
         oldModule = sys.modules.get(modName)
         for otherName, otherMod in sys.modules.items():
             if not otherName.startswith("capturemock") and \
+               not otherName.startswith(interceptModName + ".") and \
                not isinstance(otherMod, ModuleProxy) and \
-               not self.callStackChecker.moduleExcluded(otherName, otherMod) and \
-               hasattr(otherMod, modName) and \
-               getattr(otherMod, modName) is oldModule:
-                modules.append(otherMod)
+               not self.callStackChecker.moduleExcluded(otherName, otherMod):
+                modAttrName = self.findAttribute(otherMod, oldModule)
+                if modAttrName:
+                    modules.append((modAttrName, otherMod))
         return modules
+
+    def findAttribute(self, module, attr):
+        # Can't assume the attribute will have the same name of the module,
+        # because of "import x as y" construct
+        for currAttrName in dir(module):
+            if getattr(module, currAttrName) is attr:
+                return currAttrName
 
     def shouldIntercept(self, name):
         if name in self.moduleNames:
