@@ -46,9 +46,6 @@ class ModuleProxy:
         self.name = name
         self.trafficServerNameFinder = NameFinder(self)
 
-    def __getattr__(self, attrname):
-        return AttributeProxy(self.name, self, attrname).tryEvaluate()
-
     def handleResponse(self, response):
         if response.startswith("raise "):
             rest = response.replace("raise ", "")
@@ -100,7 +97,7 @@ class FullModuleProxy(ModuleProxy):
                 self.realModule = self.importHandler.loadRealModule(self.name)
             return getattr(self.realModule, attrname)
         else:
-            return ModuleProxy.__getattr__(self, attrname)
+            return AttributeProxy(self.name, self, attrname).tryEvaluate()
     
 
 class InstanceProxy:
