@@ -49,16 +49,6 @@ class ModuleProxy:
     def __getattr__(self, attrname):
         return AttributeProxy(self.name, self, attrname).tryEvaluate()
 
-    @staticmethod
-    def createSocket():
-        servAddr = os.getenv("CAPTUREMOCK_SERVER")
-        if servAddr:
-            host, port = servAddr.split(":")
-            serverAddress = (host, int(port))
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.connect(serverAddress)
-            return sock
-
     def handleResponse(self, response):
         if response.startswith("raise "):
             rest = response.replace("raise ", "")
@@ -78,6 +68,14 @@ class ModuleProxy:
         actualClassObj = self.trafficServerNameFinder.defineClass(actualClassName, classDefStr, self)
         return actualClassObj(givenInstanceName=instanceName, moduleProxy=self)
 
+def createSocket():
+    servAddr = os.getenv("CAPTUREMOCK_SERVER")
+    if servAddr:
+        host, port = servAddr.split(":")
+        serverAddress = (host, int(port))
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect(serverAddress)
+        return sock
 
 
 class FullModuleProxy(ModuleProxy):
@@ -88,7 +86,7 @@ class FullModuleProxy(ModuleProxy):
         self.tryImport() # trigger a remote import to make sure we're connected to something
         
     def tryImport(self):
-        sock = self.createSocket()
+        sock = createSocket()
         text = "SUT_PYTHON_IMPORT:" + self.name
         sock.sendall(text)
         sock.shutdown(1)
@@ -161,7 +159,7 @@ class AttributeProxy:
         return self.modOrObjName + "." + self.attributeName
 
     def tryEvaluate(self):
-        sock = self.moduleProxy.createSocket()
+        sock = createSocket()
         text = "SUT_PYTHON_ATTR:" + self.modOrObjName + ":SUT_SEP:" + self.attributeName
         sock.sendall(text)
         sock.shutdown(1)
@@ -172,7 +170,7 @@ class AttributeProxy:
             return self
 
     def setValue(self, value):
-        sock = self.moduleProxy.createSocket()
+        sock = createSocket()
         text = "SUT_PYTHON_SETATTR:" + self.modOrObjName + ":SUT_SEP:" + self.attributeName + \
                ":SUT_SEP:" + repr(self.getArgForSend(value))
         sock.sendall(text)
@@ -195,7 +193,7 @@ class AttributeProxy:
         return sock.makefile().read()
 
     def createAndSend(self, *args, **kw):
-        sock = self.moduleProxy.createSocket()
+        sock = createSocket()
         text = "SUT_PYTHON_CALL:" + self.modOrObjName + ":SUT_SEP:" + self.attributeName + \
                ":SUT_SEP:" + repr(self.getArgsForSend(args)) + ":SUT_SEP:" + repr(self.getArgForSend(kw))
         sock.sendall(text)

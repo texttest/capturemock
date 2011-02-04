@@ -50,8 +50,6 @@ class CallStackChecker:
                modName.split(".")[0] in self.ignoreModuleCalls
                
 
-
-
 class ImportHandler:
     def __init__(self, moduleNames, callStackChecker):
         self.moduleNames = moduleNames
