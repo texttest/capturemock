@@ -64,7 +64,7 @@ class ImportHandler:
                 for currModName in [ modName ] + self.findSubModules(modName, oldModule):
                     loadingMods = self.modulesLoading(currModName, modName)
                     if loadingMods:
-                        newModule = pythonclient.FullModuleProxy(currModName, self)
+                        newModule = pythonclient.ModuleProxy(currModName, self)
                         sys.modules[currModName] = newModule
                         for attrName, otherMod in loadingMods:
                             varName = otherMod.__name__ + "." + attrName
@@ -123,7 +123,7 @@ class ImportHandler:
             # a new import next time around
             return self.loadRealModule(name)
         else:
-            return sys.modules.setdefault(name, pythonclient.FullModuleProxy(name, self))
+            return sys.modules.setdefault(name, pythonclient.ModuleProxy(name, self))
 
     def loadRealModule(self, name):
         currentModule = sys.modules.get(name)
@@ -196,11 +196,16 @@ class InterceptHandler:
             return True
         except ImportError:
             return False
+
+    def handleBasicResponse(self, response):
+        if response.startswith("raise "):
+            exec response in sys.modules
+        else:
+            return eval(response, sys.modules)
     
     def interceptAttributes(self, moduleName, attrNames, callStackChecker):
-        proxy = pythonclient.ModuleProxy(moduleName)
         for attrName in attrNames:
-            attrProxy = pythonclient.AttributeProxy(moduleName, proxy, attrName, callStackChecker)
+            attrProxy = pythonclient.AttributeProxy(moduleName, self.handleBasicResponse, attrName, callStackChecker)
             self.interceptAttribute(attrProxy, sys.modules.get(moduleName), attrName)
             
     def interceptAttribute(self, proxyObj, realObj, attrName):

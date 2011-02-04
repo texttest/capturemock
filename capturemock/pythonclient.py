@@ -39,12 +39,26 @@ class NameFinder(dict):
                 except ImportError:
                     pass
         return dict.__getitem__(self, name)
-            
+
+
+def createSocket():
+    servAddr = os.getenv("CAPTUREMOCK_SERVER")
+    if servAddr:
+        host, port = servAddr.split(":")
+        serverAddress = (host, int(port))
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect(serverAddress)
+        return sock
+
+
 
 class ModuleProxy:
-    def __init__(self, name):
+    def __init__(self, name, importHandler):
         self.name = name
         self.trafficServerNameFinder = NameFinder(self)
+        self.importHandler = importHandler
+        self.realModule = None
+        self.tryImport() # trigger a remote import to make sure we're connected to something
 
     def handleResponse(self, response):
         if response.startswith("raise "):
@@ -60,23 +74,6 @@ class ModuleProxy:
         actualClassName = className.split("(")[0]
         actualClassObj = self.trafficServerNameFinder.defineClass(actualClassName, classDefStr, self)
         return actualClassObj(givenInstanceName=instanceName, moduleProxy=self)
-
-def createSocket():
-    servAddr = os.getenv("CAPTUREMOCK_SERVER")
-    if servAddr:
-        host, port = servAddr.split(":")
-        serverAddress = (host, int(port))
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.connect(serverAddress)
-        return sock
-
-
-class FullModuleProxy(ModuleProxy):
-    def __init__(self, name, importHandler):
-        ModuleProxy.__init__(self, name)
-        self.importHandler = importHandler
-        self.realModule = None
-        self.tryImport() # trigger a remote import to make sure we're connected to something
         
     def tryImport(self):
         sock = createSocket()
@@ -93,7 +90,7 @@ class FullModuleProxy(ModuleProxy):
                 self.realModule = self.importHandler.loadRealModule(self.name)
             return getattr(self.realModule, attrname)
         else:
-            return AttributeProxy(self.name, self, attrname).tryEvaluate()
+            return AttributeProxy(self.name, self.handleResponse, attrname).tryEvaluate()
     
 
 class InstanceProxy:
@@ -104,7 +101,8 @@ class InstanceProxy:
         if moduleProxy is not None:
             self.__class__.moduleProxy = moduleProxy
         if self.name is None:
-            attrProxy = AttributeProxy(self.moduleProxy.name, self.moduleProxy, self.__class__.__name__)
+            attrProxy = AttributeProxy(self.moduleProxy.name, self.moduleProxy.handleResponse,
+                                       self.__class__.__name__)
             response = attrProxy.makeResponse(*args, **kw)
             def Instance(className, instanceName):
                 return instanceName
@@ -115,12 +113,12 @@ class InstanceProxy:
         return self.name
 
     def __getattr__(self, attrname):
-        return AttributeProxy(self.name, self.moduleProxy, attrname).tryEvaluate()
+        return AttributeProxy(self.name, self.moduleProxy.handleResponse, attrname).tryEvaluate()
 
     def __setattr__(self, attrname, value):
         self.__dict__[attrname] = value
         if attrname != "name":
-            AttributeProxy(self.name, self.moduleProxy, attrname).setValue(value)
+            AttributeProxy(self.name, self.moduleProxy.handleResponse, attrname).setValue(value)
 
     # Used by mixins of this class and new-style classes
     def __getattribute__(self, attrname):
@@ -141,9 +139,9 @@ class InstanceProxy:
 
 
 class AttributeProxy:
-    def __init__(self, modOrObjName, moduleProxy, attributeName, callStackChecker=None):
+    def __init__(self, modOrObjName, handleResponse, attributeName, callStackChecker=None):
         self.modOrObjName = modOrObjName
-        self.moduleProxy = moduleProxy
+        self.handleResponse = handleResponse
         self.attributeName = attributeName
         self.realVersion = None
         self.callStackChecker = callStackChecker
@@ -158,7 +156,7 @@ class AttributeProxy:
         sock.shutdown(1)
         response = sock.makefile().read()
         if response:
-            return self.moduleProxy.handleResponse(response)
+            return self.handleResponse(response)
         else:
             return self
 
@@ -170,13 +168,13 @@ class AttributeProxy:
         sock.shutdown(2)
 
     def __getattr__(self, name):
-        return AttributeProxy(self.modOrObjName, self.moduleProxy, self.attributeName + "." + name).tryEvaluate()
+        return AttributeProxy(self.modOrObjName, self.handleResponse, self.attributeName + "." + name).tryEvaluate()
 
     def __call__(self, *args, **kw):
         if self.realVersion is None or self.callStackChecker is None or not self.callStackChecker.callerExcluded(): 
             response = self.makeResponse(*args, **kw)
             if response:
-                return self.moduleProxy.handleResponse(response)
+                return self.handleResponse(response)
         else:
             return self.realVersion(*args, **kw)
 
@@ -194,23 +192,23 @@ class AttributeProxy:
 
     def getArgForSend(self, arg):
         class ArgWrapper:
-            def __init__(self, arg, moduleProxy):
+            def __init__(self, arg, handleResponse):
                 self.arg = arg
-                self.moduleProxy = moduleProxy
+                self.handleResponse = handleResponse
             def __repr__(self):
                 if hasattr(self.arg, "getRepresentationForSendToTrafficServer"):
                     # We choose a long and obscure name to avoid accident clashes with something else
                     return self.arg.getRepresentationForSendToTrafficServer()
                 elif isinstance(self.arg, list):
-                    return repr([ ArgWrapper(subarg, self.moduleProxy) for subarg in self.arg ])
+                    return repr([ ArgWrapper(subarg, self.handleResponse) for subarg in self.arg ])
                 elif isinstance(self.arg, dict):
                     newDict = {}
                     for key, val in self.arg.items():
-                        newDict[key] = ArgWrapper(val, self.moduleProxy)
+                        newDict[key] = ArgWrapper(val, self.handleResponse)
                     return repr(newDict)
                 else:
                     return repr(self.arg)
-        return ArgWrapper(arg, self.moduleProxy)
+        return ArgWrapper(arg, self.handleResponse)
 
     def getArgsForSend(self, args):
         return tuple(map(self.getArgForSend, args))
