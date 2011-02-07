@@ -9,13 +9,13 @@ class ReplayInfo:
         self.responseMap = OrderedDict()
         self.diag = logging.getLogger("Replay")
         self.replayItems = []
+        self.replayAll = int(os.getenv("CAPTUREMOCK_MODE")) == config.REPLAY_ONLY_MODE
         if replayFile:
             trafficList = self.readIntoList(replayFile)
             self.parseTrafficList(trafficList)
-            if int(os.getenv("CAPTUREMOCK_MODE")) == config.REPLAY_OLD_RECORD_NEW_MODE:
-                items = self.makeCommandItems(rcHandler.getIntercepts("command line")) + \
-                        self.makePythonItems(rcHandler.getIntercepts("python"))
-                self.replayItems = self.filterForReplay(items, trafficList)
+            items = self.makeCommandItems(rcHandler.getIntercepts("command line")) + \
+                    self.makePythonItems(rcHandler.getIntercepts("python"))
+            self.replayItems = self.filterForReplay(items, trafficList)        
 
     @staticmethod
     def filterForReplay(itemInfo, lines):
@@ -35,12 +35,12 @@ class ReplayInfo:
         return [ (attr, re.compile("<-PYT:(import )?" + attr)) for attr in pythonAttrs ]
             
     def isActiveForAll(self):
-        return len(self.responseMap) > 0 and len(self.replayItems) == 0
+        return len(self.responseMap) > 0 and self.replayAll
             
     def isActiveFor(self, traffic):
         if len(self.responseMap) == 0:
             return False
-        elif len(self.replayItems) == 0:
+        elif self.replayAll:
             return True
         else:
             return traffic.isMarkedForReplay(set(self.replayItems))
