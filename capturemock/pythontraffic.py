@@ -2,6 +2,7 @@
 """ Traffic classes for all kinds of Python calls """
 
 import traffic, sys, types, inspect, re
+from recordfilehandler import RecordFileHandler
 
 class PythonInstanceWrapper:
     allInstances = {}
@@ -45,11 +46,11 @@ class PythonInstanceWrapper:
         return getattr(self.instance, name)
 
 
-class PythonTraffic(traffic.Traffic):
+class PythonTraffic(traffic.BaseTraffic):
     typeId = "PYT"
     direction = "<-"
-    def getExceptionResponse(self):
-        exc_value = sys.exc_info()[1]
+    def getExceptionResponse(self, exc_info):
+        exc_value = exc_info[1]
         return PythonResponseTraffic(self.getExceptionText(exc_value), self.responseFile)
 
     def getExceptionText(self, exc_value):
@@ -57,21 +58,19 @@ class PythonTraffic(traffic.Traffic):
 
 
 class PythonImportTraffic(PythonTraffic):
-    socketId = "SUT_PYTHON_IMPORT"
-    def __init__(self, inText, responseFile, *args):
+    def __init__(self, inText):
         self.moduleName = inText
         text = "import " + self.moduleName
-        super(PythonImportTraffic, self).__init__(text, responseFile)
+        super(PythonImportTraffic, self).__init__(text)
 
     def isMarkedForReplay(self, replayItems):
         return self.moduleName in replayItems
 
-    def forwardToDestination(self):
-        try:
-            exec self.text
+    def forwardToDestination(self, exc_info):
+        if exc_info:
+            return [ self.getExceptionResponse(exc_info) ]
+        else:
             return []
-        except:
-            return [ self.getExceptionResponse() ]
 
                   
 class PythonModuleTraffic(PythonTraffic):
@@ -335,6 +334,38 @@ class PythonFunctionCallTraffic(PythonModuleTraffic):
 
 class PythonResponseTraffic(traffic.ResponseTraffic):
     typeId = "RET"
+
+class PythonTrafficHandler:
+    def __init__(self, replayInfo, recordFile, callStackChecker):
+        self.replayInfo = replayInfo
+        self.recordFileHandler = RecordFileHandler(recordFile)
+        self.callStackChecker = callStackChecker
+
+    def importModule(self, name, realException):
+        if self.callStackChecker.callerExcluded():
+            if realException:
+                raise realException
+        else:
+            traffic = PythonImportTraffic(name)
+            responses = self.getResponses(traffic, realException)
+            self.tryRecord(traffic, responses)
+
+    def getResponses(self, traffic, *args):
+        if self.replayInfo.isActiveFor(traffic):
+            return self.getReplayResponses(traffic)
+        else:
+            return traffic.forwardToDestination(*args)
+
+    def tryRecord(self, traffic, responses):
+        if not traffic.enquiryOnly(responses):
+            traffic.record(self.recordFileHandler)
+            for response in responses:
+                response.record(self.recordFileHandler)
+
+    def getReplayResponses(self, traffic):
+        texts = [ text for _, text in self.replayInfo.readReplayResponses(traffic, [ PythonResponseTraffic ]) ]
+        return map(PythonResponseTraffic, texts)
+
 
 def getTrafficClasses(incoming):
     if incoming:

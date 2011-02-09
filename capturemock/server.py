@@ -1,6 +1,6 @@
 
 import os, stat, sys, logging, logging.config, socket, threading, time, subprocess
-import config, cmdlineutils, commandlinetraffic, pythontraffic, fileedittraffic, clientservertraffic
+import config, recordfilehandler, cmdlineutils, commandlinetraffic, fileedittraffic, clientservertraffic
 from SocketServer import TCPServer, StreamRequestHandler
 from ordereddict import OrderedDict
 from replayinfo import ReplayInfo
@@ -337,11 +337,9 @@ class TrafficRequestHandler(StreamRequestHandler):
 # The basic point here is to make sure that traffic appears in the record
 # file in the order in which it comes in, not in the order in which it completes (which is indeterministic and
 # may be wrong next time around)
-class RecordFileHandler:
+class RecordFileHandler(recordfilehandler.RecordFileHandler):
     def __init__(self, file):
-        self.file = file
-        if os.path.isfile(self.file):
-            os.remove(self.file)
+        super(RecordFileHandler, self).__init__(file)
         self.recordingRequest = 1
         self.cache = {}
         self.completedRequests = []
@@ -358,7 +356,7 @@ class RecordFileHandler:
     def writeFromCache(self):
         text = self.cache.get(self.recordingRequest)
         if text:
-            self.doRecord(text)
+            super(RecordFileHandler, self).record(text)
             del self.cache[self.recordingRequest]
             
     def recordingRequestComplete(self):
@@ -371,17 +369,11 @@ class RecordFileHandler:
         self.lock.acquire()
         if requestNumber == self.recordingRequest:
             self.writeFromCache()
-            self.doRecord(text)
+            super(RecordFileHandler, self).record(text)
         else:
             self.cache.setdefault(requestNumber, "")
             self.cache[requestNumber] += text
         self.lock.release()
-
-    def doRecord(self, text):
-        writeFile = open(self.file, "a")
-        writeFile.write(text)
-        writeFile.flush()
-        writeFile.close()
 
         
         

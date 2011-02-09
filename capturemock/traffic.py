@@ -3,10 +3,9 @@
 
 import socket
 
-class Traffic(object):
-    def __init__(self, text, responseFile, *args):
+class BaseTraffic(object):
+    def __init__(self, text):
         self.text = text
-        self.responseFile = responseFile
 
     def findPossibleFileEdits(self):
         return []
@@ -25,6 +24,23 @@ class Traffic(object):
     
     def enquiryOnly(self, responses=[]):
         return False
+
+    def forwardToDestination(self):
+        pass
+
+    def record(self, recordFileHandler, *args):
+        if not self.hasInfo():
+            return
+        desc = self.getDescription()
+        if not desc.endswith("\n"):
+            desc += "\n"
+        recordFileHandler.record(desc, *args)
+
+    
+class Traffic(BaseTraffic):
+    def __init__(self, text, responseFile, *args):
+        super(Traffic, self).__init__(text)
+        self.responseFile = responseFile
     
     def write(self, message):
         if self.responseFile:
@@ -41,17 +57,8 @@ class Traffic(object):
             self.responseFile.close()
         return []
 
-    def record(self, recordFileHandler, reqNo):
-        if not self.hasInfo():
-            return
-        desc = self.getDescription()
-        if not desc.endswith("\n"):
-            desc += "\n"
-        recordFileHandler.record(desc, reqNo)
-
     def filterReplay(self, trafficList):
         return trafficList
-
     
 class ResponseTraffic(Traffic):
     direction = "->"

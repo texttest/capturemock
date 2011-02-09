@@ -2,7 +2,7 @@
 """ Python code for communicating via a socket with a CaptureMock server
  Should try to make default usage of this functionality not use a server """
 
-import sys, os, socket
+import sys, os
 
 class NameFinder(dict):
     def __init__(self, moduleProxy):
@@ -41,24 +41,13 @@ class NameFinder(dict):
         return dict.__getitem__(self, name)
 
 
-def createSocket():
-    servAddr = os.getenv("CAPTUREMOCK_SERVER")
-    if servAddr:
-        host, port = servAddr.split(":")
-        serverAddress = (host, int(port))
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.connect(serverAddress)
-        return sock
-
-
-
 class ModuleProxy:
-    def __init__(self, name, importHandler):
+    def __init__(self, name, trafficHandler, realModule=None, realException=None):
         self.name = name
         self.trafficServerNameFinder = NameFinder(self)
-        self.importHandler = importHandler
-        self.realModule = None
-        self.tryImport() # trigger a remote import to make sure we're connected to something
+        self.realModule = realModule
+        self.trafficHandler = trafficHandler
+        self.trafficHandler.importModule(name, realException) 
 
     def handleResponse(self, response):
         if response.startswith("raise "):
@@ -75,15 +64,6 @@ class ModuleProxy:
         actualClassObj = self.trafficServerNameFinder.defineClass(actualClassName, classDefStr, self)
         return actualClassObj(givenInstanceName=instanceName, moduleProxy=self)
         
-    def tryImport(self):
-        sock = createSocket()
-        text = "SUT_PYTHON_IMPORT:" + self.name
-        sock.sendall(text)
-        sock.shutdown(1)
-        response = sock.makefile().read()
-        if response:
-            self.handleResponse(response)
-
     def __getattr__(self, attrname):
         if self.importHandler.callStackChecker.callerExcluded():
             if self.realModule is None:

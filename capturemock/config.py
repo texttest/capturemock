@@ -38,3 +38,6 @@ class RcFileHandler:
             if self.parser.has_section(section) and self.parser.has_option(section, setting):
                 result += self.parser.get(section, setting).split(",")
         return result
+
+def isActive(mode, replayFile):
+    return mode != REPLAY_ONLY_MODE or (replayFile is not None and os.path.isfile(replayFile))

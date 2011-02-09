@@ -1,7 +1,7 @@
 
 """ Generic front end module to all forms of Python interception"""
 
-import sys, os, inspect, pythonclient
+import sys, os, config, inspect, pythonclient
 
 class CallStackChecker:
     def __init__(self, rcHandler):
@@ -51,9 +51,10 @@ class CallStackChecker:
                
 
 class ImportHandler:
-    def __init__(self, moduleNames, callStackChecker):
+    def __init__(self, moduleNames, callStackChecker, trafficHandler):
         self.moduleNames = moduleNames
         self.callStackChecker = callStackChecker
+        self.trafficHandler = trafficHandler
         self.handleImportedModules()
 
     def handleImportedModules(self):
@@ -118,33 +119,29 @@ class ImportHandler:
             return self
 
     def load_module(self, name):
-        if self.callStackChecker.callerExcluded():
-            # return the real module, but don't put it in sys.modules so we trigger
-            # a new import next time around
-            return self.loadRealModule(name)
-        else:
-            return sys.modules.setdefault(name, pythonclient.ModuleProxy(name, self))
+        return sys.modules.setdefault(name, self.createProxy(name))
 
+    def createProxy(self, name):
+        try:
+            realModule = self.loadRealModule(name)
+            return pythonclient.ModuleProxy(name, self.trafficHandler, realModule=realModule)
+        except:
+            return pythonclient.ModuleProxy(name, self.trafficHandler, realException=sys.exc_info())
+        
     def loadRealModule(self, name):
-        currentModule = sys.modules.get(name)
-        if currentModule is not None:
-            del sys.modules[name]
         sys.meta_path.remove(self)
         try:
             exec "import " + name + " as _realModule"
         finally:
             sys.meta_path.append(self)
-            if currentModule is not None:
-                sys.modules[name] = currentModule
-            else:
-                del sys.modules[name]
+            del sys.modules[name]
         return _realModule
 
 
+def interceptPython(*args, **kw):
+    handler = InterceptHandler(*args, **kw)
+    handler.makeIntercepts()
 
-def interceptPython(attributeNames, rcHandler):
-    handler = InterceptHandler(attributeNames)
-    handler.makeIntercepts(rcHandler)
 
 # Workaround for stuff where we can't do setattr
 class TransparentProxy:
@@ -156,10 +153,14 @@ class TransparentProxy:
 
 
 class InterceptHandler:
-    def __init__(self, attributeNames):
+    def __init__(self, mode, recordFile, replayFile, rcFiles, pythonAttrs):
         self.fullIntercepts = []
         self.partialIntercepts = {}
-        for attrName in attributeNames:
+        self.rcHandler = config.RcFileHandler(rcFiles)
+        import replayinfo
+        self.replayInfo = replayinfo.ReplayInfo(replayFile, self.rcHandler)
+        self.recordFile = recordFile
+        for attrName in self.findAttributeNames(mode, pythonAttrs):
             if "." in attrName:
                 moduleName, subAttrName = self.splitByModule(attrName)
                 if moduleName:
@@ -171,12 +172,20 @@ class InterceptHandler:
             else:
                 self.fullIntercepts.append(attrName)
 
-    def makeIntercepts(self, rcHandler):
-        callStackChecker = CallStackChecker(rcHandler)
+    def findAttributeNames(self, mode, pythonAttrs):
+        if mode == config.RECORD_ONLY_MODE:
+            return pythonAttrs + self.rcHandler.getIntercepts("python")
+        else:
+            return pythonAttrs + self.replayInfo.replayItems
+
+    def makeIntercepts(self):
+        callStackChecker = CallStackChecker(self.rcHandler)
+        from pythontraffic import PythonTrafficHandler
+        trafficHandler = PythonTrafficHandler(self.replayInfo, self.recordFile, callStackChecker)
         if len(self.fullIntercepts):
-            sys.meta_path.append(ImportHandler(self.fullIntercepts, callStackChecker))
+            sys.meta_path.append(ImportHandler(self.fullIntercepts, callStackChecker, trafficHandler))
         for moduleName, attributes in self.partialIntercepts.items():
-            self.interceptAttributes(moduleName, attributes, callStackChecker)
+            self.interceptAttributes(moduleName, attributes, trafficHandler)
 
     def splitByModule(self, attrName):
         if self.canImport(attrName):
@@ -203,9 +212,9 @@ class InterceptHandler:
         else:
             return eval(response, sys.modules)
     
-    def interceptAttributes(self, moduleName, attrNames, callStackChecker):
+    def interceptAttributes(self, moduleName, attrNames, trafficHandler):
         for attrName in attrNames:
-            attrProxy = pythonclient.AttributeProxy(moduleName, self.handleBasicResponse, attrName, callStackChecker)
+            attrProxy = pythonclient.AttributeProxy(moduleName, trafficHandler, attrName)
             self.interceptAttribute(attrProxy, sys.modules.get(moduleName), attrName)
             
     def interceptAttribute(self, proxyObj, realObj, attrName):
