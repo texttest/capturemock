@@ -73,25 +73,25 @@ class ReplayInfo:
             trafficList.append(currTraffic)
         return trafficList
     
-    def readReplayResponses(self, traffic, allClasses):
+    def readReplayResponses(self, traffic, allClasses, exact=False):
         # We return the response matching the traffic in if we can, otherwise
         # the one that is most similar to it
         if not traffic.hasInfo():
             return []
 
-        responseMapKey = self.getResponseMapKey(traffic)
+        responseMapKey = self.getResponseMapKey(traffic, exact)
         if responseMapKey:
             return self.responseMap[responseMapKey].makeResponses(traffic, allClasses)
         else:
             return []
 
-    def getResponseMapKey(self, traffic):
+    def getResponseMapKey(self, traffic, exact):
         desc = traffic.getDescription()
         self.diag.info("Trying to match '" + desc + "'")
         if self.responseMap.has_key(desc):
             self.diag.info("Found exact match")
             return desc
-        elif not traffic.enquiryOnly():
+        elif not exact:
             return self.findBestMatch(desc)
 
     def findBestMatch(self, desc):

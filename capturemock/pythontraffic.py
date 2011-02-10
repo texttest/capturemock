@@ -51,7 +51,7 @@ class PythonTraffic(traffic.BaseTraffic):
     direction = "<-"
     def getExceptionResponse(self, exc_info):
         exc_value = exc_info[1]
-        return PythonResponseTraffic(self.getExceptionText(exc_value), self.responseFile)
+        return PythonResponseTraffic(self.getExceptionText(exc_value))
 
     def getExceptionText(self, exc_value):
         return "raise " + exc_value.__class__.__module__ + "." + exc_value.__class__.__name__ + "(" + repr(str(exc_value)) + ")"
@@ -66,17 +66,10 @@ class PythonImportTraffic(PythonTraffic):
     def isMarkedForReplay(self, replayItems):
         return self.moduleName in replayItems
 
-    def forwardToDestination(self, exc_info):
-        if exc_info:
-            return [ self.getExceptionResponse(exc_info) ]
-        else:
-            return []
-
                   
 class PythonModuleTraffic(PythonTraffic):
-    def __init__(self, modOrObjName, attrName, rcHandler, *args):
-        self.modOrObjName = modOrObjName
-        self.attrName = attrName
+    def __init__(self, text, rcHandler):
+        super(PythonModuleTraffic, self).__init__(text)
         self.interceptModules = set(rcHandler.getIntercepts("python"))
         self.alterations = {}
         for alterStr in rcHandler.getList("alterations", [ self.getTextMarker(), "python" ]):
@@ -84,8 +77,7 @@ class PythonModuleTraffic(PythonTraffic):
             toReplace = rcHandler.get("replacement", [ alterStr ])
             if toFind and toReplace:
                 self.alterations[re.compile(toFind)] = toReplace        
-        super(PythonModuleTraffic, self).__init__(*args)
-
+        
     def getModuleName(self, obj):
         if hasattr(obj, "__module__"): # classes, functions, many instances
             return obj.__module__
@@ -93,7 +85,7 @@ class PythonModuleTraffic(PythonTraffic):
             return obj.__class__.__module__ # many other instances
 
     def getTextMarker(self):
-        return self.modOrObjName + "." + self.attrName
+        return self.text
 
     def isMarkedForReplay(self, replayItems):
         if PythonInstanceWrapper.getInstance(self.modOrObjName) is None:
@@ -178,16 +170,13 @@ class PythonModuleTraffic(PythonTraffic):
 
 
 class PythonAttributeTraffic(PythonModuleTraffic):
-    socketId = "SUT_PYTHON_ATTR"
     cachedAttributes = set()
-    def __init__(self, inText, responseFile, rcHandler):
-        modOrObjName, attrName = inText.split(":SUT_SEP:")
-        text = modOrObjName + "." + attrName
+    def __init__(self, fullAttrName, rcHandler):
         # Should record these at most once, and only then if they return something in their own right
         # rather than a function etc
-        self.foundInCache = text in self.cachedAttributes
-        self.cachedAttributes.add(text)
-        super(PythonAttributeTraffic, self).__init__(modOrObjName, attrName, rcHandler, text, responseFile)
+        self.foundInCache = fullAttrName in self.cachedAttributes
+        self.cachedAttributes.add(fullAttrName)
+        super(PythonAttributeTraffic, self).__init__(fullAttrName, rcHandler)
 
     def enquiryOnly(self, responses=[]):
         return len(responses) == 0 or self.foundInCache
@@ -209,7 +198,7 @@ class PythonAttributeTraffic(PythonModuleTraffic):
                 return [ self.getExceptionResponse() ]
         if self.shouldCache(attr):
             resultText = self.getResultText(attr)
-            return [ PythonResponseTraffic(resultText, self.responseFile) ]
+            return [ PythonResponseTraffic(resultText) ]
         else:
             # Makes things more readable if we delay evaluating this until the function is called
             # It's rare in Python to cache functions/classes before calling: it's normal to cache other things
@@ -231,12 +220,12 @@ class PythonSetAttributeTraffic(PythonModuleTraffic):
 
 
 class PythonFunctionCallTraffic(PythonModuleTraffic):
-    socketId = "SUT_PYTHON_CALL"
-    def __init__(self, inText, responseFile, rcHandler):
-        modOrObjName, attrName, argStr, keywDictStr = inText.split(":SUT_SEP:")
-        self.args = ()
-        self.keyw = {}
+    def __init__(self, functionName, rcHandler, *args, **kw):
+        self.args = args
+        self.keyw = kw
         argsForRecord = []
+        argStr = repr(self.args)
+        keywDictStr = repr(self.keyw)
         try:
             internalArgs = self.evaluate(argStr)
             self.args = tuple(map(self.getArgInstance, internalArgs))
@@ -258,8 +247,8 @@ class PythonFunctionCallTraffic(PythonModuleTraffic):
             # If this happens we probably can't handle the keyword objects anyway
             # Slightly daring text-munging of Python dictionary repr, main thing is to print something vaguely representative
             argsForRecord += keywDictStr.replace("': ", "=").replace(", '", ", ")[2:-1].split(", ")
-        text = modOrObjName + "." + attrName + "(" + ", ".join(argsForRecord) + ")"
-        super(PythonFunctionCallTraffic, self).__init__(modOrObjName, attrName, rcHandler, text, responseFile)
+        text = functionName + "(" + ", ".join(argsForRecord) + ")"
+        super(PythonFunctionCallTraffic, self).__init__(text, rcHandler)
 
     def getArgForRecord(self, arg):
         class ArgWrapper:
@@ -332,14 +321,16 @@ class PythonFunctionCallTraffic(PythonModuleTraffic):
             return []
 
 
-class PythonResponseTraffic(traffic.ResponseTraffic):
+class PythonResponseTraffic(traffic.BaseTraffic):
     typeId = "RET"
+    direction = "->"
 
 class PythonTrafficHandler:
-    def __init__(self, replayInfo, recordFile, callStackChecker):
+    def __init__(self, replayInfo, recordFile, rcHandler, callStackChecker):
         self.replayInfo = replayInfo
         self.recordFileHandler = RecordFileHandler(recordFile)
         self.callStackChecker = callStackChecker
+        self.rcHandler = rcHandler
 
     def importModule(self, name, realException):
         if self.callStackChecker.callerExcluded():
@@ -347,24 +338,75 @@ class PythonTrafficHandler:
                 raise realException
         else:
             traffic = PythonImportTraffic(name)
-            responses = self.getResponses(traffic, realException)
-            self.tryRecord(traffic, responses)
-
-    def getResponses(self, traffic, *args):
-        if self.replayInfo.isActiveFor(traffic):
-            return self.getReplayResponses(traffic)
-        else:
-            return traffic.forwardToDestination(*args)
-
-    def tryRecord(self, traffic, responses):
-        if not traffic.enquiryOnly(responses):
             traffic.record(self.recordFileHandler)
-            for response in responses:
-                response.record(self.recordFileHandler)
+            if self.replayInfo.isActiveFor(traffic):
+                return self.processReplay(traffic)
+            else:
+                if realException:
+                    raise realException
 
-    def getReplayResponses(self, traffic):
-        texts = [ text for _, text in self.replayInfo.readReplayResponses(traffic, [ PythonResponseTraffic ]) ]
-        return map(PythonResponseTraffic, texts)
+    def processReplay(self, traffic, nameFinder=sys.modules):
+        for responseText in self.getReplayResponses(traffic):
+            PythonResponseTraffic(responseText).record(self.recordFileHandler)
+            return self.handleResponse(responseText, nameFinder)
+
+    def record(self, traffic, responses):
+        for response in responses:
+            response.record(self.recordFileHandler)
+
+    def getReplayResponses(self, traffic, **kw):
+        return [ text for _, text in self.replayInfo.readReplayResponses(traffic, [ PythonResponseTraffic ], **kw) ]
+
+    def handleResponse(self, response, nameFinder=sys.modules):
+        if response.startswith("raise "):
+            exec response in nameFinder
+        else:
+            return eval(response, nameFinder)
+
+    def getRealAttribute(self, realModOrObj, attrName):
+        if attrName == "__all__":
+            # Need to provide something here, the application has probably called 'from module import *'
+            return filter(lambda x: not x.startswith("__"), dir(realModOrObj))
+        else:
+            return getattr(realModOrObj, attrName)
+
+    def getAttribute(self, fullAttrName, attrName, realModOrObj, nameFinder):
+        if self.callStackChecker.callerExcluded() or attrName == "__path__":
+            return True, self.getRealAttribute(realModOrObj, attrName)
+        else:
+            traffic = PythonAttributeTraffic(fullAttrName, self.rcHandler)
+            if self.replayInfo.isActiveFor(traffic):
+                responses = self.getReplayResponses(traffic, exact=True)
+                if len(responses):
+                    traffic.record(self.recordFileHandler)
+                    self.recordResponse(responses[0])
+                    return True, self.handleResponse(responses[0], nameFinder)
+                else:
+                    return False, None
+            else:
+                realAttr = self.getRealAttribute(realModOrObj, attrName)
+                if traffic.shouldCache(realAttr):
+                    traffic.record(self.recordFileHandler)
+                    self.recordResponse(traffic.getResultText(realAttr))
+                    return True, realAttr
+                else:
+                    return False, realAttr
+
+    def recordResponse(self, responseText):
+        PythonResponseTraffic(responseText).record(self.recordFileHandler)
+            
+    def callFunction(self, functionName, realFunction, nameFinder, *args, **kw):
+        if self.callStackChecker.callerExcluded():
+            return realFunction(*args, **kw)
+        else:
+            traffic = PythonFunctionCallTraffic(functionName, self.rcHandler, *args, **kw)
+            traffic.record(self.recordFileHandler)
+            if self.replayInfo.isActiveFor(traffic):
+                return self.processReplay(traffic)
+            else:
+                realRet = realFunction(*args, **kw)
+                self.recordResponse(traffic.getResultText(realRet))
+                return realRet
 
 
 def getTrafficClasses(incoming):

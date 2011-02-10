@@ -48,13 +48,7 @@ class ModuleProxy:
         self.realModule = realModule
         self.trafficHandler = trafficHandler
         self.trafficHandler.importModule(name, realException) 
-
-    def handleResponse(self, response):
-        if response.startswith("raise "):
-            exec response in self.trafficServerNameFinder
-        else:
-            return eval(response, self.trafficServerNameFinder)
-        
+    
     def makeInstance(self, className, instanceName):
         if "(" in className:
             classDefStr = "class " + className.replace("(", "(InstanceProxy, ") + " : pass"
@@ -65,12 +59,14 @@ class ModuleProxy:
         return actualClassObj(givenInstanceName=instanceName, moduleProxy=self)
         
     def __getattr__(self, attrname):
-        if self.importHandler.callStackChecker.callerExcluded():
-            if self.realModule is None:
-                self.realModule = self.importHandler.loadRealModule(self.name)
-            return getattr(self.realModule, attrname)
+        fullAttrName = self.name + "." + attrname
+        isBasic, realAttr = self.trafficHandler.getAttribute(fullAttrName, attrname,
+                                                             self.realModule, self.trafficServerNameFinder)
+        if isBasic:
+            return realAttr
         else:
-            return AttributeProxy(self.name, self.handleResponse, attrname).tryEvaluate()
+            return AttributeProxy(fullAttrName, self.trafficHandler,
+                                  realAttr, self.trafficServerNameFinder)
     
 
 class InstanceProxy:
@@ -119,27 +115,12 @@ class InstanceProxy:
 
 
 class AttributeProxy:
-    def __init__(self, modOrObjName, handleResponse, attributeName, callStackChecker=None):
-        self.modOrObjName = modOrObjName
-        self.handleResponse = handleResponse
-        self.attributeName = attributeName
-        self.realVersion = None
-        self.callStackChecker = callStackChecker
+    def __init__(self, name, trafficHandler, realVersion, nameFinder):
+        self.name = name
+        self.trafficHandler = trafficHandler
+        self.realVersion = realVersion
+        self.nameFinder = nameFinder
         
-    def getRepresentationForSendToTrafficServer(self):
-        return self.modOrObjName + "." + self.attributeName
-
-    def tryEvaluate(self):
-        sock = createSocket()
-        text = "SUT_PYTHON_ATTR:" + self.modOrObjName + ":SUT_SEP:" + self.attributeName
-        sock.sendall(text)
-        sock.shutdown(1)
-        response = sock.makefile().read()
-        if response:
-            return self.handleResponse(response)
-        else:
-            return self
-
     def setValue(self, value):
         sock = createSocket()
         text = "SUT_PYTHON_SETATTR:" + self.modOrObjName + ":SUT_SEP:" + self.attributeName + \
@@ -151,12 +132,7 @@ class AttributeProxy:
         return AttributeProxy(self.modOrObjName, self.handleResponse, self.attributeName + "." + name).tryEvaluate()
 
     def __call__(self, *args, **kw):
-        if self.realVersion is None or self.callStackChecker is None or not self.callStackChecker.callerExcluded(): 
-            response = self.makeResponse(*args, **kw)
-            if response:
-                return self.handleResponse(response)
-        else:
-            return self.realVersion(*args, **kw)
+        return self.trafficHandler.callFunction(self.name, self.realVersion, self.nameFinder, *args, **kw)
 
     def makeResponse(self, *args, **kw):
         sock = self.createAndSend(*args, **kw)

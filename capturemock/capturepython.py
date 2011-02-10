@@ -21,7 +21,7 @@ class CallStackChecker:
         if os.name == "nt":
             # Recompute this: mostly a workaround for applications that reset os.sep on Windows
             self.stdlibDir = os.path.dirname(os.path.realpath(os.__file__))
-        framerecord = inspect.stack()[2] # parent of parent. If you extract method you need to change this number :)
+        framerecord = inspect.stack()[3] # parent of parent. If you extract method you need to change this number :)
         fileName = framerecord[1]
         dirName = self.getDirectory(fileName)
         moduleName = self.getModuleName(fileName)
@@ -65,7 +65,7 @@ class ImportHandler:
                 for currModName in [ modName ] + self.findSubModules(modName, oldModule):
                     loadingMods = self.modulesLoading(currModName, modName)
                     if loadingMods:
-                        newModule = pythonclient.ModuleProxy(currModName, self)
+                        newModule = pythonclient.ModuleProxy(currModName, self.trafficHandler, oldModule)
                         sys.modules[currModName] = newModule
                         for attrName, otherMod in loadingMods:
                             varName = otherMod.__name__ + "." + attrName
@@ -181,7 +181,7 @@ class InterceptHandler:
     def makeIntercepts(self):
         callStackChecker = CallStackChecker(self.rcHandler)
         from pythontraffic import PythonTrafficHandler
-        trafficHandler = PythonTrafficHandler(self.replayInfo, self.recordFile, callStackChecker)
+        trafficHandler = PythonTrafficHandler(self.replayInfo, self.recordFile, self.rcHandler, callStackChecker)
         if len(self.fullIntercepts):
             sys.meta_path.append(ImportHandler(self.fullIntercepts, callStackChecker, trafficHandler))
         for moduleName, attributes in self.partialIntercepts.items():
