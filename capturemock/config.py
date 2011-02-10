@@ -36,7 +36,9 @@ class RcFileHandler:
         result = []
         for section in sections:
             if self.parser.has_section(section) and self.parser.has_option(section, setting):
-                result += self.parser.get(section, setting).split(",")
+                listStr = self.parser.get(section, setting).strip()
+                if listStr:
+                    result += listStr.split(",")
         return result
 
 def isActive(mode, replayFile):
