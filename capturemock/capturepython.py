@@ -11,7 +11,7 @@ class CallStackChecker:
         self.inCallStackChecker = False
         self.stdlibDir = os.path.dirname(os.path.realpath(os.__file__))
         
-    def callerExcluded(self):
+    def callerExcluded(self, stackDistance):
         if self.inCallStackChecker:
             # If we get called recursively, must call the real thing to avoid infinite loop...
             return True
@@ -21,7 +21,8 @@ class CallStackChecker:
         if os.name == "nt":
             # Recompute this: mostly a workaround for applications that reset os.sep on Windows
             self.stdlibDir = os.path.dirname(os.path.realpath(os.__file__))
-        framerecord = inspect.stack()[3] # parent of parent. If you extract method you need to change this number :)
+
+        framerecord = inspect.stack()[stackDistance]
         fileName = framerecord[1]
         dirName = self.getDirectory(fileName)
         moduleName = self.getModuleName(fileName)
@@ -119,15 +120,21 @@ class ImportHandler:
             return self
 
     def load_module(self, name):
-        return sys.modules.setdefault(name, self.createProxy(name))
+        if self.callStackChecker.callerExcluded(stackDistance=2):
+            # return the real module, but don't put it in sys.modules so we trigger
+            # a new import next time around
+            return self.loadRealModule(name)
+        else:
+            return sys.modules.setdefault(name, self.createProxy(name))
 
     def createProxy(self, name):
         try:
             realModule = self.loadRealModule(name)
-            return pythonclient.ModuleProxy(name, self.trafficHandler, realModule=realModule)
         except:
             return pythonclient.ModuleProxy(name, self.trafficHandler, realException=sys.exc_info())
-        
+
+        return pythonclient.ModuleProxy(name, self.trafficHandler, realModule=realModule)
+
     def loadRealModule(self, name):
         sys.meta_path.remove(self)
         try:

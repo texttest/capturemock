@@ -333,17 +333,13 @@ class PythonTrafficHandler:
         self.rcHandler = rcHandler
 
     def importModule(self, name, realException):
-        if self.callStackChecker.callerExcluded():
+        traffic = PythonImportTraffic(name)
+        traffic.record(self.recordFileHandler)
+        if self.replayInfo.isActiveFor(traffic):
+            return self.processReplay(traffic)
+        else:
             if realException:
                 raise realException
-        else:
-            traffic = PythonImportTraffic(name)
-            traffic.record(self.recordFileHandler)
-            if self.replayInfo.isActiveFor(traffic):
-                return self.processReplay(traffic)
-            else:
-                if realException:
-                    raise realException
 
     def processReplay(self, traffic, nameFinder=sys.modules):
         for responseText in self.getReplayResponses(traffic):
@@ -371,7 +367,7 @@ class PythonTrafficHandler:
             return getattr(realModOrObj, attrName)
 
     def getAttribute(self, fullAttrName, attrName, realModOrObj, nameFinder):
-        if self.callStackChecker.callerExcluded() or attrName == "__path__":
+        if self.callStackChecker.callerExcluded(stackDistance=3) or attrName == "__path__":
             return True, self.getRealAttribute(realModOrObj, attrName)
         else:
             traffic = PythonAttributeTraffic(fullAttrName, self.rcHandler)
@@ -396,7 +392,7 @@ class PythonTrafficHandler:
         PythonResponseTraffic(responseText).record(self.recordFileHandler)
             
     def callFunction(self, functionName, realFunction, nameFinder, *args, **kw):
-        if self.callStackChecker.callerExcluded():
+        if self.callStackChecker.callerExcluded(stackDistance=3):
             return realFunction(*args, **kw)
         else:
             traffic = PythonFunctionCallTraffic(functionName, self.rcHandler, *args, **kw)
