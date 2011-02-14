@@ -7,17 +7,27 @@ import sys, os
 class NameFinder(dict):
     def __init__(self, moduleProxy):
         dict.__init__(self)
+        self.moduleProxy = moduleProxy
         self["InstanceProxy"] = InstanceProxy
-        self["Instance"] = moduleProxy.makeInstance
+        self["Instance"] = self.makeInstance
         self.makeNewClasses = False
         self.newClassNames = []
 
-    def defineClass(self, className, classDefStr, moduleProxy):
+    def defineClass(self, className, classDefStr):
         self.defineClassLocally(classDefStr)
         for newClassName in [ className ] + self.newClassNames:
-            setattr(moduleProxy, newClassName, dict.__getitem__(self, newClassName))
+            setattr(self.moduleProxy, newClassName, dict.__getitem__(self, newClassName))
         self.newClassNames = []
         return dict.__getitem__(self, className)
+
+    def makeInstance(self, className, instanceName):
+        if "(" in className:
+            classDefStr = "class " + className.replace("(", "(InstanceProxy, ") + " : pass"
+        else:
+            classDefStr = "class " + className + "(InstanceProxy): pass"
+        actualClassName = className.split("(")[0]
+        actualClassObj = self.defineClass(actualClassName, classDefStr)
+        return actualClassObj(givenInstanceName=instanceName, moduleProxy=self)
 
     def defineClassLocally(self, classDefStr):
         try:
@@ -41,33 +51,48 @@ class NameFinder(dict):
         return dict.__getitem__(self, name)
 
 
-class ModuleProxy:
-    def __init__(self, name, trafficHandler, realModule=None, realException=None):
-        self.name = name
-        self.trafficServerNameFinder = NameFinder(self)
-        self.realModule = realModule
-        self.trafficHandler = trafficHandler
-        self.trafficHandler.importModule(name, realException) 
-    
-    def makeInstance(self, className, instanceName):
-        if "(" in className:
-            classDefStr = "class " + className.replace("(", "(InstanceProxy, ") + " : pass"
-        else:
-            classDefStr = "class " + className + "(InstanceProxy): pass"
-        actualClassName = className.split("(")[0]
-        actualClassObj = self.trafficServerNameFinder.defineClass(actualClassName, classDefStr, self)
-        return actualClassObj(givenInstanceName=instanceName, moduleProxy=self)
-        
+class PythonProxy:
+    def __init__(self, name, trafficHandler, target, nameFinder):
+        # Will be passed into real code. Try to minimise the risk of name clashes
+        self.captureMockProxyName = name
+        self.captureMockTrafficHandler = trafficHandler
+        self.captureMockTarget = target
+        self.captureMockNameFinder = nameFinder
+
     def __getattr__(self, attrname):
-        fullAttrName = self.name + "." + attrname
-        isBasic, realAttr = self.trafficHandler.getAttribute(fullAttrName, attrname,
-                                                             self.realModule, self.trafficServerNameFinder)
-        if isBasic:
-            return realAttr
+        return self.captureMockTrafficHandler.getAttribute(self.captureMockProxyName,
+                                                           attrname,
+                                                           self,
+                                                           self.captureMockTarget)
+    def captureMockCreateProxy(self, proxyName, proxyTarget):
+        return PythonProxy(proxyName, self.captureMockTrafficHandler,
+                           proxyTarget, self.captureMockNameFinder)
+
+    def captureMockEvaluate(self, response):
+        if response.startswith("raise "):
+            exec response in self.captureMockNameFinder
         else:
-            return AttributeProxy(fullAttrName, self.trafficHandler,
-                                  realAttr, self.trafficServerNameFinder)
-    
+            return eval(response, self.captureMockNameFinder)
+
+    def __call__(self, *args, **kw):
+        #responseName, realResponse =
+        return self.captureMockTrafficHandler.callFunction(self.captureMockProxyName,
+                                                           self,
+                                                           self.captureMockTarget,
+                                                           *args, **kw)
+#        if responseName:
+#            return AttributeProxy(responseName, self.trafficHandler, realResponse, self.trafficServerNameFinder)
+#        else:
+#            return realResponse
+
+
+
+
+class ModuleProxy(PythonProxy):
+    def __init__(self, name, trafficHandler, realModule=None, realException=None):
+        PythonProxy.__init__(self, name, trafficHandler, realModule, NameFinder(self))
+        trafficHandler.importModule(name, self, realException) 
+        
 
 class InstanceProxy:
     moduleProxy = None
@@ -128,11 +153,8 @@ class AttributeProxy:
         sock.sendall(text)
         sock.shutdown(2)
 
-    def __getattr__(self, name):
-        return AttributeProxy(self.modOrObjName, self.handleResponse, self.attributeName + "." + name).tryEvaluate()
-
-    def __call__(self, *args, **kw):
-        return self.trafficHandler.callFunction(self.name, self.realVersion, self.nameFinder, *args, **kw)
+#    def __getattr__(self, name):
+#        return AttributeProxy(self.modOrObjName, self.handleResponse, self.attributeName + "." + name).tryEvaluate()
 
     def makeResponse(self, *args, **kw):
         sock = self.createAndSend(*args, **kw)

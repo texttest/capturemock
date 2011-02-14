@@ -4,16 +4,23 @@
 import traffic, sys, types, inspect, re
 from recordfilehandler import RecordFileHandler
 
+class PythonClassWrapper:
+    def __init__(self, cls):
+        self.name = cls.__name__
+        self.target = cls
+
+    def __repr__(self):
+        return "Class(" + repr(self.name) + ")"
+
 class PythonInstanceWrapper:
     allInstances = {}
     wrappersByInstance = {}
-    def __init__(self, instance, moduleName, classDesc):
-        self.instance = instance
-        self.moduleName = moduleName
+    def __init__(self, instance, classDesc):
+        self.target = instance
         self.classDesc = classDesc
-        self.instanceName = self.getNewInstanceName()
-        self.allInstances[self.instanceName] = self
-        self.wrappersByInstance[id(self.instance)] = self
+        self.name = self.getNewInstanceName()
+        self.allInstances[self.name] = self
+        self.wrappersByInstance[id(self.target)] = self
 
     @classmethod
     def getInstance(cls, instanceName):
@@ -33,7 +40,7 @@ class PythonInstanceWrapper:
         return storedWrapper or cls(instance, *args)        
 
     def __repr__(self):
-        return "Instance(" + repr(self.classDesc) + ", " + repr(self.instanceName) + ")"
+        return "Instance(" + repr(self.classDesc) + ", " + repr(self.name) + ")"
 
     def getNewInstanceName(self):
         className = self.classDesc.split("(")[0].lower()
@@ -41,9 +48,6 @@ class PythonInstanceWrapper:
         while self.allInstances.has_key(className + str(num)):
             num += 1
         return className + str(num)
-
-    def __getattr__(self, name):
-        return getattr(self.instance, name)
 
 
 class PythonTraffic(traffic.BaseTraffic):
@@ -115,7 +119,7 @@ class PythonModuleTraffic(PythonTraffic):
     def evaluate(self, argStr):
         class UnknownInstanceWrapper:
             def __init__(self, name):
-                self.instanceName = name
+                self.name = name
         class NameFinder:
             def __getitem__(self, name):
                 return PythonInstanceWrapper.getInstance(name) or UnknownInstanceWrapper(name)
@@ -125,27 +129,29 @@ class PythonModuleTraffic(PythonTraffic):
             return eval(argStr, globals(), NameFinder())
 
     def getResultText(self, result):
-        text = repr(self.addInstanceWrappers(result))
+        text = repr(result)
         for regex, repl in self.alterations.items():
             text = regex.sub(repl, text)
         return text
-    
-    def addInstanceWrappers(self, result):
-        if type(result) in (list, tuple):
-            return type(result)(map(self.addInstanceWrappers, result))
-        elif type(result) == dict:
-            newResult = {}
-            for key, value in result.items():
-                newResult[key] = self.addInstanceWrappers(value)
-            return newResult
-        elif not self.isBasicType(result) and self.belongsToInterceptedModule(self.getModuleName(result)):
-            return self.getWrapper(result, self.modOrObjName)
+        
+    def addInstanceWrapper(self, result):
+        if not self.isBasicType(result) and self.belongsToInterceptedModule(self.getModuleName(result)):
+            return self.getWrapper(result)
         else:
             return result
 
-    def getWrapper(self, instance, moduleName):
-        classDesc = self.getClassDescription(instance.__class__)
-        return PythonInstanceWrapper.getWrapperFor(instance, moduleName, classDesc)
+    def insertProxy(self, result, proxy):
+        if isinstance(result, PythonInstanceWrapper):
+            return proxy.captureMockCreateProxy(result.name, result.target)
+        else:
+            return result
+
+    def getWrapper(self, instance):
+        if type(instance) in (types.ClassType, types.TypeType):
+            return PythonClassWrapper(instance)
+        else:
+            classDesc = self.getClassDescription(instance.__class__)
+            return PythonInstanceWrapper.getWrapperFor(instance, classDesc)
 
     def getClassDescription(self, cls):
         baseClasses = self.findRelevantBaseClasses(cls)
@@ -332,19 +338,19 @@ class PythonTrafficHandler:
         self.callStackChecker = callStackChecker
         self.rcHandler = rcHandler
 
-    def importModule(self, name, realException):
+    def importModule(self, name, proxy, realException):
         traffic = PythonImportTraffic(name)
         traffic.record(self.recordFileHandler)
         if self.replayInfo.isActiveFor(traffic):
-            return self.processReplay(traffic)
+            return self.processReplay(traffic, proxy)
         else:
             if realException:
                 raise realException
 
-    def processReplay(self, traffic, nameFinder=sys.modules):
+    def processReplay(self, traffic, proxy):
         for responseText in self.getReplayResponses(traffic):
             PythonResponseTraffic(responseText).record(self.recordFileHandler)
-            return self.handleResponse(responseText, nameFinder)
+            return proxy.captureMockEvaluate(responseText)
 
     def record(self, traffic, responses):
         for response in responses:
@@ -353,22 +359,28 @@ class PythonTrafficHandler:
     def getReplayResponses(self, traffic, **kw):
         return [ text for _, text in self.replayInfo.readReplayResponses(traffic, [ PythonResponseTraffic ], **kw) ]
 
-    def handleResponse(self, response, nameFinder=sys.modules):
-        if response.startswith("raise "):
-            exec response in nameFinder
-        else:
-            return eval(response, nameFinder)
-
-    def getRealAttribute(self, realModOrObj, attrName):
+    def getRealAttribute(self, target, attrName):
         if attrName == "__all__":
             # Need to provide something here, the application has probably called 'from module import *'
-            return filter(lambda x: not x.startswith("__"), dir(realModOrObj))
+            return filter(lambda x: not x.startswith("__"), dir(target))
         else:
-            return getattr(realModOrObj, attrName)
+            return getattr(target, attrName)
 
-    def getAttribute(self, fullAttrName, attrName, realModOrObj, nameFinder):
+    def transformStructure(self, result, transformMethod, *args):
+        if type(result) in (list, tuple):
+            return type(result)([ self.transformStructure(elem, transformMethod, *args) for elem in result ])
+        elif type(result) == dict:
+            newResult = {}
+            for key, value in result.items():
+                newResult[key] = self.transformStructure(value, transformMethod, *args)
+            return newResult
+        else:
+            return transformMethod(result, *args)
+
+    def getAttribute(self, proxyName, attrName, proxy, proxyTarget):
+        fullAttrName = proxyName + "." + attrName
         if self.callStackChecker.callerExcluded(stackDistance=3) or attrName == "__path__":
-            return True, self.getRealAttribute(realModOrObj, attrName)
+            return self.getRealAttribute(proxyTarget, attrName)
         else:
             traffic = PythonAttributeTraffic(fullAttrName, self.rcHandler)
             if self.replayInfo.isActiveFor(traffic):
@@ -376,34 +388,37 @@ class PythonTrafficHandler:
                 if len(responses):
                     traffic.record(self.recordFileHandler)
                     self.recordResponse(responses[0])
-                    return True, self.handleResponse(responses[0], nameFinder)
+                    return proxy.captureMockEvaluate(responses[0])
                 else:
-                    return False, None
+                    return proxy.captureMockCreateProxy(fullAttrName, None)
             else:
-                realAttr = self.getRealAttribute(realModOrObj, attrName)
+                realAttr = self.getRealAttribute(proxyTarget, attrName)
                 if traffic.shouldCache(realAttr):
                     traffic.record(self.recordFileHandler)
-                    self.recordResponse(traffic.getResultText(realAttr))
-                    return True, realAttr
+                    return self.transformResponse(traffic, realAttr, proxy)
                 else:
-                    return False, realAttr
+                    return proxy.captureMockCreateProxy(fullAttrName, realAttr)
 
     def recordResponse(self, responseText):
         PythonResponseTraffic(responseText).record(self.recordFileHandler)
+
+    def transformResponse(self, traffic, response, proxy):
+        wrappedValue = self.transformStructure(response, traffic.addInstanceWrapper)
+        self.recordResponse(traffic.getResultText(wrappedValue))
+        return self.transformStructure(wrappedValue, traffic.insertProxy, proxy)
             
-    def callFunction(self, functionName, realFunction, nameFinder, *args, **kw):
+    def callFunction(self, functionName, proxy, proxyTarget, *args, **kw):
         if self.callStackChecker.callerExcluded(stackDistance=3):
-            return realFunction(*args, **kw)
+            return proxyTarget(*args, **kw)
         else:
             traffic = PythonFunctionCallTraffic(functionName, self.rcHandler, *args, **kw)
             traffic.record(self.recordFileHandler)
             if self.replayInfo.isActiveFor(traffic):
-                return self.processReplay(traffic)
+                return self.processReplay(traffic, proxy)
             else:
-                realRet = realFunction(*args, **kw)
-                self.recordResponse(traffic.getResultText(realRet))
-                return realRet
-
+                realRet = proxyTarget(*args, **kw)
+                return self.transformResponse(traffic, realRet, proxy) 
+        
 
 def getTrafficClasses(incoming):
     if incoming:
