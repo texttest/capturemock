@@ -8,7 +8,7 @@ class NameFinder(dict):
     def __init__(self, moduleProxy):
         dict.__init__(self)
         self.moduleProxy = moduleProxy
-        self["InstanceProxy"] = InstanceProxy
+        self["PythonProxy"] = PythonProxy
         self["Instance"] = self.makeInstance
         self.makeNewClasses = False
         self.newClassNames = []
@@ -16,18 +16,20 @@ class NameFinder(dict):
     def defineClass(self, className, classDefStr):
         self.defineClassLocally(classDefStr)
         for newClassName in [ className ] + self.newClassNames:
-            setattr(self.moduleProxy, newClassName, dict.__getitem__(self, newClassName))
+            self.moduleProxy.__dict__[newClassName] = dict.__getitem__(self, newClassName)
         self.newClassNames = []
         return dict.__getitem__(self, className)
 
-    def makeInstance(self, className, instanceName):
+    def makeClass(self, className):
         if "(" in className:
-            classDefStr = "class " + className.replace("(", "(InstanceProxy, ") + " : pass"
+            classDefStr = "class " + className.replace("(", "(PythonProxy, ") + " : pass"
         else:
-            classDefStr = "class " + className + "(InstanceProxy): pass"
+            classDefStr = "class " + className + "(PythonProxy): pass"
         actualClassName = className.split("(")[0]
-        actualClassObj = self.defineClass(actualClassName, classDefStr)
-        return actualClassObj(givenInstanceName=instanceName, moduleProxy=self)
+        return self.defineClass(actualClassName, classDefStr)
+
+    def makeInstance(self, className, instanceName):
+        return self.moduleProxy.captureMockCreateProxy(instanceName, classDesc=className)
 
     def defineClassLocally(self, classDefStr):
         try:
@@ -64,9 +66,13 @@ class PythonProxy:
                                                            attrname,
                                                            self,
                                                            self.captureMockTarget)
-    def captureMockCreateProxy(self, proxyName, proxyTarget):
-        return PythonProxy(proxyName, self.captureMockTrafficHandler,
-                           proxyTarget, self.captureMockNameFinder)
+    def captureMockCreateProxy(self, proxyName, proxyTarget=None, classDesc=None):
+        if classDesc:
+            newClass = self.captureMockNameFinder.makeClass(classDesc)
+        else:
+            newClass = PythonProxy
+        return newClass(proxyName, self.captureMockTrafficHandler,
+                        proxyTarget, self.captureMockNameFinder)
 
     def captureMockEvaluate(self, response):
         if response.startswith("raise "):
@@ -75,17 +81,19 @@ class PythonProxy:
             return eval(response, self.captureMockNameFinder)
 
     def __call__(self, *args, **kw):
-        #responseName, realResponse =
         return self.captureMockTrafficHandler.callFunction(self.captureMockProxyName,
                                                            self,
                                                            self.captureMockTarget,
                                                            *args, **kw)
-#        if responseName:
-#            return AttributeProxy(responseName, self.trafficHandler, realResponse, self.trafficServerNameFinder)
-#        else:
-#            return realResponse
 
-
+    def __setattr__(self, attrname, value):
+        self.__dict__[attrname] = value
+        if not attrname.startswith("captureMock"):
+            if self.captureMockTarget:
+                setattr(self.captureMockTarget, attrname, value)
+            self.captureMockTrafficHandler.recordSetAttribute(self.captureMockProxyName,
+                                                              attrname,
+                                                              value)
 
 
 class ModuleProxy(PythonProxy):

@@ -190,7 +190,7 @@ class InterceptHandler:
         from pythontraffic import PythonTrafficHandler
         trafficHandler = PythonTrafficHandler(self.replayInfo, self.recordFile, self.rcHandler, callStackChecker)
         if len(self.fullIntercepts):
-            sys.meta_path.append(ImportHandler(self.fullIntercepts, callStackChecker, trafficHandler))
+            sys.meta_path = [ ImportHandler(self.fullIntercepts, callStackChecker, trafficHandler) ]
         for moduleName, attributes in self.partialIntercepts.items():
             self.interceptAttributes(moduleName, attributes, trafficHandler)
 

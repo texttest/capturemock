@@ -4,13 +4,6 @@
 import traffic, sys, types, inspect, re
 from recordfilehandler import RecordFileHandler
 
-class PythonClassWrapper:
-    def __init__(self, cls):
-        self.name = cls.__name__
-        self.target = cls
-
-    def __repr__(self):
-        return "Class(" + repr(self.name) + ")"
 
 class PythonInstanceWrapper:
     allInstances = {}
@@ -70,6 +63,14 @@ class PythonImportTraffic(PythonTraffic):
     def isMarkedForReplay(self, replayItems):
         return self.moduleName in replayItems
 
+
+class ReprObject:
+    def __init__(self, arg):
+        self.arg = arg
+        
+    def __repr__(self):
+        return self.arg    
+
                   
 class PythonModuleTraffic(PythonTraffic):
     def __init__(self, text, rcHandler):
@@ -80,13 +81,37 @@ class PythonModuleTraffic(PythonTraffic):
             toFind = rcHandler.get("match_pattern", [ alterStr ])
             toReplace = rcHandler.get("replacement", [ alterStr ])
             if toFind and toReplace:
-                self.alterations[re.compile(toFind)] = toReplace        
+                self.alterations[re.compile(toFind)] = toReplace
         
     def getModuleName(self, obj):
         if hasattr(obj, "__module__"): # classes, functions, many instances
             return obj.__module__
         else:
             return obj.__class__.__module__ # many other instances
+
+    def insertReprObjects(self, arg):
+        if hasattr(arg, "captureMockProxyName"):
+            return ReprObject(arg.captureMockProxyName)
+        elif isinstance(arg, float):
+            # Stick to 2 dp for recording floating point values
+            return ReprObject(str(round(arg, 2)))
+        else:
+            return ReprObject(self.fixMultilineStrings(arg))
+
+    def fixMultilineStrings(self, arg):
+        out = repr(arg)
+        # Replace linebreaks but don't mangle e.g. Windows paths
+        # This won't work if both exist in the same string - fixing that requires
+        # using a regex and I couldn't make it work [gjb 100922]
+        if "\\n" in out and "\\\\n" not in out: 
+            pos = out.find("'", 0, 2)
+            if pos != -1:
+                return out[:pos] + "''" + out[pos:].replace("\\n", "\n") + "''"
+            else:
+                pos = out.find('"', 0, 2)
+                return out[:pos] + '""' + out[pos:].replace("\\n", "\n") + '""'
+        else:
+            return out
 
     def getTextMarker(self):
         return self.text
@@ -129,10 +154,27 @@ class PythonModuleTraffic(PythonTraffic):
             return eval(argStr, globals(), NameFinder())
 
     def getResultText(self, result):
-        text = repr(result)
+        text = repr(self.transformStructure(result, self.insertReprObjects))
         for regex, repl in self.alterations.items():
             text = regex.sub(repl, text)
         return text
+
+    def transformResponse(self, response, proxy):
+        wrappedValue = self.transformStructure(response, self.addInstanceWrapper)
+        responseText = self.getResultText(wrappedValue)
+        transformedResponse = self.transformStructure(wrappedValue, self.insertProxy, proxy)
+        return responseText, transformedResponse
+
+    def transformStructure(self, result, transformMethod, *args):
+        if type(result) in (list, tuple):
+            return type(result)([ self.transformStructure(elem, transformMethod, *args) for elem in result ])
+        elif type(result) == dict:
+            newResult = {}
+            for key, value in result.items():
+                newResult[key] = self.transformStructure(value, transformMethod, *args)
+            return newResult
+        else:
+            return transformMethod(result, *args)
         
     def addInstanceWrapper(self, result):
         if not self.isBasicType(result) and self.belongsToInterceptedModule(self.getModuleName(result)):
@@ -142,16 +184,13 @@ class PythonModuleTraffic(PythonTraffic):
 
     def insertProxy(self, result, proxy):
         if isinstance(result, PythonInstanceWrapper):
-            return proxy.captureMockCreateProxy(result.name, result.target)
+            return proxy.captureMockCreateProxy(result.name, result.target, result.classDesc)
         else:
             return result
 
     def getWrapper(self, instance):
-        if type(instance) in (types.ClassType, types.TypeType):
-            return PythonClassWrapper(instance)
-        else:
-            classDesc = self.getClassDescription(instance.__class__)
-            return PythonInstanceWrapper.getWrapperFor(instance, classDesc)
+        classDesc = self.getClassDescription(instance.__class__)
+        return PythonInstanceWrapper.getWrapperFor(instance, classDesc)
 
     def getClassDescription(self, cls):
         baseClasses = self.findRelevantBaseClasses(cls)
@@ -212,11 +251,9 @@ class PythonAttributeTraffic(PythonModuleTraffic):
 
         
 class PythonSetAttributeTraffic(PythonModuleTraffic):
-    socketId = "SUT_PYTHON_SETATTR"
-    def __init__(self, inText, responseFile, rcHandler):
-        modOrObjName, attrName, self.valueStr = inText.split(":SUT_SEP:")
-        text = modOrObjName + "." + attrName + " = " + self.valueStr
-        super(PythonSetAttributeTraffic, self).__init__(modOrObjName, attrName, rcHandler, text, responseFile)
+    def __init__(self, rcHandler, proxyName, attrName, value):
+        text = proxyName + "." + attrName + " = " + repr(self.insertReprObjects(value))
+        super(PythonSetAttributeTraffic, self).__init__(text, rcHandler)
 
     def forwardToDestination(self):
         instance = PythonInstanceWrapper.getInstance(self.modOrObjName)
@@ -227,35 +264,15 @@ class PythonSetAttributeTraffic(PythonModuleTraffic):
 
 class PythonFunctionCallTraffic(PythonModuleTraffic):
     def __init__(self, functionName, rcHandler, *args, **kw):
-        self.args = args
-        self.keyw = kw
-        argsForRecord = []
-        argStr = repr(self.args)
-        keywDictStr = repr(self.keyw)
-        try:
-            internalArgs = self.evaluate(argStr)
-            self.args = tuple(map(self.getArgInstance, internalArgs))
-            argsForRecord += [ self.getArgForRecord(arg) for arg in internalArgs ]
-        except:
-            # Not ideal, but better than exit with exception
-            # If this happens we probably can't handle the arguments anyway
-            # Slightly daring text-munging of Python tuple repr, main thing is to print something vaguely representative
-            argsForRecord += argStr.replace(",)", ")")[1:-1].split(", ")
-        try:
-            internalKw = self.evaluate(keywDictStr)
-            for key, value in internalKw.items():
-                self.keyw[key] = self.getArgInstance(value)
-            for key in sorted(internalKw.keys()):
-                value = internalKw[key]
-                argsForRecord.append(key + "=" + self.getArgForRecord(value))
-        except:
-            # Not ideal, but better than exit with exception
-            # If this happens we probably can't handle the keyword objects anyway
-            # Slightly daring text-munging of Python dictionary repr, main thing is to print something vaguely representative
-            argsForRecord += keywDictStr.replace("': ", "=").replace(", '", ", ")[2:-1].split(", ")
-        text = functionName + "(" + ", ".join(argsForRecord) + ")"
+        argsForRecord = self.transformStructure(list(args), self.insertReprObjects)
+        keywForRecord = self.transformStructure(kw, self.insertReprObjects)
+        for key in sorted(keywForRecord.keys()):
+            value = keywForRecord[key]
+            recordArg = ReprObject(key + "=" + repr(value))
+            argsForRecord.append(recordArg)
+        text = functionName + "(" + repr(argsForRecord)[1:-1] + ")"
         super(PythonFunctionCallTraffic, self).__init__(text, rcHandler)
-
+            
     def getArgForRecord(self, arg):
         class ArgWrapper:
             def __init__(self, arg):
@@ -270,23 +287,6 @@ class PythonFunctionCallTraffic(PythonModuleTraffic):
                     for key, val in self.arg.items():
                         newDict[key] = ArgWrapper(val)
                     return repr(newDict)
-                elif isinstance(self.arg, float):
-                    # Stick to 2 dp for recording floating point values
-                    return str(round(self.arg, 2))
-                else:
-                    out = repr(self.arg)
-                    # Replace linebreaks but don't mangle e.g. Windows paths
-                    # This won't work if both exist in the same string - fixing that requires
-                    # using a regex and I couldn't make it work [gjb 100922]
-                    if "\\n" in out and "\\\\n" not in out: 
-                        pos = out.find("'", 0, 2)
-                        if pos != -1:
-                            return out[:pos] + "''" + out[pos:].replace("\\n", "\n") + "''"
-                        else:
-                            pos = out.find('"', 0, 2)
-                            return out[:pos] + '""' + out[pos:].replace("\\n", "\n") + '""'
-                    else:
-                        return out
         return repr(ArgWrapper(arg))
             
     def getArgInstance(self, arg):
@@ -337,6 +337,7 @@ class PythonTrafficHandler:
         self.recordFileHandler = RecordFileHandler(recordFile)
         self.callStackChecker = callStackChecker
         self.rcHandler = rcHandler
+        PythonInstanceWrapper.allInstances = {} # reset, in case of previous tests
 
     def importModule(self, name, proxy, realException):
         traffic = PythonImportTraffic(name)
@@ -366,17 +367,6 @@ class PythonTrafficHandler:
         else:
             return getattr(target, attrName)
 
-    def transformStructure(self, result, transformMethod, *args):
-        if type(result) in (list, tuple):
-            return type(result)([ self.transformStructure(elem, transformMethod, *args) for elem in result ])
-        elif type(result) == dict:
-            newResult = {}
-            for key, value in result.items():
-                newResult[key] = self.transformStructure(value, transformMethod, *args)
-            return newResult
-        else:
-            return transformMethod(result, *args)
-
     def getAttribute(self, proxyName, attrName, proxy, proxyTarget):
         fullAttrName = proxyName + "." + attrName
         if self.callStackChecker.callerExcluded(stackDistance=3) or attrName == "__path__":
@@ -390,9 +380,16 @@ class PythonTrafficHandler:
                     self.recordResponse(responses[0])
                     return proxy.captureMockEvaluate(responses[0])
                 else:
-                    return proxy.captureMockCreateProxy(fullAttrName, None)
+                    return proxy.captureMockCreateProxy(fullAttrName)
             else:
-                realAttr = self.getRealAttribute(proxyTarget, attrName)
+                try:
+                    realAttr = self.getRealAttribute(proxyTarget, attrName)
+                except:
+                    traffic.record(self.recordFileHandler)
+                    responseTraffic = traffic.getExceptionResponse(sys.exc_info())
+                    responseTraffic.record(self.recordFileHandler)
+                    raise
+                
                 if traffic.shouldCache(realAttr):
                     traffic.record(self.recordFileHandler)
                     return self.transformResponse(traffic, realAttr, proxy)
@@ -400,12 +397,19 @@ class PythonTrafficHandler:
                     return proxy.captureMockCreateProxy(fullAttrName, realAttr)
 
     def recordResponse(self, responseText):
-        PythonResponseTraffic(responseText).record(self.recordFileHandler)
+        if responseText != "None":
+            PythonResponseTraffic(responseText).record(self.recordFileHandler)
 
-    def transformResponse(self, traffic, response, proxy):
-        wrappedValue = self.transformStructure(response, traffic.addInstanceWrapper)
-        self.recordResponse(traffic.getResultText(wrappedValue))
-        return self.transformStructure(wrappedValue, traffic.insertProxy, proxy)
+    def transformResponse(self, traffic, *args):
+        responseText, transformedResponse = traffic.transformResponse(*args)
+        self.recordResponse(responseText)
+        return transformedResponse
+
+    def stripProxy(self, arg):
+        if hasattr(arg, "captureMockTarget"):
+            return arg.captureMockTarget
+        else:
+            return arg
             
     def callFunction(self, functionName, proxy, proxyTarget, *args, **kw):
         if self.callStackChecker.callerExcluded(stackDistance=3):
@@ -416,10 +420,17 @@ class PythonTrafficHandler:
             if self.replayInfo.isActiveFor(traffic):
                 return self.processReplay(traffic, proxy)
             else:
-                realRet = proxyTarget(*args, **kw)
-                return self.transformResponse(traffic, realRet, proxy) 
-        
+                realArgs = traffic.transformStructure(args, self.stripProxy)
+                realKw = traffic.transformStructure(kw, self.stripProxy)
+                realRet = proxyTarget(*realArgs, **realKw)
+                return self.transformResponse(traffic, realRet, proxy)
 
+    def recordSetAttribute(self, *args):
+        if not self.callStackChecker.callerExcluded(stackDistance=3):
+            traffic = PythonSetAttributeTraffic(self.rcHandler, *args)
+            traffic.record(self.recordFileHandler)
+            
+            
 def getTrafficClasses(incoming):
     if incoming:
         return [ PythonFunctionCallTraffic, PythonAttributeTraffic,
