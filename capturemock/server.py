@@ -211,7 +211,7 @@ class TrafficServer(TCPServer):
 
     def getTrafficClasses(self, incoming):
         classes = []
-        for mod in [ commandlinetraffic, pythontraffic, fileedittraffic, clientservertraffic ]:
+        for mod in [ commandlinetraffic, fileedittraffic, clientservertraffic ]:
             classes += mod.getTrafficClasses(incoming)
         return classes
 
