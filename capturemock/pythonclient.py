@@ -8,7 +8,7 @@ class NameFinder(dict):
     def __init__(self, moduleProxy):
         dict.__init__(self)
         self.moduleProxy = moduleProxy
-        self["PythonProxy"] = PythonProxy
+        self["InstanceProxy"] = InstanceProxy
         self["Instance"] = self.makeInstance
         self.makeNewClasses = False
         self.newClassNames = []
@@ -18,13 +18,15 @@ class NameFinder(dict):
         for newClassName in [ className ] + self.newClassNames:
             self.moduleProxy.__dict__[newClassName] = dict.__getitem__(self, newClassName)
         self.newClassNames = []
-        return dict.__getitem__(self, className)
+        newClass = dict.__getitem__(self, className)
+        newClass.__module__ = self.moduleProxy.captureMockProxyName
+        return newClass
 
     def makeClass(self, className):
         if "(" in className:
-            classDefStr = "class " + className.replace("(", "(PythonProxy, ") + " : pass"
+            classDefStr = "class " + className.replace("(", "(InstanceProxy, ") + " : pass"
         else:
-            classDefStr = "class " + className + "(PythonProxy): pass"
+            classDefStr = "class " + className + "(InstanceProxy): pass"
         actualClassName = className.split("(")[0]
         return self.defineClass(actualClassName, classDefStr)
 
@@ -54,12 +56,13 @@ class NameFinder(dict):
 
 
 class PythonProxy:
-    def __init__(self, name, trafficHandler, target, nameFinder):
+    def __init__(self, captureMockProxyName, captureMockTrafficHandler,
+                 captureMockTarget, captureMockNameFinder):
         # Will be passed into real code. Try to minimise the risk of name clashes
-        self.captureMockProxyName = name
-        self.captureMockTrafficHandler = trafficHandler
-        self.captureMockTarget = target
-        self.captureMockNameFinder = nameFinder
+        self.captureMockProxyName = captureMockProxyName
+        self.captureMockTrafficHandler = captureMockTrafficHandler
+        self.captureMockTarget = captureMockTarget
+        self.captureMockNameFinder = captureMockNameFinder
 
     def __getattr__(self, attrname):
         return self.captureMockTrafficHandler.getAttribute(self.captureMockProxyName,
@@ -71,8 +74,10 @@ class PythonProxy:
             newClass = self.captureMockNameFinder.makeClass(classDesc)
         else:
             newClass = PythonProxy
-        return newClass(proxyName, self.captureMockTrafficHandler,
-                        proxyTarget, self.captureMockNameFinder)
+        return newClass(captureMockProxyName=proxyName,
+                        captureMockTrafficHandler=self.captureMockTrafficHandler,
+                        captureMockTarget=proxyTarget,
+                        captureMockNameFinder=self.captureMockNameFinder)
 
     def captureMockEvaluate(self, response):
         if response.startswith("raise "):
@@ -102,41 +107,36 @@ class ModuleProxy(PythonProxy):
         trafficHandler.importModule(name, self, realException) 
         
 
-class InstanceProxy:
+class InstanceProxy(PythonProxy):
     moduleProxy = None
+    captureMockTargetClass = None
     def __init__(self, *args, **kw):
-        self.name = kw.get("givenInstanceName")
-        moduleProxy = kw.get("moduleProxy")
-        if moduleProxy is not None:
-            self.__class__.moduleProxy = moduleProxy
-        if self.name is None:
-            attrProxy = AttributeProxy(self.moduleProxy.name, self.moduleProxy.handleResponse,
-                                       self.__class__.__name__)
-            response = attrProxy.makeResponse(*args, **kw)
-            def Instance(className, instanceName):
-                return instanceName
-            NewStyleInstance = Instance
-            self.name = eval(response)
-
-    def getRepresentationForSendToTrafficServer(self):
-        return self.name
-
-    def __getattr__(self, attrname):
-        return AttributeProxy(self.name, self.moduleProxy.handleResponse, attrname).tryEvaluate()
-
-    def __setattr__(self, attrname, value):
-        self.__dict__[attrname] = value
-        if attrname != "name":
-            AttributeProxy(self.name, self.moduleProxy.handleResponse, attrname).setValue(value)
+        if "captureMockProxyName" in kw:
+            # 'Internal' constructor, from above
+            PythonProxy.__init__(self, kw.get("captureMockProxyName"), kw.get("captureMockTrafficHandler"),
+                                 kw.get("captureMockTarget"), kw.get("captureMockNameFinder"))
+            if self.captureMockTarget:
+                self.__class__.captureMockTargetClass = self.captureMockTarget.__class__
+            self.__class__.captureMockNameFinder = self.captureMockNameFinder
+            self.__class__.captureMockTrafficHandler = self.captureMockTrafficHandler
+        else:
+            # 'External' constructor, from client code
+            proxyName = self.__class__.__module__ + "." + self.__class__.__name__
+            proxyName, realObj = self.captureMockTrafficHandler.callConstructor(proxyName,
+                                                                                self.captureMockTargetClass,
+                                                                                self,
+                                                                                *args, **kw)
+            PythonProxy.__init__(self, proxyName, self.captureMockTrafficHandler,
+                                 realObj, self.captureMockNameFinder)
 
     # Used by mixins of this class and new-style classes
     def __getattribute__(self, attrname):
-        if attrname in [ "name", "moduleProxy", "__dict__", "__class__", "__getattr__",
-                         "getRepresentationForSendToTrafficServer" ]:
+        if attrname.startswith("captureMock") or attrname in [ "__dict__", "__class__", "__getattr__" ]:
             return object.__getattribute__(self, attrname)
         else:
             return self.__getattr__(attrname)
-
+        
+    # In case of new-style objects, which define these in 'object'
     def __str__(self):
         return self.__getattr__("__str__")()
 

@@ -7,6 +7,9 @@ REPLAY_ONLY_MODE = 0
 RECORD_ONLY_MODE = 1
 REPLAY_OLD_RECORD_NEW_MODE = 2
 
+class CaptureMockReplayError(RuntimeError):
+    pass
+
 class RcFileHandler:
     def __init__(self, rcFiles):
         self.parser = ConfigParser()

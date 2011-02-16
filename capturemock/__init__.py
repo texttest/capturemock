@@ -1,11 +1,9 @@
 
 from capturepython import interceptPython
 from capturecommand import interceptCommand
+from config import CaptureMockReplayError
 
 import os, sys, shutil, socket, config, cmdlineutils, filecmp, subprocess, tempfile
-
-class CaptureMockReplayError(RuntimeError):
-    pass
 
 class CaptureMockManager:
     fileContents = "import capturemock; capturemock.interceptCommand()\n"
