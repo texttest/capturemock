@@ -222,7 +222,7 @@ class InterceptHandler:
     
     def interceptAttributes(self, moduleName, attrNames, trafficHandler):
         for attrName in attrNames:
-            self.interceptAttribute(moduleName + "." + attrName, trafficHandler,
+            self.interceptAttribute(moduleName, trafficHandler,
                                     sys.modules.get(moduleName), attrName)
             
     def interceptAttribute(self, proxyName, trafficHandler, realObj, attrName):
@@ -231,16 +231,17 @@ class InterceptHandler:
         if not hasattr(realObj, currAttrName):
             return # If the real object doesn't have it, assume the fake one doesn't either...
 
-        currRealAttr = getattr(realObj, currAttrName)
         if len(parts) == 1:
-            attrProxy = pythonclient.PythonProxy(proxyName, trafficHandler, currRealAttr, sys.modules)
-            setattr(realObj, currAttrName, attrProxy)
+            proxy = pythonclient.PythonProxy(proxyName, trafficHandler, realObj, sys.modules)
+            setattr(realObj, currAttrName, getattr(proxy, currAttrName))
         else:
+            currRealAttr = getattr(realObj, currAttrName)
+            newProxyName = proxyName + "." + parts[0]
             try:
-                self.interceptAttribute(proxyName, trafficHandler, currRealAttr, parts[1])
+                self.interceptAttribute(newProxyName, trafficHandler, currRealAttr, parts[1])
             except TypeError: # it's a builtin (assume setattr threw), so we hack around...
                 realAttrProxy = TransparentProxy(currRealAttr)
-                self.interceptAttribute(proxyName, trafficHandler, realAttrProxy, parts[1])
+                self.interceptAttribute(newProxyName, trafficHandler, realAttrProxy, parts[1])
                 setattr(realObj, currAttrName, realAttrProxy)
 
 
