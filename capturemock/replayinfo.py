@@ -15,7 +15,19 @@ class ReplayInfo:
             self.parseTrafficList(trafficList)
             items = self.makeCommandItems(rcHandler.getIntercepts("command line")) + \
                     self.makePythonItems(rcHandler.getIntercepts("python"))
-            self.replayItems = self.filterForReplay(items, trafficList)        
+            self.replayItems = self.filterForReplay(items, trafficList)
+            self.instanceNames = self.findInstanceNames(trafficList)
+
+    def findInstanceNames(self, lines):
+        names = []
+        for line in lines:
+            pos = line.find("Instance(")
+            while pos != -1:
+                nameStart = line.find("', '", pos) + 4
+                nameEnd = line.find("'", nameStart)
+                names.append(line[nameStart:nameEnd])
+                pos = line.find("Instance(", nameEnd)
+        return names
 
     @staticmethod
     def filterForReplay(itemInfo, lines):
@@ -43,7 +55,7 @@ class ReplayInfo:
         elif self.replayAll:
             return True
         else:
-            return traffic.isMarkedForReplay(set(self.replayItems))
+            return traffic.isMarkedForReplay(set(self.replayItems + self.instanceNames))
 
     def parseTrafficList(self, trafficList):
         currResponseHandler = None

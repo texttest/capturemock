@@ -2,7 +2,7 @@
 """ Python code for communicating via a socket with a CaptureMock server
  Should try to make default usage of this functionality not use a server """
 
-import sys, os
+import sys, os, types
 
 class NameFinder(dict):
     def __init__(self, moduleProxy):
@@ -96,9 +96,11 @@ class PythonProxy:
         if not attrname.startswith("captureMock"):
             if self.captureMockTarget:
                 setattr(self.captureMockTarget, attrname, value)
-            self.captureMockTrafficHandler.recordSetAttribute(self.captureMockProxyName,
-                                                              attrname,
-                                                              value)
+            # Don't record internally-set module setup when importing modules from packages
+            if not type(value) == types.ModuleType and not isinstance(value, ModuleProxy):
+                self.captureMockTrafficHandler.recordSetAttribute(self.captureMockProxyName,
+                                                                  attrname,
+                                                                  value)
 
 
 class ModuleProxy(PythonProxy):

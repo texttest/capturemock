@@ -17,15 +17,7 @@ class PythonInstanceWrapper:
 
     @classmethod
     def getInstance(cls, instanceName):
-        return cls.allInstances.get(instanceName, sys.modules.get(instanceName, cls.forceImport(instanceName)))
-
-    @classmethod
-    def forceImport(cls, moduleName):
-        try:
-            exec "import " + moduleName
-            return sys.modules.get(moduleName)
-        except ImportError:
-            pass
+        return cls.allInstances.get(instanceName, sys.modules.get(instanceName))
 
     @classmethod
     def getWrapperFor(cls, instance, *args):
@@ -269,6 +261,7 @@ class PythonFunctionCallTraffic(PythonModuleTraffic):
             recordArg = ReprObject(key + "=" + repr(value))
             argsForRecord.append(recordArg)
         text = functionName + "(" + repr(argsForRecord)[1:-1] + ")"
+        self.functionName = functionName
         super(PythonFunctionCallTraffic, self).__init__(text, rcHandler)
             
     def getArgForRecord(self, arg):
@@ -286,6 +279,9 @@ class PythonFunctionCallTraffic(PythonModuleTraffic):
                         newDict[key] = ArgWrapper(val)
                     return repr(newDict)
         return repr(ArgWrapper(arg))
+
+    def getTextMarker(self):
+        return self.functionName
 
     def stripProxy(self, arg):
         if hasattr(arg, "captureMockTarget"):
@@ -395,16 +391,16 @@ class PythonTrafficHandler:
 
     def getAttribute(self, proxyName, attrName, proxy, proxyTarget):
         fullAttrName = proxyName + "." + attrName
-        if self.callStackChecker.callerExcluded(stackDistance=3) or attrName == "__path__":
+        if self.callStackChecker.callerExcluded(stackDistance=3):
             return self.getRealAttribute(proxyTarget, attrName)
         else:
             traffic = PythonAttributeTraffic(fullAttrName, self.rcHandler)
-            if proxyTarget is None or self.replayInfo.isActiveFor(traffic):
-                return self.getAttributeFromReplay(traffic, proxy, fullAttrName)
+            if self.replayInfo.isActiveFor(traffic):
+                return self.getAttributeFromReplay(traffic, proxyTarget, attrName, proxy, fullAttrName)
             else:
                 return self.getAndRecordRealAttribute(traffic, proxyTarget, attrName, proxy, fullAttrName)
 
-    def getAttributeFromReplay(self, traffic, proxy, fullAttrName):
+    def getAttributeFromReplay(self, traffic, proxyTarget, attrName, proxy, fullAttrName):
         responses = self.getReplayResponses(traffic, exact=True)
         if len(responses):
             if not traffic.foundInCache:
@@ -412,7 +408,8 @@ class PythonTrafficHandler:
                 self.recordResponse(responses[0])
             return proxy.captureMockEvaluate(responses[0])
         else:
-            return proxy.captureMockCreateProxy(fullAttrName)
+            newTarget = getattr(proxyTarget, attrName) if proxyTarget else None 
+            return proxy.captureMockCreateProxy(fullAttrName, newTarget)
 
     def getAndRecordRealAttribute(self, traffic, proxyTarget, attrName, proxy, fullAttrName):
         try:
@@ -429,7 +426,13 @@ class PythonTrafficHandler:
                 return traffic.transformResponse(realAttr, proxy)[1]
             else:
                 traffic.record(self.recordFileHandler)
-                return self.transformResponse(traffic, realAttr, proxy)
+                if attrName == "__path__":
+                    # don't want to record the real absolute path, which is just hard to filter
+                    # and won't work for lookup anyway
+                    self.recordResponse("['Fake value just to mark that it exists']")
+                    return realAttr
+                else:
+                    return self.transformResponse(traffic, realAttr, proxy)
         else:
             return proxy.captureMockCreateProxy(fullAttrName, realAttr)
 
@@ -441,7 +444,7 @@ class PythonTrafficHandler:
         responseText, transformedResponse = traffic.transformResponse(*args)
         self.recordResponse(responseText)
         return transformedResponse
-
+    
     # Parameter names chosen to avoid potential clashes with args and kw which come from the app
     def callFunction(self, captureMockProxyName, captureMockProxy, captureMockFunction, *args, **kw):
         if self.callStackChecker.callerExcluded(stackDistance=3):
@@ -449,7 +452,7 @@ class PythonTrafficHandler:
         else:
             traffic = PythonFunctionCallTraffic(captureMockProxyName, self.rcHandler, *args, **kw)
             traffic.record(self.recordFileHandler)
-            if captureMockFunction is None or self.replayInfo.isActiveFor(traffic):
+            if self.replayInfo.isActiveFor(traffic):
                 return self.processReplay(traffic, captureMockProxy)
             else:
                 realRet = traffic.callRealFunction(captureMockFunction, self.recordFileHandler,
@@ -461,7 +464,7 @@ class PythonTrafficHandler:
                         *args, **kw):
         traffic = PythonFunctionCallTraffic(captureMockClassName, self.rcHandler, *args, **kw)
         traffic.record(self.recordFileHandler)
-        if captureMockRealClass is None or self.replayInfo.isActiveFor(traffic):
+        if self.replayInfo.isActiveFor(traffic):
             responses = self.getReplayResponses(traffic)
             if len(responses):
                 self.recordResponse(responses[0])

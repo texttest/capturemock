@@ -1,7 +1,7 @@
 
 """ Generic front end module to all forms of Python interception"""
 
-import sys, os, config, inspect, pythonclient
+import sys, os, config, logging, inspect, pythonclient
 
 class CallStackChecker:
     def __init__(self, rcHandler):
@@ -9,7 +9,10 @@ class CallStackChecker:
         # TODO - ignore_callers list should be able to vary between different calls
         self.ignoreModuleCalls = set([ "capturecommand" ] + rcHandler.getList("ignore_callers", [ "python" ]))
         self.inCallStackChecker = False
+        self.logger = logging.getLogger("Call Stack Checker")
         self.stdlibDir = os.path.dirname(os.path.realpath(os.__file__))
+        self.logger.info("Found stdlib directory at " + self.stdlibDir)
+        self.logger.info("Ignoring calls from " + repr(self.ignoreModuleCalls))
         
     def callerExcluded(self, stackDistance):
         if self.inCallStackChecker:
@@ -27,6 +30,7 @@ class CallStackChecker:
         dirName = self.getDirectory(fileName)
         moduleName = self.getModuleName(fileName)
         moduleNames = set([ moduleName, os.path.basename(dirName) ])
+        self.logger.info("Checking call from " + dirName + ", modules " + repr(moduleNames))
         self.inCallStackChecker = False
         return dirName == self.stdlibDir or len(moduleNames.intersection(self.ignoreModuleCalls)) > 0
 
