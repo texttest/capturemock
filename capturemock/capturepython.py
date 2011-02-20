@@ -70,8 +70,7 @@ class ImportHandler:
                 for currModName in [ modName ] + self.findSubModules(modName, oldModule):
                     loadingMods = self.modulesLoading(currModName, modName)
                     if loadingMods:
-                        oldCurrMod = sys.modules.get(currModName)
-                        newModule = pythonclient.ModuleProxy(currModName, self.trafficHandler, oldCurrMod)
+                        newModule = pythonclient.ModuleProxy(currModName, self.trafficHandler, sys.modules.get)
                         sys.modules[currModName] = newModule
                         for attrName, otherMod in loadingMods:
                             varName = otherMod.__name__ + "." + attrName
@@ -133,21 +132,23 @@ class ImportHandler:
             return sys.modules.setdefault(name, self.createProxy(name))
 
     def createProxy(self, name):
-        try:
-            realModule = self.loadRealModule(name)
-        except:
-            return pythonclient.ModuleProxy(name, self.trafficHandler, realException=sys.exc_info())
-
-        return pythonclient.ModuleProxy(name, self.trafficHandler, realModule=realModule)
-
+        return pythonclient.ModuleProxy(name, self.trafficHandler, self.loadRealModule)
+    
     def loadRealModule(self, name):
+        oldMod = None
+        if name in sys.modules:
+            oldMod = sys.modules.get(name)
+            del sys.modules[name]
         sys.meta_path.remove(self)
         try:
             exec "import " + name + " as _realModule"
         finally:
             sys.meta_path.append(self)
             if name in sys.modules:
-                del sys.modules[name]
+                if oldMod is not None:
+                    sys.modules[name] = oldMod
+                else:
+                    del sys.modules[name]
         return _realModule
 
 

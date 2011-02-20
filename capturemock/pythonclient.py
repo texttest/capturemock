@@ -104,10 +104,15 @@ class PythonProxy:
 
 
 class ModuleProxy(PythonProxy):
-    def __init__(self, name, trafficHandler, realModule=None, realException=None):
-        PythonProxy.__init__(self, name, trafficHandler, realModule, NameFinder(self))
-        trafficHandler.importModule(name, self, realException) 
-        
+    def __init__(self, name, trafficHandler, loadModule):
+        PythonProxy.__init__(self, name, trafficHandler, None, NameFinder(self))
+        self.captureMockTarget = trafficHandler.importModule(name, self, loadModule) 
+        self.captureMockModuleLoader = loadModule
+
+    def captureMockLoadRealModule(self):
+        self.captureMockTarget = self.captureMockModuleLoader(self.captureMockProxyName)
+        return self.captureMockTarget
+    
 
 class InstanceProxy(PythonProxy):
     moduleProxy = None

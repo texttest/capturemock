@@ -359,14 +359,16 @@ class PythonTrafficHandler:
         self.rcHandler = rcHandler
         PythonInstanceWrapper.allInstances = {} # reset, in case of previous tests
 
-    def importModule(self, name, proxy, realException):
+    def importModule(self, name, proxy, loadModule):
         traffic = PythonImportTraffic(name)
         traffic.record(self.recordFileHandler)
         if self.replayInfo.isActiveFor(traffic):
             return self.processReplay(traffic, proxy)
         else:
-            if realException:
-                response = traffic.getExceptionResponse(realException)
+            try:
+                return loadModule(name)
+            except:
+                response = traffic.getExceptionResponse(sys.exc_info())
                 response.record(self.recordFileHandler)
                 raise
 
@@ -392,6 +394,8 @@ class PythonTrafficHandler:
     def getAttribute(self, proxyName, attrName, proxy, proxyTarget):
         fullAttrName = proxyName + "." + attrName
         if self.callStackChecker.callerExcluded(stackDistance=3):
+            if proxyTarget is None:
+                proxyTarget = proxy.captureMockLoadRealModule()
             return self.getRealAttribute(proxyTarget, attrName)
         else:
             traffic = PythonAttributeTraffic(fullAttrName, self.rcHandler)
