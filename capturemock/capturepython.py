@@ -70,7 +70,8 @@ class ImportHandler:
                 for currModName in [ modName ] + self.findSubModules(modName, oldModule):
                     loadingMods = self.modulesLoading(currModName, modName)
                     if loadingMods:
-                        newModule = pythonclient.ModuleProxy(currModName, self.trafficHandler, oldModule)
+                        oldCurrMod = sys.modules.get(currModName)
+                        newModule = pythonclient.ModuleProxy(currModName, self.trafficHandler, oldCurrMod)
                         sys.modules[currModName] = newModule
                         for attrName, otherMod in loadingMods:
                             varName = otherMod.__name__ + "." + attrName
