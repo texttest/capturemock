@@ -1,7 +1,5 @@
 
-""" Python code for communicating via a socket with a CaptureMock server
- Should try to make default usage of this functionality not use a server """
-
+""" Actual interception objects used by Python interception mechanism """
 import sys, os, types
 
 class NameFinder(dict):
@@ -152,57 +150,3 @@ class InstanceProxy(PythonProxy):
 
     def __getitem__(self, *args):
         return self.__getattr__("__getitem__")(*args)
-
-
-class AttributeProxy:
-    def __init__(self, name, trafficHandler, realVersion, nameFinder):
-        self.name = name
-        self.trafficHandler = trafficHandler
-        self.realVersion = realVersion
-        self.nameFinder = nameFinder
-        
-    def setValue(self, value):
-        sock = createSocket()
-        text = "SUT_PYTHON_SETATTR:" + self.modOrObjName + ":SUT_SEP:" + self.attributeName + \
-               ":SUT_SEP:" + repr(self.getArgForSend(value))
-        sock.sendall(text)
-        sock.shutdown(2)
-
-#    def __getattr__(self, name):
-#        return AttributeProxy(self.modOrObjName, self.handleResponse, self.attributeName + "." + name).tryEvaluate()
-
-    def makeResponse(self, *args, **kw):
-        sock = self.createAndSend(*args, **kw)
-        sock.shutdown(1)
-        return sock.makefile().read()
-
-    def createAndSend(self, *args, **kw):
-        sock = createSocket()
-        text = "SUT_PYTHON_CALL:" + self.modOrObjName + ":SUT_SEP:" + self.attributeName + \
-               ":SUT_SEP:" + repr(self.getArgsForSend(args)) + ":SUT_SEP:" + repr(self.getArgForSend(kw))
-        sock.sendall(text)
-        return sock
-
-    def getArgForSend(self, arg):
-        class ArgWrapper:
-            def __init__(self, arg, handleResponse):
-                self.arg = arg
-                self.handleResponse = handleResponse
-            def __repr__(self):
-                if hasattr(self.arg, "getRepresentationForSendToTrafficServer"):
-                    # We choose a long and obscure name to avoid accident clashes with something else
-                    return self.arg.getRepresentationForSendToTrafficServer()
-                elif isinstance(self.arg, list):
-                    return repr([ ArgWrapper(subarg, self.handleResponse) for subarg in self.arg ])
-                elif isinstance(self.arg, dict):
-                    newDict = {}
-                    for key, val in self.arg.items():
-                        newDict[key] = ArgWrapper(val, self.handleResponse)
-                    return repr(newDict)
-                else:
-                    return repr(self.arg)
-        return ArgWrapper(arg, self.handleResponse)
-
-    def getArgsForSend(self, args):
-        return tuple(map(self.getArgForSend, args))
-

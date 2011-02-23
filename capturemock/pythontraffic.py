@@ -123,26 +123,6 @@ class PythonModuleTraffic(PythonTraffic):
     def isBasicType(self, obj):
         return obj is None or obj is NotImplemented or type(obj) in (bool, float, int, long, str, unicode, list, dict, tuple)
 
-    def getPossibleCompositeAttribute(self, instance, attrName):
-        attrParts = attrName.split(".", 1)
-        firstAttr = getattr(instance, attrParts[0])
-        if len(attrParts) == 1:
-            return firstAttr
-        else:
-            return self.getPossibleCompositeAttribute(firstAttr, attrParts[1])
-
-    def evaluate(self, argStr):
-        class UnknownInstanceWrapper:
-            def __init__(self, name):
-                self.name = name
-        class NameFinder:
-            def __getitem__(self, name):
-                return PythonInstanceWrapper.getInstance(name) or UnknownInstanceWrapper(name)
-        try:
-            return eval(argStr)
-        except NameError:
-            return eval(argStr, globals(), NameFinder())
-
     def getResultText(self, result):
         text = repr(self.transformStructure(result, self.insertReprObjects))
         for regex, repl in self.alterations.items():
@@ -213,43 +193,17 @@ class PythonAttributeTraffic(PythonModuleTraffic):
         self.cachedAttributes.add(fullAttrName)
         super(PythonAttributeTraffic, self).__init__(fullAttrName, rcHandler)
 
-    def enquiryOnly(self, responses=[]):
-        return len(responses) == 0 or self.foundInCache
-
     def shouldCache(self, obj):
         return type(obj) not in (types.FunctionType, types.GeneratorType, types.MethodType, types.BuiltinFunctionType,
                                  types.ClassType, types.TypeType, types.ModuleType) and \
                                  not hasattr(obj, "__call__")
 
-    def forwardToDestination(self):
-        instance = PythonInstanceWrapper.getInstance(self.modOrObjName)
-        try:
-            attr = self.getPossibleCompositeAttribute(instance, self.attrName)
-        except:
-            if self.attrName == "__all__":
-                # Need to provide something here, the application has probably called 'from module import *'
-                attr = filter(lambda x: not x.startswith("__"), dir(instance))
-            else:
-                return [ self.getExceptionResponse() ]
-        if self.shouldCache(attr):
-            resultText = self.getResultText(attr)
-            return [ PythonResponseTraffic(resultText) ]
-        else:
-            # Makes things more readable if we delay evaluating this until the function is called
-            # It's rare in Python to cache functions/classes before calling: it's normal to cache other things
-            return []
 
         
 class PythonSetAttributeTraffic(PythonModuleTraffic):
     def __init__(self, rcHandler, proxyName, attrName, value):
         text = proxyName + "." + attrName + " = " + repr(self.insertReprObjects(value))
         super(PythonSetAttributeTraffic, self).__init__(text, rcHandler)
-
-    def forwardToDestination(self):
-        instance = PythonInstanceWrapper.getInstance(self.modOrObjName)
-        value = self.evaluate(self.valueStr)
-        setattr(instance.instance, self.attrName, value)
-        return []
 
 
 class PythonFunctionCallTraffic(PythonModuleTraffic):
@@ -308,44 +262,7 @@ class PythonFunctionCallTraffic(PythonModuleTraffic):
                 responseText = self.getExceptionText(exc_value)
                 PythonResponseTraffic(responseText).record(captureMockRecordHandler)
                 raise
-            
-    def getArgInstance(self, arg):
-        if isinstance(arg, PythonInstanceWrapper):
-            return arg.instance
-        elif isinstance(arg, list):
-            return map(self.getArgInstance, arg)
-        else:
-            return arg
-
-    def callFunction(self, instance):
-        if self.attrName == "__repr__" and isinstance(instance, PythonInstanceWrapper): # Has to be special case as we use it internally
-            return repr(instance.instance)
-        else:
-            func = self.getPossibleCompositeAttribute(instance, self.attrName)
-            return func(*self.args, **self.keyw)
-    
-    def getResult(self):
-        instance = PythonInstanceWrapper.getInstance(self.modOrObjName)
-        try:
-            result = self.callFunction(instance)
-            return self.getResultText(result)
-        except:
-            exc_value = sys.exc_info()[1]
-            moduleName = self.getModuleName(exc_value)
-            if self.belongsToInterceptedModule(moduleName):
-                # We own the exception object also, handle it like an ordinary instance
-                wrapper = self.getWrapper(exc_value, moduleName)
-                return "raise " + repr(wrapper)
-            else:
-                return self.getExceptionText(exc_value)
-
-    def forwardToDestination(self):
-        result = self.getResult()
-        if result != "None":
-            return [ PythonResponseTraffic(result, self.responseFile) ]
-        else:
-            return []
-
+                
 
 class PythonResponseTraffic(traffic.BaseTraffic):
     typeId = "RET"
