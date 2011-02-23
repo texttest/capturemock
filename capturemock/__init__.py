@@ -1,5 +1,5 @@
 
-from capturepython import interceptPython
+from capturepython import interceptPython, resetIntercepts
 from capturecommand import interceptCommand
 
 import os, sys, shutil, socket, config, cmdlineutils, filecmp, subprocess, tempfile
@@ -157,6 +157,7 @@ class capturemock(object):
             finally:
                 if self.tmpRcFile:
                     os.remove(self.tmpRcFile)
+                resetIntercepts()
                 terminate()
         return wrapped_func
 
