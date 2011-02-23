@@ -199,12 +199,16 @@ class InterceptHandler:
                 self.fullIntercepts.append(attrName)
 
     def findAttributeNames(self, mode, pythonAttrs):
+        rcAttrs = self.rcHandler.getIntercepts("python")
         if mode == config.REPLAY_ONLY_MODE:
-            return pythonAttrs + self.replayInfo.replayItems
+            return pythonAttrs + filter(lambda attr: attr in self.replayInfo.replayItems, rcAttrs)
         else:
-            return pythonAttrs + self.rcHandler.getIntercepts("python")
+            return pythonAttrs + rcAttrs
 
     def makeIntercepts(self):
+        if len(self.fullIntercepts) == 0 and len(self.partialIntercepts) == 0:
+            # Don't construct PythonTrafficHandler, which will delete any existing files
+            return
         callStackChecker = CallStackChecker(self.rcHandler)
         from pythontraffic import PythonTrafficHandler
         trafficHandler = PythonTrafficHandler(self.replayInfo, self.recordFile, self.rcHandler, callStackChecker)
