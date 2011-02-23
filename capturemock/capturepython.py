@@ -58,6 +58,7 @@ class CallStackChecker:
 class ImportHandler:
     def __init__(self, moduleNames, callStackChecker, trafficHandler):
         self.moduleNames = moduleNames
+        self.interceptedNames = set()
         self.callStackChecker = callStackChecker
         self.trafficHandler = trafficHandler
         self.handleImportedModules()
@@ -129,6 +130,7 @@ class ImportHandler:
             # a new import next time around
             return self.loadRealModule(name)
         else:
+            self.interceptedNames.add(name)
             return sys.modules.setdefault(name, self.createProxy(name))
 
     def createProxy(self, name):
@@ -151,11 +153,21 @@ class ImportHandler:
                     del sys.modules[name]
         return _realModule
 
+    def reset(self):
+        for modName in self.interceptedNames:
+            if modName in sys.modules:
+                del sys.modules[modName]
+        sys.meta_path.remove(self)
 
 def interceptPython(*args, **kw):
     handler = InterceptHandler(*args, **kw)
     handler.makeIntercepts()
 
+
+def resetIntercepts():
+    for item in sys.meta_path:
+        if isinstance(item, ImportHandler):
+            item.reset()
 
 # Workaround for stuff where we can't do setattr
 class TransparentProxy:
