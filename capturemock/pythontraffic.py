@@ -358,6 +358,7 @@ class PythonTrafficHandler:
         self.callStackChecker = callStackChecker
         self.rcHandler = rcHandler
         PythonInstanceWrapper.allInstances = {} # reset, in case of previous tests
+        PythonAttributeTraffic.cachedAttributes = set()
 
     def importModule(self, name, proxy, loadModule):
         traffic = PythonImportTraffic(name)
