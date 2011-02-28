@@ -3,7 +3,7 @@ from capturepython import interceptPython, resetIntercepts
 from capturecommand import interceptCommand
 from config import CaptureMockReplayError
 
-import os, sys, shutil, socket, config, cmdlineutils, filecmp, subprocess, tempfile
+import os, sys, shutil, config, cmdlineutils, filecmp, subprocess, tempfile
 
 class CaptureMockManager:
     fileContents = "import capturemock; capturemock.interceptCommand()\n"
