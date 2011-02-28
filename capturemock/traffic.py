@@ -1,8 +1,6 @@
 
 """ Defining the base traffic class which the useful traffic classes inherit """
 
-import socket
-
 class BaseTraffic(object):
     def __init__(self, text):
         self.text = text
@@ -43,10 +41,11 @@ class Traffic(BaseTraffic):
         self.responseFile = responseFile
     
     def write(self, message):
+        from socket import error
         if self.responseFile:
             try:
                 self.responseFile.write(message)
-            except socket.error:
+            except error:
                 # The system under test has died or is otherwise unresponsive
                 # Should handle this, probably. For now, ignoring it is better than stack dumps
                 pass
