@@ -1,7 +1,7 @@
 
 """ Class to handle the interface with the rc file """
 from ConfigParser import ConfigParser
-import os
+import os, logging.config
 
 REPLAY_ONLY_MODE = 0
 RECORD_ONLY_MODE = 1
@@ -43,6 +43,14 @@ class RcFileHandler:
                 if listStr:
                     result += listStr.split(",")
         return result
+
+    def setUpLogging(self):
+        logConfigFile = self.get("log_config_file", [ "general" ],
+                                 self.getPersonalPath("logging.conf"))
+        if os.path.isfile(logConfigFile):
+            defaults = { "LOCAL_DIR" : os.path.dirname(logConfigFile) }
+            logging.config.fileConfig(logConfigFile, defaults)
+
 
 def isActive(mode, replayFile):
     return mode != REPLAY_ONLY_MODE or (replayFile is not None and os.path.isfile(replayFile))

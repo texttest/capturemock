@@ -1,5 +1,5 @@
 
-import os, stat, sys, logging, logging.config, socket, threading, time, subprocess
+import os, stat, sys, logging, socket, threading, time, subprocess
 import config, recordfilehandler, cmdlineutils, commandlinetraffic, fileedittraffic, clientservertraffic
 from SocketServer import TCPServer, StreamRequestHandler
 from ordereddict import OrderedDict
@@ -45,7 +45,7 @@ def stopServer(servAddr):
 class TrafficServer(TCPServer):
     def __init__(self, options):
         self.rcHandler = config.RcFileHandler(options.rcfiles.split(","))
-        self.setUpLogging()
+        self.rcHandler.setUpLogging()
         self.filesToIgnore = self.rcHandler.getList("ignore_edits", [ "command line" ])
         self.useThreads = self.rcHandler.getboolean("server_multithreaded", [ "general" ], True)
         self.replayInfo = ReplayInfo(options.replay, self.rcHandler)
@@ -60,13 +60,6 @@ class TrafficServer(TCPServer):
         host, port = self.socket.getsockname()
         sys.stdout.write(host + ":" + str(port) + "\n") # Tell our caller, so they can tell the program being handled
         sys.stdout.flush()
-
-    def setUpLogging(self):
-        logConfigFile = self.rcHandler.get("log_config_file", [ "general" ],
-                                           self.rcHandler.getPersonalPath("logging.conf"))
-        if os.path.isfile(logConfigFile):
-            defaults = { "LOCAL_DIR" : os.path.dirname(logConfigFile) }
-            logging.config.fileConfig(logConfigFile, defaults)
         
     def run(self):
         self.diag.info("Starting capturemock server")

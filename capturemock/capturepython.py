@@ -183,6 +183,7 @@ class InterceptHandler:
         self.fullIntercepts = []
         self.partialIntercepts = {}
         self.rcHandler = config.RcFileHandler(rcFiles)
+        self.rcHandler.setUpLogging()
         import replayinfo
         self.replayInfo = replayinfo.ReplayInfo(replayFile, self.rcHandler)
         self.recordFile = recordFile
