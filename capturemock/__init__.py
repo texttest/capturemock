@@ -152,15 +152,8 @@ class capturemock(object):
         from inspect import stack
         callingFile = stack()[1][1]
         fileNameRoot = self.getFileNameRoot(func.__name__, callingFile)
-        if self.mode == config.RECORD_ONLY_MODE:
-            recordFile = fileNameRoot
-            replayFile = None
-        elif self.mode == config.REPLAY_ONLY_MODE:
-            replayFile = fileNameRoot
-            recordFile = tempfile.mktemp()
-        else:
-            replayFile = fileNameRoot
-            recordFile = fileNameRoot
+        replayFile = None if self.mode == config.RECORD_ONLY_MODE else fileNameRoot
+        recordFile = tempfile.mktemp()
         def wrapped_func(*funcargs, **funckw):
             try:
                 setUpPython(self.mode, recordFile, replayFile, self.rcFiles, self.pythonAttrs)
@@ -168,6 +161,8 @@ class capturemock(object):
                 func(*funcargs, **funckw)
                 if self.mode == config.REPLAY_ONLY_MODE:
                     self.checkMatching(recordFile, replayFile)
+                elif os.path.isfile(recordFile):
+                    shutil.move(recordFile, fileNameRoot)
             finally:
                 resetIntercepts()
                 terminate()
