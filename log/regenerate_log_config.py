@@ -10,5 +10,5 @@ if __name__ == "__main__":
     coreLib = os.path.join(installationRoot, "capturemock")
     coreLoggers = logconfiggen.findLoggerNamesUnder(coreLib)
         
-    gen.generate(enabledLoggerNames, coreLoggers)
+    gen.generate(enabledLoggerNames, coreLoggers, debugLevelLoggers=coreLoggers)
     

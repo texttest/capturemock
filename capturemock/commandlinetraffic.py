@@ -14,7 +14,7 @@ class CommandLineTraffic(traffic.Traffic):
         self.cmdEnviron = eval(environText)
         self.cmdCwd = cmdCwd
         self.proxyPid = proxyPid
-        self.diag.info("Received command with cwd = " + cmdCwd)
+        self.diag.debug("Received command with cwd = " + cmdCwd)
         self.fullCommand = argv[0].replace("\\", "/")
         self.commandName = os.path.basename(self.fullCommand)
         self.cmdArgs = [ self.commandName ] + argv[1:]
@@ -29,7 +29,7 @@ class CommandLineTraffic(traffic.Traffic):
         for var in self.getEnvironmentVariables(rcHandler):
             value = cmdEnviron.get(var)
             currValue = os.getenv(var)
-            self.diag.info("Checking environment " + var + "=" + repr(value) + " against " + repr(currValue))
+            self.diag.debug("Checking environment " + var + "=" + repr(value) + " against " + repr(currValue))
             if value != currValue:
                 if value is None:
                     envVarsUnset.append(var)
@@ -89,7 +89,7 @@ class CommandLineTraffic(traffic.Traffic):
                     if os.path.exists(fullPath):
                         edits.append(fullPath)
         self.removeSubPaths(edits) # don't want to in effect mark the same file twice
-        self.diag.info("Might edit in " + repr(edits))
+        self.diag.debug("Might edit in " + repr(edits))
         return edits
 
     def makesAsynchronousEdits(self):
@@ -119,7 +119,7 @@ class CommandLineTraffic(traffic.Traffic):
         
     def forwardToDestination(self):
         try:
-            self.diag.info("Running real command with args : " + repr(self.cmdArgs))
+            self.diag.debug("Running real command with args : " + repr(self.cmdArgs))
             proc = subprocess.Popen(self.cmdArgs, env=self.cmdEnviron, cwd=self.cmdCwd, 
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
             CommandLineKillTraffic.pidMap[self.proxyPid] = proc

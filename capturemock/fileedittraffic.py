@@ -46,9 +46,9 @@ class FileEditTraffic(traffic.ResponseTraffic):
     def makeRecordedTraffic(cls, file, changedPaths):
         storedFile = os.path.join(cls.recordFileEditDir, cls.getFileEditName(os.path.basename(file)))
         fileName = os.path.basename(storedFile)
-        cls.diag.info("File being edited for '" + fileName + "' : will store " + str(file) + " as " + str(storedFile))
+        cls.diag.debug("File being edited for '" + fileName + "' : will store " + str(file) + " as " + str(storedFile))
         for path in changedPaths:
-            cls.diag.info("- changed " + path)
+            cls.diag.debug("- changed " + path)
         return cls(fileName, file, storedFile, changedPaths, reproduce=False)
 
     @classmethod

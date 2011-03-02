@@ -70,7 +70,7 @@ class ReplayInfo:
                     self.responseMap[currTrafficIn] = currResponseHandler
             elif currResponseHandler:
                 currResponseHandler.addResponse(trafficStr)
-        self.diag.info("Replay info " + repr(self.responseMap))
+        self.diag.debug("Replay info " + repr(self.responseMap))
 
     def readIntoList(self, replayFile):
         trafficList = []
@@ -99,9 +99,9 @@ class ReplayInfo:
 
     def getResponseMapKey(self, traffic, exact):
         desc = traffic.getDescription()
-        self.diag.info("Trying to match '" + desc + "'")
+        self.diag.debug("Trying to match '" + desc + "'")
         if self.responseMap.has_key(desc):
-            self.diag.info("Found exact match")
+            self.diag.debug("Found exact match")
             return desc
         elif not exact:
             return self.findBestMatch(desc)
@@ -113,14 +113,14 @@ class ReplayInfo:
         for currDesc, responseHandler in self.responseMap.items():
             if self.sameType(desc, currDesc):
                 descToCompare = currDesc                    
-                self.diag.info("Comparing with '" + descToCompare + "'")
+                self.diag.debug("Comparing with '" + descToCompare + "'")
                 matchInfo = self.getWords(descToCompare), responseHandler.getUnmatchedResponseCount()
                 if self.isBetterMatch(matchInfo, bestMatchInfo, descWords):
                     bestMatchInfo = matchInfo
                     bestMatch = currDesc
 
         if bestMatch is not None:
-            self.diag.info("Best match chosen as '" + bestMatch + "'")
+            self.diag.debug("Best match chosen as '" + bestMatch + "'")
             return bestMatch
 
     def sameType(self, desc1, desc2):
@@ -164,7 +164,7 @@ class ReplayInfo:
         blocks2 = self.getMatchingBlocks(words2, targetWords)
         common1 = self.commonElementCount(blocks1)
         common2 = self.commonElementCount(blocks2)
-        self.diag.info("Words in common " + repr(common1) + " vs " + repr(common2))
+        self.diag.debug("Words in common " + repr(common1) + " vs " + repr(common2))
         if common1 > common2:
             return True
         elif common1 < common2:
@@ -172,13 +172,13 @@ class ReplayInfo:
 
         nonMatchCount1 = self.nonMatchingSequenceCount(blocks1)
         nonMatchCount2 = self.nonMatchingSequenceCount(blocks2)
-        self.diag.info("Non matching sequences " + repr(nonMatchCount1) + " vs " + repr(nonMatchCount2))
+        self.diag.debug("Non matching sequences " + repr(nonMatchCount1) + " vs " + repr(nonMatchCount2))
         if nonMatchCount1 < nonMatchCount2:
             return True
         elif nonMatchCount1 > nonMatchCount2:
             return False
 
-        self.diag.info("Unmatched count difference " + repr(unmatchedCount1) + " vs " + repr(unmatchedCount2))
+        self.diag.debug("Unmatched count difference " + repr(unmatchedCount1) + " vs " + repr(unmatchedCount2))
         return unmatchedCount1 > unmatchedCount2
     
 
