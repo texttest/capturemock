@@ -162,12 +162,8 @@ class ImportHandler:
 def interceptPython(*args, **kw):
     handler = InterceptHandler(*args, **kw)
     handler.makeIntercepts()
+    return handler
 
-
-def resetIntercepts():
-    for item in sys.meta_path:
-        if isinstance(item, ImportHandler):
-            item.reset()
 
 # Workaround for stuff where we can't do setattr
 class TransparentProxy:
@@ -182,6 +178,7 @@ class InterceptHandler:
     def __init__(self, mode, recordFile, replayFile, rcFiles, pythonAttrs):
         self.fullIntercepts = []
         self.partialIntercepts = {}
+        self.attributesIntercepted = []
         self.rcHandler = config.RcFileHandler(rcFiles)
         # Has too many side effects, because our log configuration file may conflict with the application's logging set up. Need to find another way.
         #self.rcHandler.setUpLogging()
@@ -251,7 +248,7 @@ class InterceptHandler:
 
         if len(parts) == 1:
             proxy = pythonclient.PythonProxy(proxyName, trafficHandler, realObj, sys.modules)
-            setattr(realObj, currAttrName, getattr(proxy, currAttrName))
+            self.performAttributeInterception(realObj, currAttrName, getattr(proxy, currAttrName))
         else:
             currRealAttr = getattr(realObj, currAttrName)
             newProxyName = proxyName + "." + parts[0]
@@ -260,6 +257,16 @@ class InterceptHandler:
             except TypeError: # it's a builtin (assume setattr threw), so we hack around...
                 realAttrProxy = TransparentProxy(currRealAttr)
                 self.interceptAttribute(newProxyName, trafficHandler, realAttrProxy, parts[1])
-                setattr(realObj, currAttrName, realAttrProxy)
+                self.performAttributeInterception(realObj, currAttrName, realAttrProxy)
 
+    def performAttributeInterception(self, realObj, attrName, proxy):
+        origValue = getattr(realObj, attrName)
+        setattr(realObj, attrName, proxy)
+        self.attributesIntercepted.append((realObj, attrName, origValue))
 
+    def resetIntercepts(self):
+        for item in sys.meta_path:
+            if isinstance(item, ImportHandler):
+                item.reset()
+        for realObj, attrName, origValue in self.attributesIntercepted:
+            setattr(realObj, attrName, origValue)

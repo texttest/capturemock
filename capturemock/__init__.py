@@ -1,5 +1,5 @@
 
-from capturepython import interceptPython, resetIntercepts
+from capturepython import interceptPython
 from capturecommand import interceptCommand
 from config import CaptureMockReplayError
 
@@ -168,14 +168,14 @@ class capturemock(object):
         def wrapped_func(*funcargs, **funckw):
             try:
                 setUpPython(self.mode, recordFile, replayFile, self.rcFiles, self.pythonAttrs)
-                interceptPython(self.mode, recordFile, replayFile, self.rcFiles, self.pythonAttrs)
+                interceptor = interceptPython(self.mode, recordFile, replayFile, self.rcFiles, self.pythonAttrs)
                 func(*funcargs, **funckw)
                 if self.mode == config.REPLAY_ONLY_MODE:
                     self.checkMatching(recordFile, replayFile)
                 elif os.path.isfile(recordFile):
                     shutil.move(recordFile, fileNameRoot)
             finally:
-                resetIntercepts()
+                interceptor.resetIntercepts()
                 terminate()
         return wrapped_func
 
