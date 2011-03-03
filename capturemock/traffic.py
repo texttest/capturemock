@@ -23,9 +23,6 @@ class BaseTraffic(object):
     def enquiryOnly(self, responses=[]):
         return False
 
-    def forwardToDestination(self):
-        pass
-
     def record(self, recordFileHandler, *args):
         if not self.hasInfo():
             return
