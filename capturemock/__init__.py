@@ -60,7 +60,18 @@ class CaptureMockManager:
         else:
             self.makePosixIntercept(interceptName)
 
+    def filterAbsolute(self, commands):
+        relativeCmds = []
+        for cmd in commands:
+            if os.path.isabs(cmd):
+                sys.stderr.write("WARNING: Ignoring requested intercept of command " + repr(cmd) + ".\n" +
+                                 "CaptureMock intercepts commands via PATH and cannot do anything with absolute paths.\n")
+            else:
+                relativeCmds.append(cmd)
+        return relativeCmds
+
     def makePathIntercepts(self, commands, interceptDir, replayFile, mode):
+        commands = self.filterAbsolute(commands)
         if replayFile and mode == config.REPLAY_ONLY_MODE:
             import replayinfo
             commands = replayinfo.filterCommands(commands, replayFile)
