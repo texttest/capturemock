@@ -16,10 +16,6 @@ class PythonInstanceWrapper:
         self.wrappersByInstance[id(self.target)] = self
 
     @classmethod
-    def getInstance(cls, instanceName):
-        return cls.allInstances.get(instanceName, sys.modules.get(instanceName))
-
-    @classmethod
     def getWrapperFor(cls, instance, *args):
         storedWrapper = cls.wrappersByInstance.get(id(instance))
         return storedWrapper or cls(instance, *args)        
@@ -218,22 +214,6 @@ class PythonFunctionCallTraffic(PythonModuleTraffic):
         self.functionName = functionName
         super(PythonFunctionCallTraffic, self).__init__(text, rcHandler)
             
-    def getArgForRecord(self, arg):
-        class ArgWrapper:
-            def __init__(self, arg):
-                self.arg = arg
-            def __repr__(self):
-                if hasattr(self.arg, "instanceName"):
-                    return self.arg.instanceName
-                elif isinstance(self.arg, list):
-                    return repr([ ArgWrapper(subarg) for subarg in self.arg ])
-                elif isinstance(self.arg, dict):
-                    newDict = {}
-                    for key, val in self.arg.items():
-                        newDict[key] = ArgWrapper(val)
-                    return repr(newDict)
-        return repr(ArgWrapper(arg))
-
     def getTextMarker(self):
         return self.functionName
 
@@ -294,10 +274,6 @@ class PythonTrafficHandler:
         for responseText in self.getReplayResponses(traffic):
             PythonResponseTraffic(responseText).record(self.recordFileHandler)
             return proxy.captureMockEvaluate(responseText)
-
-    def record(self, traffic, responses):
-        for response in responses:
-            response.record(self.recordFileHandler)
 
     def getReplayResponses(self, traffic, **kw):
         return [ text for _, text in self.replayInfo.readReplayResponses(traffic, [ PythonResponseTraffic ], **kw) ]
@@ -407,11 +383,3 @@ class PythonTrafficHandler:
             traffic = PythonSetAttributeTraffic(self.rcHandler, *args)
             traffic.record(self.recordFileHandler)
             
-            
-def getTrafficClasses(incoming):
-    if incoming:
-        return [ PythonFunctionCallTraffic, PythonAttributeTraffic,
-                 PythonSetAttributeTraffic, PythonImportTraffic ]
-    else:
-        return [ PythonResponseTraffic ] 
-
