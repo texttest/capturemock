@@ -238,12 +238,6 @@ class InterceptHandler:
         except ImportError:
             return False
 
-    def handleBasicResponse(self, response):
-        if response.startswith("raise "):
-            exec response in sys.modules
-        else:
-            return eval(response, sys.modules)
-    
     def interceptAttributes(self, moduleName, attrNames, trafficHandler):
         for attrName in attrNames:
             self.interceptAttribute(moduleName, trafficHandler,
