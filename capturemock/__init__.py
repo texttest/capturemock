@@ -1,7 +1,7 @@
 
 from capturepython import interceptPython
 from capturecommand import interceptCommand
-from config import CaptureMockReplayError
+from config import CaptureMockReplayError, RECORD, REPLAY, REPLAY_OLD_RECORD_NEW
 
 import os, sys, shutil, config, cmdlineutils, filecmp, subprocess, tempfile, types
 
@@ -72,7 +72,7 @@ class CaptureMockManager:
 
     def makePathIntercepts(self, commands, interceptDir, replayFile, mode):
         commands = self.filterAbsolute(commands)
-        if replayFile and mode == config.REPLAY_ONLY_MODE:
+        if replayFile and mode == config.REPLAY:
             import replayinfo
             commands = replayinfo.filterCommands(commands, replayFile)
         for command in commands:
@@ -181,7 +181,7 @@ class CaptureMockDecorator(object):
         from inspect import stack
         callingFile = stack()[self.stackDistance][1]
         fileNameRoot = self.getFileNameRoot(func.__name__, callingFile)
-        replayFile = None if self.mode == config.RECORD_ONLY_MODE else fileNameRoot
+        replayFile = None if self.mode == config.RECORD else fileNameRoot
         recordFile = tempfile.mktemp()
         def wrapped_func(*funcargs, **funckw):
             interceptor = None
@@ -189,7 +189,7 @@ class CaptureMockDecorator(object):
                 setUpPython(self.mode, recordFile, replayFile, self.rcFiles, self.pythonAttrs)
                 interceptor = interceptPython(self.mode, recordFile, replayFile, self.rcFiles, self.pythonAttrs)
                 func(*funcargs, **funckw)
-                if self.mode == config.REPLAY_ONLY_MODE:
+                if self.mode == config.REPLAY:
                     self.checkMatching(recordFile, replayFile)
                 elif os.path.isfile(recordFile):
                     shutil.move(recordFile, fileNameRoot)

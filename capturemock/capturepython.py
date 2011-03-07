@@ -199,7 +199,7 @@ class InterceptHandler:
 
     def findAttributeNames(self, mode, pythonAttrs):
         rcAttrs = self.rcHandler.getIntercepts("python")
-        if mode == config.REPLAY_ONLY_MODE:
+        if mode == config.REPLAY:
             return pythonAttrs + filter(lambda attr: attr in self.replayInfo.replayItems, rcAttrs)
         else:
             return pythonAttrs + rcAttrs

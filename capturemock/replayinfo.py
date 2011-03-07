@@ -9,7 +9,7 @@ class ReplayInfo:
         self.responseMap = OrderedDict()
         self.diag = logging.getLogger("Replay")
         self.replayItems = []
-        self.replayAll = int(os.getenv("CAPTUREMOCK_MODE")) == config.REPLAY_ONLY_MODE
+        self.replayAll = int(os.getenv("CAPTUREMOCK_MODE")) == config.REPLAY
         if replayFile:
             trafficList = self.readIntoList(replayFile)
             self.parseTrafficList(trafficList)

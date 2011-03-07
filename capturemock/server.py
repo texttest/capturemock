@@ -24,7 +24,7 @@ def startServer(rcFiles, mode, replayFile, replayEditDir,
     if recordEditDir:
         cmdArgs += [ "-F", recordEditDir ]
                                 
-    if replayFile and mode != config.RECORD_ONLY_MODE:
+    if replayFile and mode != config.RECORD:
         cmdArgs += [ "-p", replayFile ]
         if replayEditDir:
             cmdArgs += [ "-f", replayEditDir ]

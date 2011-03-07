@@ -3,9 +3,9 @@
 from ConfigParser import ConfigParser
 import os, logging.config
 
-REPLAY_ONLY_MODE = 0
-RECORD_ONLY_MODE = 1
-REPLAY_OLD_RECORD_NEW_MODE = 2
+REPLAY = 0
+RECORD = 1
+REPLAY_OLD_RECORD_NEW = 2
 
 class CaptureMockReplayError(RuntimeError):
     pass
@@ -53,4 +53,4 @@ class RcFileHandler:
 
 
 def isActive(mode, replayFile):
-    return mode != REPLAY_ONLY_MODE or (replayFile is not None and os.path.isfile(replayFile))
+    return mode != REPLAY or (replayFile is not None and os.path.isfile(replayFile))
