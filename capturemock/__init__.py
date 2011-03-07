@@ -3,7 +3,7 @@ from capturepython import interceptPython
 from capturecommand import interceptCommand
 from config import CaptureMockReplayError
 
-import os, sys, shutil, config, cmdlineutils, filecmp, subprocess, tempfile
+import os, sys, shutil, config, cmdlineutils, filecmp, subprocess, tempfile, types
 
 class CaptureMockManager:
     fileContents = "import capturemock; capturemock.interceptCommand()\n"
@@ -146,26 +146,45 @@ def commandline():
     shutil.rmtree(interceptDir)
     terminate()
 
+
+def capturemock(pythonAttrsOrFunc=[], *args, **kw):
+    if isinstance(pythonAttrsOrFunc, types.FunctionType):
+        return CaptureMockDecorator(stackDistance=2)(pythonAttrsOrFunc)
+    else:
+        return CaptureMockDecorator(pythonAttrsOrFunc, *args, **kw)
+    
     
 # For use as a decorator in coded tests
-class capturemock(object):
-    def __init__(self, pythonAttrs=[], mode=None, rcFiles=[]):
+class CaptureMockDecorator(object):
+    defaultMode = int(os.getenv("CAPTUREMOCK_MODE", "0"))
+    defaultPythonAttrs = []
+    defaultRcFiles = []
+    @classmethod
+    def set_defaults(cls, pythonAttrs=[], mode=None, rcFiles=[]):
+        cls.defaultRcFiles = rcFiles
+        cls.defaultPythonAttrs = pythonAttrs
+        if mode is not None:
+            cls.defaultMode = mode
+        
+    def __init__(self, pythonAttrs=[], mode=None, rcFiles=[], stackDistance=1):
         if mode is not None:
             self.mode = mode
         else:
-            self.mode = int(os.getenv("CAPTUREMOCK_MODE", "0"))
-        self.pythonAttrs = pythonAttrs
-        if not isinstance(pythonAttrs, list):
-            self.pythonAttrs = [ pythonAttrs ]
-        self.rcFiles = rcFiles
+            self.mode = self.defaultMode
+        self.pythonAttrs = pythonAttrs or self.defaultPythonAttrs
+        if not isinstance(self.pythonAttrs, list):
+            self.pythonAttrs = [ self.pythonAttrs ]
+        self.rcFiles = rcFiles or self.defaultRcFiles
+        self.stackDistance = stackDistance
                 
     def __call__(self, func):
         from inspect import stack
-        callingFile = stack()[1][1]
+        callingFile = stack()[self.stackDistance][1]
         fileNameRoot = self.getFileNameRoot(func.__name__, callingFile)
         replayFile = None if self.mode == config.RECORD_ONLY_MODE else fileNameRoot
         recordFile = tempfile.mktemp()
         def wrapped_func(*funcargs, **funckw):
+            interceptor = None
             try:
                 setUpPython(self.mode, recordFile, replayFile, self.rcFiles, self.pythonAttrs)
                 interceptor = interceptPython(self.mode, recordFile, replayFile, self.rcFiles, self.pythonAttrs)
@@ -175,7 +194,8 @@ class capturemock(object):
                 elif os.path.isfile(recordFile):
                     shutil.move(recordFile, fileNameRoot)
             finally:
-                interceptor.resetIntercepts()
+                if interceptor:
+                    interceptor.resetIntercepts()
                 terminate()
         return wrapped_func
 
@@ -209,3 +229,4 @@ class capturemock(object):
             os.makedirs(dirName)
         return os.path.join(dirName, funcName.replace("test_", "") + ".mock")
     
+set_defaults = CaptureMockDecorator.set_defaults
