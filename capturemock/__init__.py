@@ -182,6 +182,8 @@ class CaptureMockDecorator(object):
         callingFile = stack()[self.stackDistance][1]
         fileNameRoot = self.getFileNameRoot(func.__name__, callingFile)
         replayFile = None if self.mode == config.RECORD else fileNameRoot
+        if not config.isActive(self.mode, replayFile):
+            return func
         recordFile = tempfile.mktemp()
         def wrapped_func(*funcargs, **funckw):
             interceptor = None
