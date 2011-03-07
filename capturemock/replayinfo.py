@@ -5,11 +5,11 @@ import config, logging, difflib, re, os
 from ordereddict import OrderedDict
 
 class ReplayInfo:
-    def __init__(self, replayFile, rcHandler):
+    def __init__(self, mode, replayFile, rcHandler):
         self.responseMap = OrderedDict()
         self.diag = logging.getLogger("Replay")
         self.replayItems = []
-        self.replayAll = int(os.getenv("CAPTUREMOCK_MODE")) == config.REPLAY
+        self.replayAll = mode == config.REPLAY
         if replayFile:
             trafficList = self.readIntoList(replayFile)
             self.parseTrafficList(trafficList)

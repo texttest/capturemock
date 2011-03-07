@@ -183,7 +183,7 @@ class InterceptHandler:
         # Has too many side effects, because our log configuration file may conflict with the application's logging set up. Need to find another way.
         #self.rcHandler.setUpLogging()
         import replayinfo
-        self.replayInfo = replayinfo.ReplayInfo(replayFile, self.rcHandler)
+        self.replayInfo = replayinfo.ReplayInfo(mode, replayFile, self.rcHandler)
         self.recordFile = recordFile
         for attrName in self.findAttributeNames(mode, pythonAttrs):
             if "." in attrName:
