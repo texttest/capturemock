@@ -8,7 +8,8 @@ class RecordFileHandler(object):
         self.file = file
 
     def record(self, text):
-        writeFile = open(self.file, "a")
-        writeFile.write(text)
-        writeFile.flush()
-        writeFile.close()
+        if self.file:
+            writeFile = open(self.file, "a")
+            writeFile.write(text)
+            writeFile.flush()
+            writeFile.close()

@@ -19,8 +19,11 @@ def getPython():
             
 def startServer(rcFiles, mode, replayFile, replayEditDir,
                 recordFile, recordEditDir, sutDirectory, environment):
-    cmdArgs = [ getPython(), __file__, "--rcfiles", ",".join(rcFiles),
-                "-r", recordFile, "-m", str(mode) ]
+    cmdArgs = [ getPython(), __file__, "-m", str(mode) ]
+    if rcFiles:
+        cmdArgs += [ "--rcfiles", ",".join(rcFiles) ]
+    if recordFile:
+        cmdArgs += [ "-r", recordFile ]
     if recordEditDir:
         cmdArgs += [ "-F", recordEditDir ]
                                 
@@ -44,7 +47,8 @@ def stopServer(servAddr):
 
 class TrafficServer(TCPServer):
     def __init__(self, options):
-        self.rcHandler = config.RcFileHandler(options.rcfiles.split(","))
+        rcFiles = options.rcfiles.split(",") if options.rcfiles else []
+        self.rcHandler = config.RcFileHandler(rcFiles)
         self.rcHandler.setUpLogging()
         self.filesToIgnore = self.rcHandler.getList("ignore_edits", [ "command line" ])
         self.useThreads = self.rcHandler.getboolean("server_multithreaded", [ "general" ], True)

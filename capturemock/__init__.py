@@ -137,11 +137,20 @@ def terminate():
 
 def commandline():
     parser = cmdlineutils.create_option_parser()
+    parser.disable_interspersed_args()
     options, args = parser.parse_args()
-    interceptDir = tempfile.mkdtemp() 
-    setUpServer(options.mode, options.record, options.replay,  
+    if len(args) == 0:
+        return parser.print_help()
+    interceptDir = tempfile.mkdtemp()
+    rcFiles = []
+    if options.rcfiles:
+        rcFiles = options.rcfiles.split(",")
+    mode = options.mode
+    if mode == REPLAY and options.replay is None:
+        mode = RECORD
+    setUpServer(mode, options.record, options.replay,  
                 recordEditDir=options.record_file_edits, replayEditDir=options.replay_file_edits,
-                rcFiles=options.rcfiles.split(","), interceptDir=interceptDir)
+                rcFiles=rcFiles, interceptDir=interceptDir)
     subprocess.call(args)
     shutil.rmtree(interceptDir)
     terminate()

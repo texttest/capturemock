@@ -3,7 +3,7 @@
 import optparse
 
 def create_option_parser():
-    usage = """usage: %prog [options] 
+    usage = """usage: %prog [options] <program> <program_args> ...
 
 CaptureMock command line program. Records and replays interaction defined by stuff in its rc file"""
 
