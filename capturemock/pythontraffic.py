@@ -34,19 +34,37 @@ class PythonInstanceWrapper:
 class PythonTraffic(traffic.BaseTraffic):
     typeId = "PYT"
     direction = "<-"
+    def __init__(self, text, rcHandler):
+        super(PythonTraffic, self).__init__(text)
+        self.alterations = {}
+        for alterStr in rcHandler.getList("alterations", [ self.getTextMarker(), "python" ]):
+            toFind = rcHandler.get("match_pattern", [ alterStr ])
+            toReplace = rcHandler.get("replacement", [ alterStr ])
+            if toFind and toReplace is not None:
+                self.alterations[re.compile(toFind)] = toReplace
+
+    def applyAlterations(self, text):
+        for regex, repl in self.alterations.items():
+            text = regex.sub(repl, text)
+        return text
+
+    def getTextMarker(self):
+        return self.text
+        
     def getExceptionResponse(self, exc_info):
         exc_value = exc_info[1]
         return PythonResponseTraffic(self.getExceptionText(exc_value))
 
     def getExceptionText(self, exc_value):
-        return "raise " + exc_value.__class__.__module__ + "." + exc_value.__class__.__name__ + "(" + repr(str(exc_value)) + ")"
+        text = "raise " + exc_value.__class__.__module__ + "." + exc_value.__class__.__name__ + "(" + repr(str(exc_value)) + ")"
+        return self.applyAlterations(text)
 
 
 class PythonImportTraffic(PythonTraffic):
-    def __init__(self, inText):
+    def __init__(self, inText, *args):
         self.moduleName = inText
         text = "import " + self.moduleName
-        super(PythonImportTraffic, self).__init__(text)
+        super(PythonImportTraffic, self).__init__(text, *args)
 
     def isMarkedForReplay(self, replayItems):
         return self.moduleName in replayItems
@@ -62,14 +80,8 @@ class ReprObject:
                   
 class PythonModuleTraffic(PythonTraffic):
     def __init__(self, text, rcHandler):
-        super(PythonModuleTraffic, self).__init__(text)
+        super(PythonModuleTraffic, self).__init__(text, rcHandler)
         self.interceptModules = set(rcHandler.getIntercepts("python"))
-        self.alterations = {}
-        for alterStr in rcHandler.getList("alterations", [ self.getTextMarker(), "python" ]):
-            toFind = rcHandler.get("match_pattern", [ alterStr ])
-            toReplace = rcHandler.get("replacement", [ alterStr ])
-            if toFind and toReplace:
-                self.alterations[re.compile(toFind)] = toReplace
         
     def getModuleName(self, obj):
         if hasattr(obj, "__module__"): # classes, functions, many instances
@@ -101,9 +113,6 @@ class PythonModuleTraffic(PythonTraffic):
         else:
             return out
 
-    def getTextMarker(self):
-        return self.text
-
     def isMarkedForReplay(self, replayItems):
         textMarker = self.getTextMarker()
         return any((item == textMarker or textMarker.startswith(item + ".") for item in replayItems))
@@ -121,9 +130,7 @@ class PythonModuleTraffic(PythonTraffic):
 
     def getResultText(self, result):
         text = repr(self.transformStructure(result, self.insertReprObjects))
-        for regex, repl in self.alterations.items():
-            text = regex.sub(repl, text)
-        return text
+        return self.applyAlterations(text)
 
     def transformResponse(self, response, proxy):
         wrappedValue = self.transformStructure(response, self.addInstanceWrapper)
@@ -258,7 +265,7 @@ class PythonTrafficHandler:
         PythonAttributeTraffic.cachedAttributes = set()
 
     def importModule(self, name, proxy, loadModule):
-        traffic = PythonImportTraffic(name)
+        traffic = PythonImportTraffic(name, self.rcHandler)
         traffic.record(self.recordFileHandler)
         if self.replayInfo.isActiveFor(traffic):
             return self.processReplay(traffic, proxy)
