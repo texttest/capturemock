@@ -98,7 +98,7 @@ def setUpPython(mode, recordFile, replayFile=None,
     if config.isActive(mode, replayFile):
         # Environment which the server should get
         environment["CAPTUREMOCK_MODE"] = str(mode)
-        if replayFile:
+        if replayFile and mode != RECORD:
             environment["CAPTUREMOCK_REPLAY_FILE"] = replayFile
         environment["CAPTUREMOCK_RECORD_FILE"] = recordFile
         environment["CAPTUREMOCK_PROCESS_START"] = ",".join(rcFiles)
