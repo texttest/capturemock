@@ -79,9 +79,9 @@ class ReprObject:
 
                   
 class PythonModuleTraffic(PythonTraffic):
-    def __init__(self, text, rcHandler):
+    def __init__(self, text, rcHandler, interceptModules):
         super(PythonModuleTraffic, self).__init__(text, rcHandler)
-        self.interceptModules = set(rcHandler.getIntercepts("python"))
+        self.interceptModules = interceptModules
         
     def getModuleName(self, obj):
         if hasattr(obj, "__module__"): # classes, functions, many instances
@@ -189,12 +189,12 @@ class PythonModuleTraffic(PythonTraffic):
 
 class PythonAttributeTraffic(PythonModuleTraffic):
     cachedAttributes = set()
-    def __init__(self, fullAttrName, rcHandler):
+    def __init__(self, fullAttrName, *args):
         # Should record these at most once, and only then if they return something in their own right
         # rather than a function etc
         self.foundInCache = fullAttrName in self.cachedAttributes
         self.cachedAttributes.add(fullAttrName)
-        super(PythonAttributeTraffic, self).__init__(fullAttrName, rcHandler)
+        super(PythonAttributeTraffic, self).__init__(fullAttrName, *args)
 
     def shouldCache(self, obj):
         return type(obj) not in (types.FunctionType, types.GeneratorType, types.MethodType, types.BuiltinFunctionType,
@@ -204,13 +204,13 @@ class PythonAttributeTraffic(PythonModuleTraffic):
 
         
 class PythonSetAttributeTraffic(PythonModuleTraffic):
-    def __init__(self, rcHandler, proxyName, attrName, value):
+    def __init__(self, rcHandler, interceptModules, proxyName, attrName, value):
         text = proxyName + "." + attrName + " = " + repr(self.insertReprObjects(value))
-        super(PythonSetAttributeTraffic, self).__init__(text, rcHandler)
+        super(PythonSetAttributeTraffic, self).__init__(text, rcHandler, interceptModules)
 
 
 class PythonFunctionCallTraffic(PythonModuleTraffic):
-    def __init__(self, functionName, rcHandler, *args, **kw):
+    def __init__(self, functionName, rcHandler, interceptModules, *args, **kw):
         argsForRecord = self.transformStructure(list(args), self.insertReprObjects)
         keywForRecord = self.transformStructure(kw, self.insertReprObjects)
         for key in sorted(keywForRecord.keys()):
@@ -219,7 +219,7 @@ class PythonFunctionCallTraffic(PythonModuleTraffic):
             argsForRecord.append(recordArg)
         text = functionName + "(" + repr(argsForRecord)[1:-1] + ")"
         self.functionName = functionName
-        super(PythonFunctionCallTraffic, self).__init__(text, rcHandler)
+        super(PythonFunctionCallTraffic, self).__init__(text, rcHandler, interceptModules)
             
     def getTextMarker(self):
         return self.functionName
@@ -256,11 +256,12 @@ class PythonResponseTraffic(traffic.BaseTraffic):
     direction = "->"
 
 class PythonTrafficHandler:
-    def __init__(self, replayInfo, recordFile, rcHandler, callStackChecker):
+    def __init__(self, replayInfo, recordFile, rcHandler, callStackChecker, interceptModules):
         self.replayInfo = replayInfo
         self.recordFileHandler = RecordFileHandler(recordFile)
         self.callStackChecker = callStackChecker
         self.rcHandler = rcHandler
+        self.interceptModules = interceptModules
         PythonInstanceWrapper.allInstances = {} # reset, in case of previous tests
         PythonAttributeTraffic.cachedAttributes = set()
 
@@ -271,7 +272,7 @@ class PythonTrafficHandler:
             return self.processReplay(traffic, proxy)
         else:
             try:
-                return loadModule(name)
+                return self.callStackChecker.callNoInterception(loadModule, name)
             except:
                 response = traffic.getExceptionResponse(sys.exc_info())
                 response.record(self.recordFileHandler)
@@ -299,7 +300,7 @@ class PythonTrafficHandler:
                 proxyTarget = proxy.captureMockLoadRealModule()
             return self.getRealAttribute(proxyTarget, attrName)
         else:
-            traffic = PythonAttributeTraffic(fullAttrName, self.rcHandler)
+            traffic = PythonAttributeTraffic(fullAttrName, self.rcHandler, self.interceptModules)
             if self.replayInfo.isActiveFor(traffic):
                 return self.getAttributeFromReplay(traffic, proxyTarget, attrName, proxy, fullAttrName)
             else:
@@ -318,7 +319,7 @@ class PythonTrafficHandler:
 
     def getAndRecordRealAttribute(self, traffic, proxyTarget, attrName, proxy, fullAttrName):
         try:
-            realAttr = self.getRealAttribute(proxyTarget, attrName)
+            realAttr = self.callStackChecker.callNoInterception(self.getRealAttribute, proxyTarget, attrName)
         except:
             responseTraffic = traffic.getExceptionResponse(sys.exc_info())
             if not traffic.foundInCache:
@@ -355,19 +356,25 @@ class PythonTrafficHandler:
         if self.callStackChecker.callerExcluded(stackDistance=3):
             return captureMockFunction(*args, **kw)
         else:
-            traffic = PythonFunctionCallTraffic(captureMockProxyName, self.rcHandler, *args, **kw)
+            traffic = PythonFunctionCallTraffic(captureMockProxyName, self.rcHandler,
+                                                self.interceptModules, *args, **kw)
             traffic.record(self.recordFileHandler)
             if self.replayInfo.isActiveFor(traffic):
                 return self.processReplay(traffic, captureMockProxy)
             else:
-                realRet = traffic.callRealFunction(captureMockFunction, self.recordFileHandler,
-                                                   captureMockProxy, *args, **kw)
-                return self.transformResponse(traffic, realRet, captureMockProxy)
+                return self.callStackChecker.callNoInterception(self.callRealFunction, traffic,
+                                                                captureMockFunction, captureMockProxy, *args, **kw)
+
+    def callRealFunction(self, captureMockTraffic, captureMockFunction, captureMockProxy, *args, **kw):
+        realRet = captureMockTraffic.callRealFunction(captureMockFunction, self.recordFileHandler,
+                                                      captureMockProxy, *args, **kw)
+        return self.transformResponse(captureMockTraffic, realRet, captureMockProxy)
 
     # Parameter names chosen to avoid potential clashes with args and kw which come from the app
     def callConstructor(self, captureMockClassName, captureMockRealClass, captureMockProxy,
                         *args, **kw):
-        traffic = PythonFunctionCallTraffic(captureMockClassName, self.rcHandler, *args, **kw)
+        traffic = PythonFunctionCallTraffic(captureMockClassName, self.rcHandler,
+                                            self.interceptModules, *args, **kw)
         traffic.record(self.recordFileHandler)
         if self.replayInfo.isActiveFor(traffic):
             responses = self.getReplayResponses(traffic)
@@ -387,6 +394,6 @@ class PythonTrafficHandler:
 
     def recordSetAttribute(self, *args):
         if not self.callStackChecker.callerExcluded(stackDistance=3):
-            traffic = PythonSetAttributeTraffic(self.rcHandler, *args)
+            traffic = PythonSetAttributeTraffic(self.rcHandler, self.interceptModules, *args)
             traffic.record(self.recordFileHandler)
             

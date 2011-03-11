@@ -8,19 +8,26 @@ class CallStackChecker:
         # Always ignore our own command-line capture module
         # TODO - ignore_callers list should be able to vary between different calls
         self.ignoreModuleCalls = set([ "capturecommand" ] + rcHandler.getList("ignore_callers", [ "python" ]))
-        self.inCallStackChecker = False
+        self.excludeLevel = 0
         self.logger = logging.getLogger("Call Stack Checker")
         self.stdlibDir = os.path.dirname(os.path.realpath(os.__file__))
         self.logger.debug("Found stdlib directory at " + self.stdlibDir)
         self.logger.debug("Ignoring calls from " + repr(self.ignoreModuleCalls))
+
+    def callNoInterception(self, method, *args, **kw):
+        self.excludeLevel += 1
+        try:
+            return method(*args, **kw)
+        finally:
+            self.excludeLevel -= 1
         
     def callerExcluded(self, stackDistance):
-        if self.inCallStackChecker:
+        if self.excludeLevel:
             # If we get called recursively, must call the real thing to avoid infinite loop...
             return True
 
         # Don't intercept if we've been called from within the standard library
-        self.inCallStackChecker = True
+        self.excludeLevel += 1
         if os.name == "nt":
             # Recompute this: mostly a workaround for applications that reset os.sep on Windows
             self.stdlibDir = os.path.dirname(os.path.realpath(os.__file__))
@@ -31,7 +38,7 @@ class CallStackChecker:
         moduleName = self.getModuleName(fileName)
         moduleNames = set([ moduleName, os.path.basename(dirName) ])
         self.logger.debug("Checking call from " + dirName + ", modules " + repr(moduleNames))
-        self.inCallStackChecker = False
+        self.excludeLevel -= 1
         return dirName == self.stdlibDir or len(moduleNames.intersection(self.ignoreModuleCalls)) > 0
 
     def getModuleName(self, fileName):
@@ -210,7 +217,8 @@ class InterceptHandler:
             return
         callStackChecker = CallStackChecker(self.rcHandler)
         from pythontraffic import PythonTrafficHandler
-        trafficHandler = PythonTrafficHandler(self.replayInfo, self.recordFile, self.rcHandler, callStackChecker)
+        trafficHandler = PythonTrafficHandler(self.replayInfo, self.recordFile, self.rcHandler,
+                                              callStackChecker, self.fullIntercepts)
         if len(self.fullIntercepts):
             sys.meta_path = [ ImportHandler(self.fullIntercepts, callStackChecker, trafficHandler) ]
         for moduleName, attributes in self.partialIntercepts.items():
