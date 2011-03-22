@@ -195,13 +195,10 @@ class TrafficServer(TCPServer):
         self.diag.debug("Processing traffic " + traffic.__class__.__name__)
         hasFileEdits = self.addPossibleFileEdits(traffic)
         responses = self.getResponses(traffic, hasFileEdits)
-        shouldRecord = not traffic.enquiryOnly(responses)
-        if shouldRecord:
-            traffic.record(self.recordFileHandler, reqNo)
+        traffic.record(self.recordFileHandler, reqNo)
         for response in responses:
             self.diag.debug("Response of type " + response.__class__.__name__ + " with text " + repr(response.text))
-            if shouldRecord:
-                response.record(self.recordFileHandler, reqNo)
+            response.record(self.recordFileHandler, reqNo)
             for chainResponse in response.forwardToDestination():
                 self._process(chainResponse, reqNo)
             self.diag.debug("Completed response of type " + response.__class__.__name__)            

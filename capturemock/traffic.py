@@ -20,9 +20,6 @@ class BaseTraffic(object):
     def makesAsynchronousEdits(self):
         return False
     
-    def enquiryOnly(self, responses=[]):
-        return False
-
     def record(self, recordFileHandler, *args):
         if not self.hasInfo():
             return
