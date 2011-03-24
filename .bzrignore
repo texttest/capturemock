@@ -1,4 +1,6 @@
 build
 *.egg-info
+MANIFEST
+dist
 capturemock.exe
 capturemock.py

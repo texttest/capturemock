@@ -1,0 +1,4 @@
+include README.txt
+recursive-include doc *
+recursive-include log *
+recursive-include bin *
