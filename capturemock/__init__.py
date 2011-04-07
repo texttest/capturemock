@@ -4,6 +4,7 @@ from capturecommand import interceptCommand
 from config import CaptureMockReplayError, RECORD, REPLAY, REPLAY_OLD_RECORD_NEW
 
 import os, sys, shutil, config, cmdlineutils, filecmp, subprocess, tempfile, types
+from functools import wraps
 
 class CaptureMockManager:
     fileContents = "import capturemock; capturemock.interceptCommand()\n"
@@ -195,6 +196,7 @@ class CaptureMockDecorator(object):
         if not config.isActive(self.mode, replayFile):
             return func
         recordFile = tempfile.mktemp()
+        @wraps(func)
         def wrapped_func(*funcargs, **funckw):
             interceptor = None
             try:
