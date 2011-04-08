@@ -20,7 +20,7 @@ else:
     scripts=["bin/capturemock"]
 
 setup(name='CaptureMock',
-      version="0.1",
+      version="trunk",
       author="Geoff Bache",
       author_email="geoff.bache@pobox.com",
       url="http://www.texttest.org/index.php?page=capturemock",
