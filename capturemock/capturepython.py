@@ -183,8 +183,6 @@ class TransparentProxy:
 
 class InterceptHandler:
     def __init__(self, mode, recordFile, replayFile, rcFiles, pythonAttrs):
-        self.fullIntercepts = []
-        self.partialIntercepts = {}
         self.attributesIntercepted = []
         self.rcHandler = config.RcFileHandler(rcFiles)
         # Has too many side effects, because our log configuration file may conflict with the application's logging set up. Need to find another way.
@@ -192,17 +190,7 @@ class InterceptHandler:
         import replayinfo
         self.replayInfo = replayinfo.ReplayInfo(mode, replayFile, self.rcHandler)
         self.recordFile = recordFile
-        for attrName in self.findAttributeNames(mode, pythonAttrs):
-            if "." in attrName:
-                moduleName, subAttrName = self.splitByModule(attrName)
-                if moduleName:
-                    if subAttrName:
-                        self.partialIntercepts.setdefault(moduleName, []).append(subAttrName)
-                    else:
-                        del sys.modules[attrName] # We imported the real version, get rid of it again...
-                        self.fullIntercepts.append(attrName)
-            else:
-                self.fullIntercepts.append(attrName)
+        self.allAttrNames = self.findAttributeNames(mode, pythonAttrs)
 
     def findAttributeNames(self, mode, pythonAttrs):
         rcAttrs = self.rcHandler.getIntercepts("python")
@@ -211,17 +199,34 @@ class InterceptHandler:
         else:
             return pythonAttrs + rcAttrs
 
+    def classifyIntercepts(self):
+        fullIntercepts = []
+        partialIntercepts = {}
+        for attrName in self.allAttrNames:
+            if "." in attrName:
+                moduleName, subAttrName = self.splitByModule(attrName)
+                if moduleName:
+                    if subAttrName:
+                        partialIntercepts.setdefault(moduleName, []).append(subAttrName)
+                    else:
+                        del sys.modules[attrName] # We imported the real version, get rid of it again...
+                        fullIntercepts.append(attrName)
+            else:
+                fullIntercepts.append(attrName)
+        return fullIntercepts, partialIntercepts
+
     def makeIntercepts(self):
-        if len(self.fullIntercepts) == 0 and len(self.partialIntercepts) == 0:
+        fullIntercepts, partialIntercepts = self.classifyIntercepts()
+        if len(fullIntercepts) == 0 and len(partialIntercepts) == 0:
             # Don't construct PythonTrafficHandler, which will delete any existing files
             return
         callStackChecker = CallStackChecker(self.rcHandler)
         from pythontraffic import PythonTrafficHandler
         trafficHandler = PythonTrafficHandler(self.replayInfo, self.recordFile, self.rcHandler,
-                                              callStackChecker, self.fullIntercepts)
-        if len(self.fullIntercepts):
-            sys.meta_path = [ ImportHandler(self.fullIntercepts, callStackChecker, trafficHandler) ]
-        for moduleName, attributes in self.partialIntercepts.items():
+                                              callStackChecker, self.allAttrNames)
+        if len(fullIntercepts):
+            sys.meta_path = [ ImportHandler(fullIntercepts, callStackChecker, trafficHandler) ]
+        for moduleName, attributes in partialIntercepts.items():
             self.interceptAttributes(moduleName, attributes, trafficHandler)
 
     def splitByModule(self, attrName):
