@@ -1,6 +1,8 @@
 
 """ Module to manage the information in the file and return appropriate matches """
 
+# For back-compatibility with Python 2.5
+from __future__ import with_statement
 import config, logging, difflib, re, os
 from ordereddict import OrderedDict
 
