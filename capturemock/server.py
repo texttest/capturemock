@@ -1,6 +1,7 @@
 
 import os, stat, sys, logging, socket, threading, time, subprocess
-import config, recordfilehandler, cmdlineutils, commandlinetraffic, fileedittraffic, clientservertraffic
+import config, recordfilehandler, cmdlineutils
+import commandlinetraffic, fileedittraffic, clientservertraffic, customtraffic
 from SocketServer import TCPServer, StreamRequestHandler
 from ordereddict import OrderedDict
 from replayinfo import ReplayInfo
@@ -205,7 +206,8 @@ class TrafficServer(TCPServer):
 
     def getTrafficClasses(self, incoming):
         classes = []
-        for mod in [ commandlinetraffic, fileedittraffic, clientservertraffic ]:
+        # clientservertraffic must be last, it's the fallback option
+        for mod in [ commandlinetraffic, fileedittraffic, customtraffic, clientservertraffic ]:
             classes += mod.getTrafficClasses(incoming)
         return classes
 
