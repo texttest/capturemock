@@ -92,7 +92,7 @@ class PythonProxy:
     def __setattr__(self, attrname, value):
         self.__dict__[attrname] = value
         if not attrname.startswith("captureMock"):
-            if self.captureMockTarget:
+            if self.captureMockTarget is not None:
                 setattr(self.captureMockTarget, attrname, value)
             # Don't record internally-set module setup when importing modules from packages
             if not type(value) == types.ModuleType and not isinstance(value, ModuleProxy):
@@ -120,7 +120,7 @@ class InstanceProxy(PythonProxy):
             # 'Internal' constructor, from above
             PythonProxy.__init__(self, kw.get("captureMockProxyName"), kw.get("captureMockTrafficHandler"),
                                  kw.get("captureMockTarget"), kw.get("captureMockNameFinder"))
-            if self.captureMockTarget:
+            if self.captureMockTarget is not None:
                 self.__class__.captureMockTargetClass = self.captureMockTarget.__class__
             self.__class__.captureMockNameFinder = self.captureMockNameFinder
             self.__class__.captureMockTrafficHandler = self.captureMockTrafficHandler
