@@ -20,13 +20,14 @@ class CaptureMockManager:
             environment["CAPTUREMOCK_MODE"] = str(mode)
             rcHandler = config.RcFileHandler(rcFiles)
             commands = rcHandler.getIntercepts("command line")
-            from server import startServer
             for var in [ "CAPTUREMOCK_PROCESS_START", "CAPTUREMOCK_SERVER" ]:
                 if var in environment:
                     del environment[var]
-            self.serverProcess = startServer(rcFiles, mode, replayFile, replayEditDir,
-                                             recordFile, recordEditDir, sutDirectory,
-                                             environment)
+
+            import server
+            self.serverProcess = server.startServer(rcFiles, mode, replayFile, replayEditDir,
+                                                    recordFile, recordEditDir, sutDirectory,
+                                                    environment)
             self.serverAddress = self.serverProcess.stdout.readline().strip()
             # And environment it shouldn't get...
             environment["CAPTUREMOCK_SERVER"] = self.serverAddress
@@ -149,6 +150,10 @@ def commandline():
     mode = options.mode
     if mode == REPLAY and options.replay is None:
         mode = RECORD
+    # Start with a fresh file
+    if options.record and os.path.isfile(options.record):
+        os.remove(options.record)
+        
     setUpServer(mode, options.record, options.replay,  
                 recordEditDir=options.record_file_edits, replayEditDir=options.replay_file_edits,
                 rcFiles=rcFiles, interceptDir=interceptDir)
