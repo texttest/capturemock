@@ -119,6 +119,9 @@ class ImportHandler:
                 return currAttrName
 
     def shouldIntercept(self, name):
+        # Never try to intercept anything if it's blocked for some reason
+        if self.callStackChecker.excludeLevel:
+            return False
         if name in self.moduleNames:
             return True
         elif "." in name:
