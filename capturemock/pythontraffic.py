@@ -187,6 +187,12 @@ class PythonModuleTraffic(PythonTraffic):
 
 class PythonAttributeTraffic(PythonModuleTraffic):
     cachedAttributes = set()
+    cachedInstances = {}
+    @classmethod
+    def resetCaches(cls):
+        cls.cachedAttributes = set()
+        cls.cachedInstances = {}
+        
     def __init__(self, fullAttrName, *args):
         # Should record these at most once, and only then if they return something in their own right
         # rather than a function etc
@@ -199,6 +205,8 @@ class PythonAttributeTraffic(PythonModuleTraffic):
                                  types.ClassType, types.TypeType, types.ModuleType) and \
                                  not hasattr(obj, "__call__")
 
+    def getWrapper(self, instance):
+        return self.cachedInstances.setdefault(self.text, PythonModuleTraffic.getWrapper(self, instance))
 
         
 class PythonSetAttributeTraffic(PythonModuleTraffic):
@@ -268,7 +276,7 @@ class PythonTrafficHandler:
         self.rcHandler = rcHandler
         self.interceptModules = interceptModules
         PythonInstanceWrapper.allInstances = {} # reset, in case of previous tests
-        PythonAttributeTraffic.cachedAttributes = set()
+        PythonAttributeTraffic.resetCaches()
 
     def importModule(self, name, proxy, loadModule):
         traffic = PythonImportTraffic(name, self.rcHandler)
