@@ -61,6 +61,9 @@ class TrafficServer(TCPServer):
         self.fileEditData = OrderedDict() # contains all paths, including subpaths of the above. Empty when replaying.
         self.terminate = False
         self.hasAsynchronousEdits = False
+        # Default value of 5 isn't very much...
+        # There doesn't seem to be any disadvantage of allowing a longer queue, so we will increase it by a lot...
+        self.request_queue_size = 500
         TCPServer.__init__(self, (socket.gethostname(), 0), TrafficRequestHandler)
         host, port = self.socket.getsockname()
         sys.stdout.write(host + ":" + str(port) + "\n") # Tell our caller, so they can tell the program being handled
