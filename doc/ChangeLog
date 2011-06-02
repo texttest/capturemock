@@ -2,3 +2,24 @@ Version 0.1:
 
     - initial release, derived from "Traffic mechanism" in TextTest 3.20
     - for changes compared to that version, see ChangeLog in TextTest 3.21 release
+
+Version 0.11
+
+    - Fix to make it work with test discovery, e.g. nosetests (thanks Kumar McMillan)
+
+Version 0.2
+
+Enhancements:
+
+    - Added possibility to write a custom client, reusing the CaptureMock server. See website.
+
+Bugfixes:
+
+    - TCP backlog for server greatly increased to avoid trouble on overloaded networks
+    - Command line now recreates rather than appending to any existing mock files
+    - Now handle the situation where getattr creates new objects instead of just returning the same one
+	for example when using xmlrpc
+    - Don't cause __nonzero__ methods to be called unnecessarily on intercepted objects
+    - Fixed bug which caused import problems when recording in some obscure situations
+    - "check_repeated_calls" now also works with "partial interception", previously only worked when intercepting entire modules
+
