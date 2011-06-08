@@ -18,6 +18,9 @@ class CustomTraffic(traffic.Traffic):
 class CustomResponseTraffic(traffic.Traffic):
     typeId = "RET"
     direction = "->"
+    def write(self, message):
+        # Don't send newline which we added for readability only
+        traffic.Traffic.write(self, message.rstrip())
     
 
 def getTrafficClasses(incoming):
