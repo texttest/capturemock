@@ -103,6 +103,13 @@ def interceptCommand():
         else:
             sys.exit(exitCode)
     except ValueError:
-        from sys import stderr
-        stderr.write("Received unexpected communication from MIM server:\n " + response + "\n\n")
+        import sys
+        if response.startswith("CAPTUREMOCK MISMATCH"):
+            sys.stderr.write("Replayed calls do not match those recorded.\n" + 
+                             response.split(":", 1)[-1].strip() + "\n" + 
+                             "Either rerun with capturemock in record mode " +
+                             "or update the stored mock file by hand.\n")
+            sys.exit(1)
+        else:
+            sys.stderr.write("Received unexpected communication from MIM server:\n " + response + "\n\n")
 

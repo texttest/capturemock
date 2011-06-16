@@ -330,8 +330,10 @@ class TrafficRequestHandler(StreamRequestHandler):
     def handle(self):
         self.server.diag.debug("Received incoming request...")
         text = self.rfile.read()
-        self.server.processText(text, self.wfile, self.requestNumber)
-
+        try:
+            self.server.processText(text, self.wfile, self.requestNumber)
+        except config.CaptureMockReplayError, e:
+            self.wfile.write("CAPTUREMOCK MISMATCH: " + str(e))
         
 # The basic point here is to make sure that traffic appears in the record
 # file in the order in which it comes in, not in the order in which it completes (which is indeterministic and

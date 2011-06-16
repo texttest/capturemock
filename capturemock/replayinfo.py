@@ -12,6 +12,7 @@ class ReplayInfo:
         self.diag = logging.getLogger("Replay")
         self.replayItems = []
         self.replayAll = mode == config.REPLAY
+        self.exactMatching = rcHandler.getboolean("use_exact_matching", [ "general" ], False)
         if replayFile:
             trafficList = self.readIntoList(replayFile)
             self.parseTrafficList(trafficList)
@@ -106,7 +107,10 @@ class ReplayInfo:
             self.diag.debug("Found exact match")
             return desc
         elif not exact:
-            return self.findBestMatch(desc)
+            if self.exactMatching:
+                raise config.CaptureMockReplayError, "Could not find any replay request matching '" + desc + "'"
+            else:
+                return self.findBestMatch(desc)
 
     def findBestMatch(self, desc):
         descWords = self.getWords(desc)
