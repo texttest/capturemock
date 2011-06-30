@@ -173,7 +173,7 @@ def capturemock(pythonAttrsOrFunc=[], *args, **kw):
 class CaptureMockDecorator(object):
     defaultMode = int(os.getenv("CAPTUREMOCK_MODE", "0"))
     defaultPythonAttrs = []
-    defaultRcFiles = [".capturemockrc"]
+    defaultRcFiles = filter(os.path.isfile, [".capturemockrc"])
     @classmethod
     def set_defaults(cls, pythonAttrs=[], mode=None, rcFiles=[]):
         if rcFiles:

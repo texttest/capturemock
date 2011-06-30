@@ -1,7 +1,7 @@
 
 """ Class to handle the interface with the rc file """
 from ConfigParser import ConfigParser
-import os, logging.config
+import os, sys, logging.config
 
 REPLAY = 0
 RECORD = 1
@@ -13,7 +13,11 @@ class CaptureMockReplayError(RuntimeError):
 class RcFileHandler:
     def __init__(self, rcFiles):
         self.parser = ConfigParser()
-        if not rcFiles:
+        if rcFiles:
+            for rcFile in rcFiles:
+                if not os.path.isfile(rcFile):
+                    sys.stderr.write("WARNING: RC file at " + rcFile + " does not exist, ignoring.\n")
+        else:
             rcFiles = self.getPersonalPath("config")
         self.parser.read(rcFiles)
 
