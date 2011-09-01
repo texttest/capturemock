@@ -1,7 +1,7 @@
 
 """ Traffic classes for all kinds of Python calls """
 
-import traffic, sys, types, inspect, re
+import traffic, sys, types, inspect
 from recordfilehandler import RecordFileHandler
 
 
@@ -34,19 +34,8 @@ class PythonInstanceWrapper:
 class PythonTraffic(traffic.BaseTraffic):
     typeId = "PYT"
     direction = "<-"
-    def __init__(self, text, rcHandler):
-        super(PythonTraffic, self).__init__(text)
-        self.alterations = {}
-        for alterStr in rcHandler.getList("alterations", [ self.getTextMarker(), "python" ]):
-            toFind = rcHandler.get("match_pattern", [ alterStr ])
-            toReplace = rcHandler.get("replacement", [ alterStr ])
-            if toFind and toReplace is not None:
-                self.alterations[re.compile(toFind)] = toReplace
-
-    def applyAlterations(self, text):
-        for regex, repl in self.alterations.items():
-            text = regex.sub(repl, text)
-        return text
+    def getAlterationSectionNames(self):
+        return [ self.getTextMarker(), "python", "general" ]
 
     def getTextMarker(self):
         return self.text

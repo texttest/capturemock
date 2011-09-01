@@ -13,7 +13,11 @@ class CustomTraffic(traffic.Traffic):
         traffic.Traffic.__init__(self, parts[0], *args)
         
     def forwardToDestination(self):
-        return [ CustomResponseTraffic(self.responseText, self.responseFile) ] if self.responseText else []
+        if self.responseText:
+            responseText = self.applyAlterations(self.responseText)
+            return [ CustomResponseTraffic(responseText, self.responseFile) ]
+        else:
+            return []
 
 class CustomResponseTraffic(traffic.Traffic):
     typeId = "RET"

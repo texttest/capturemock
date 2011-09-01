@@ -22,7 +22,7 @@ class CommandLineTraffic(traffic.Traffic):
         envVarsSet, envVarsUnset = self.filterEnvironment(self.cmdEnviron, rcHandler)
         cmdString = " ".join(map(self.quoteArg, self.cmdArgs))
         text = self.getEnvString(envVarsSet, envVarsUnset) + cmdString
-        super(CommandLineTraffic, self).__init__(text, responseFile)
+        super(CommandLineTraffic, self).__init__(text, responseFile, rcHandler)
         
     def filterEnvironment(self, cmdEnviron, rcHandler):
         envVarsSet, envVarsUnset = [], []
@@ -182,7 +182,7 @@ class CommandLineKillTraffic(traffic.Traffic):
         killStr, proxyPid = inText.split(":SUT_SEP:")
         self.killSignal = int(killStr)
         self.proc = self.pidMap.get(proxyPid)
-        traffic.Traffic.__init__(self, killStr, responseFile)
+        traffic.Traffic.__init__(self, killStr, responseFile, *args)
             
     def forwardToDestination(self):
         if self.proc:
