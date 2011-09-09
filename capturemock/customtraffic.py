@@ -11,6 +11,7 @@ class CustomTraffic(traffic.Traffic):
         parts = inText.split(":SUT_SEP:")
         self.responseText = parts[1] if len(parts) > 1 else ""
         traffic.Traffic.__init__(self, parts[0], *args)
+        self.text = self.applyAlterations(self.text)
         
     def forwardToDestination(self):
         if self.responseText:
