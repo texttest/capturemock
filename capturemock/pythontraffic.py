@@ -3,7 +3,7 @@
 
 import traffic, sys, types, inspect
 from recordfilehandler import RecordFileHandler
-
+from config import CaptureMockReplayError
 
 class PythonInstanceWrapper:
     allInstances = {}
