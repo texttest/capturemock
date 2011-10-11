@@ -391,7 +391,7 @@ class PythonTrafficHandler:
                     return instanceName
                 return eval(responses[0]), None
             else:
-                raise CaptureMockReplayError, "Could not match sufficiently well to construct object of type '" + className + "'"
+                raise CaptureMockReplayError, "Could not match sufficiently well to construct object of type '" + captureMockClassName + "'"
         else:
             realObj = traffic.callRealFunction(captureMockRealClass, self.recordFileHandler,
                                                captureMockProxy, *args, **kw)
