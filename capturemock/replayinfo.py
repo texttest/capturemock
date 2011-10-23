@@ -96,14 +96,19 @@ class ReplayInfo:
 
         responseMapKey = self.getResponseMapKey(traffic, exact)
         if responseMapKey:
-            return self.responseMap[responseMapKey].makeResponses(traffic, allClasses)
+            return self.responseMap[responseMapKey].makeResponses(allClasses)
         else:
             return []
+
+    def findResponseToTrafficStartingWith(self, prefix):
+        for currDesc, responseHandler in self.responseMap.items():
+            if currDesc[6:].startswith(prefix):
+                return responseHandler.getCurrentStrings()[0][6:]
 
     def getResponseMapKey(self, traffic, exact):
         desc = traffic.getDescription()
         self.diag.debug("Trying to match '" + desc + "'")
-        if self.responseMap.has_key(desc):
+        if desc in self.responseMap:
             self.diag.debug("Found exact match")
             return desc
         elif not exact:
@@ -209,7 +214,7 @@ class ReplayedResponseHandler:
     def getUnmatchedResponseCount(self):
         return len(self.responses) - self.timesChosen
     
-    def makeResponses(self, traffic, allClasses):
+    def makeResponses(self, allClasses):
         trafficStrings = self.getCurrentStrings()
         responses = []
         for trafficStr in trafficStrings:

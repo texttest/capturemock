@@ -29,7 +29,7 @@ class NameFinder(dict):
         return self.defineClass(actualClassName, classDefStr)
 
     def makeInstance(self, className, instanceName):
-        return self.moduleProxy.captureMockCreateProxy(instanceName, classDesc=className)
+        return self.moduleProxy.captureMockCreateInstanceProxy(instanceName, classDesc=className)
 
     def defineClassLocally(self, classDefStr):
         try:
@@ -67,7 +67,8 @@ class PythonProxy:
                                                            attrname,
                                                            self,
                                                            self.captureMockTarget)
-    def captureMockCreateProxy(self, proxyName, proxyTarget=None, classDesc=None):
+
+    def captureMockCreateInstanceProxy(self, proxyName, proxyTarget=None, classDesc=None):
         if classDesc:
             newClass = self.captureMockNameFinder.makeClass(classDesc)
         else:
@@ -76,6 +77,15 @@ class PythonProxy:
                         captureMockTrafficHandler=self.captureMockTrafficHandler,
                         captureMockTarget=proxyTarget,
                         captureMockNameFinder=self.captureMockNameFinder)
+
+    def captureMockCreateClassProxy(self, proxyName, proxyTarget, classDesc):
+        classProxy = self.captureMockNameFinder.makeClass(classDesc)
+        classProxy.captureMockNameFinder = self.captureMockNameFinder
+        classProxy.captureMockTrafficHandler = self.captureMockTrafficHandler
+        classProxy.captureMockTargetClass = proxyTarget
+        classProxy.captureMockClassProxyName = proxyName
+        classProxy.captureMockProxyName = proxyName
+        return classProxy
 
     def captureMockEvaluate(self, response):
         if response.startswith("raise "):
@@ -115,6 +125,7 @@ class ModuleProxy(PythonProxy):
 class InstanceProxy(PythonProxy):
     moduleProxy = None
     captureMockTargetClass = None
+    captureMockClassProxyName = None
     def __init__(self, *args, **kw):
         if "captureMockProxyName" in kw:
             # 'Internal' constructor, from above
@@ -126,17 +137,22 @@ class InstanceProxy(PythonProxy):
             self.__class__.captureMockTrafficHandler = self.captureMockTrafficHandler
         else:
             # 'External' constructor, from client code
-            proxyName = self.__class__.__module__ + "." + self.__class__.__name__
+            if self.captureMockClassProxyName is not None:
+                proxyName = self.captureMockClassProxyName
+            else:
+                proxyName = self.__class__.__module__ + "." + self.__class__.__name__
             proxyName, realObj = self.captureMockTrafficHandler.callConstructor(proxyName,
                                                                                 self.captureMockTargetClass,
                                                                                 self,
                                                                                 *args, **kw)
             PythonProxy.__init__(self, proxyName, self.captureMockTrafficHandler,
                                  realObj, self.captureMockNameFinder)
-
+            
     # Used by mixins of this class and new-style classes
     def __getattribute__(self, attrname):
-        if attrname.startswith("captureMock") or attrname in [ "__dict__", "__class__", "__getattr__" ]:
+        if attrname.startswith("captureMock") or \
+               attrname in [ "__dict__", "__class__", "__getattr__", "__members__", "__methods__" ] or \
+               (attrname in dir(self.__class__) and attrname not in dir(object)):
             return object.__getattribute__(self, attrname)
         else:
             return self.__getattr__(attrname)

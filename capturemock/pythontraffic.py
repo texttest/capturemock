@@ -144,11 +144,13 @@ class PythonModuleTraffic(PythonTraffic):
 
     def insertProxy(self, result, proxy):
         if isinstance(result, PythonInstanceWrapper):
-            return proxy.captureMockCreateProxy(result.name, result.target, result.classDesc)
+            return proxy.captureMockCreateInstanceProxy(result.name, result.target, result.classDesc)
         else:
             return result
 
     def getWrapper(self, instance):
+        if hasattr(instance, "captureMockTarget"):
+            return self.getWrapper(instance.captureMockTarget)
         classDesc = self.getClassDescription(instance.__class__)
         return PythonInstanceWrapper.getWrapperFor(instance, classDesc)
 
@@ -317,8 +319,19 @@ class PythonTrafficHandler:
                 self.recordResponse(responses[0])
             return proxy.captureMockEvaluate(responses[0])
         else:
-            newTarget = getattr(proxyTarget, attrName) if proxyTarget else None 
-            return proxy.captureMockCreateProxy(fullAttrName, newTarget)
+            newTarget = getattr(proxyTarget, attrName) if proxyTarget else None
+            if newTarget is None:
+                classDesc = self.getReplayClassDefinition(fullAttrName)
+                if classDesc is not None:
+                    return proxy.captureMockCreateClassProxy(fullAttrName, newTarget, classDesc)
+            return proxy.captureMockCreateInstanceProxy(fullAttrName, newTarget)
+
+    def getReplayClassDefinition(self, fullAttrName):
+        response = self.replayInfo.findResponseToTrafficStartingWith(fullAttrName + "(")
+        if response is not None and response.startswith("Instance"):
+            def Instance(classDesc, instanceName):
+                return classDesc
+            return eval(response)
 
     def getAndRecordRealAttribute(self, traffic, proxyTarget, attrName, proxy, fullAttrName):
         try:
@@ -343,7 +356,11 @@ class PythonTrafficHandler:
                 else:
                     return self.transformResponse(traffic, realAttr, proxy)
         else:
-            return proxy.captureMockCreateProxy(fullAttrName, realAttr)
+            if type(realAttr) in (types.ClassType, types.TypeType):
+                classDesc = traffic.getClassDescription(realAttr)
+                return proxy.captureMockCreateClassProxy(fullAttrName, realAttr, classDesc)
+            else:
+                return proxy.captureMockCreateInstanceProxy(fullAttrName, realAttr)
 
     def recordResponse(self, responseText):
         if responseText != "None":
@@ -382,6 +399,11 @@ class PythonTrafficHandler:
                         *args, **kw):
         traffic = PythonFunctionCallTraffic(captureMockClassName, self.rcHandler,
                                             self.interceptModules, *args, **kw)
+        if self.callStackChecker.callerExcluded(stackDistance=3):
+            realObj = captureMockRealClass(*args, **kw)
+            wrapper = traffic.getWrapper(realObj)
+            return wrapper.name, realObj
+
         traffic.record(self.recordFileHandler)
         if self.replayInfo.isActiveFor(traffic):
             responses = self.getReplayResponses(traffic)
@@ -393,8 +415,9 @@ class PythonTrafficHandler:
             else:
                 raise CaptureMockReplayError, "Could not match sufficiently well to construct object of type '" + captureMockClassName + "'"
         else:
-            realObj = traffic.callRealFunction(captureMockRealClass, self.recordFileHandler,
-                                               captureMockProxy, *args, **kw)
+            realObj = self.callStackChecker.callNoInterception(traffic.callRealFunction,
+                                                               captureMockRealClass, self.recordFileHandler,
+                                                               captureMockProxy, *args, **kw)
             wrapper = traffic.getWrapper(realObj)
             self.recordResponse(repr(wrapper))
             return wrapper.name, realObj
