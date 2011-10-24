@@ -149,7 +149,8 @@ class PythonModuleTraffic(PythonTraffic):
             return result
 
     def getWrapper(self, instance):
-        if hasattr(instance, "captureMockTarget"):
+        # hasattr fails if the intercepted instance defines __getattr__, when it always returns True
+        if "captureMockTarget" in dir(instance):
             return self.getWrapper(instance.captureMockTarget)
         classDesc = self.getClassDescription(instance.__class__)
         return PythonInstanceWrapper.getWrapperFor(instance, classDesc)
