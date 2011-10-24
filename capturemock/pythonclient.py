@@ -1,6 +1,6 @@
 
 """ Actual interception objects used by Python interception mechanism """
-import sys, os, types
+import sys, os, types, inspect
 
 class NameFinder(dict):
     def __init__(self, moduleProxy):
@@ -152,10 +152,22 @@ class InstanceProxy(PythonProxy):
     def __getattribute__(self, attrname):
         if attrname.startswith("captureMock") or \
                attrname in [ "__dict__", "__class__", "__getattr__", "__members__", "__methods__" ] or \
-               (attrname in dir(self.__class__) and attrname not in dir(object)):
+               self.captureMockDefinedInNonInterceptedSubclass(attrname):
             return object.__getattribute__(self, attrname)
         else:
             return self.__getattr__(attrname)
+
+    def captureMockDefinedInNonInterceptedSubclass(self, attrname):
+        if attrname not in dir(self.__class__):
+            return False
+
+        firstBaseClass = self.captureMockGetFirstInterceptedBaseClass()
+        return attrname not in dir(firstBaseClass)
+
+    def captureMockGetFirstInterceptedBaseClass(self):
+        allbases = inspect.getmro(self.__class__)
+        proxyPos = allbases.index(PythonProxy) # should always exist
+        return allbases[proxyPos + 1] # at least "object" should be there failing anything else
         
     # In case of new-style objects, which define these in 'object'
     def __str__(self):
