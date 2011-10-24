@@ -103,7 +103,9 @@ class ReplayInfo:
     def findResponseToTrafficStartingWith(self, prefix):
         for currDesc, responseHandler in self.responseMap.items():
             if currDesc[6:].startswith(prefix):
-                return responseHandler.getCurrentStrings()[0][6:]
+                responses = responseHandler.getCurrentStrings()
+                if len(responses):
+                    return responses[0][6:]
 
     def getResponseMapKey(self, traffic, exact):
         desc = traffic.getDescription()
