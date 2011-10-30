@@ -325,7 +325,7 @@ class PythonTrafficHandler:
                 classDesc = self.getReplayClassDefinition(fullAttrName)
                 if classDesc is not None:
                     return proxy.captureMockCreateClassProxy(fullAttrName, newTarget, classDesc)
-            return proxy.captureMockCreateInstanceProxy(fullAttrName, newTarget)
+            return self.createInstanceProxy(proxy, fullAttrName, newTarget)
 
     def getReplayClassDefinition(self, fullAttrName):
         response = self.replayInfo.findResponseToTrafficStartingWith(fullAttrName + "(")
@@ -361,8 +361,14 @@ class PythonTrafficHandler:
                 classDesc = traffic.getClassDescription(realAttr)
                 return proxy.captureMockCreateClassProxy(fullAttrName, realAttr, classDesc)
             else:
-                return proxy.captureMockCreateInstanceProxy(fullAttrName, realAttr)
+                return self.createInstanceProxy(proxy, fullAttrName, realAttr)
 
+    def createInstanceProxy(self, proxy, fullAttrName, realAttr):
+        if isinstance(proxy, type):
+            return proxy.__class__.captureMockCreateInstanceProxy(proxy, fullAttrName, realAttr)
+        else:
+            return proxy.captureMockCreateInstanceProxy(fullAttrName, realAttr)
+        
     def recordResponse(self, responseText):
         if responseText != "None":
             PythonResponseTraffic(responseText).record(self.recordFileHandler)
