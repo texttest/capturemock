@@ -7,6 +7,7 @@ class NameFinder(dict):
         dict.__init__(self)
         self.moduleProxy = moduleProxy
         self["InstanceProxy"] = InstanceProxy
+        self["ProxyMetaClass"] = ProxyMetaClass
         self["Instance"] = self.makeInstance
         self.makeNewClasses = False
         self.newClassNames = []
@@ -22,9 +23,10 @@ class NameFinder(dict):
 
     def makeClass(self, className):
         if "(" in className:
-            classDefStr = "class " + className.replace("(", "(InstanceProxy, ") + " : pass"
+            classDecl = className.replace("(", "(InstanceProxy, ")
         else:
-            classDefStr = "class " + className + "(InstanceProxy): pass"
+            classDecl = className + "(InstanceProxy)"
+        classDefStr = "class " + classDecl + " : __metaclass__ = ProxyMetaClass"
         actualClassName = className.split("(")[0]
         return self.defineClass(actualClassName, classDefStr)
 
@@ -53,7 +55,7 @@ class NameFinder(dict):
         return dict.__getitem__(self, name)
 
 
-class PythonProxy:
+class PythonProxy(object):
     def __init__(self, captureMockProxyName, captureMockTrafficHandler,
                  captureMockTarget, captureMockNameFinder):
         # Will be passed into real code. Try to minimise the risk of name clashes
@@ -82,7 +84,7 @@ class PythonProxy:
         classProxy = self.captureMockNameFinder.makeClass(classDesc)
         classProxy.captureMockNameFinder = self.captureMockNameFinder
         classProxy.captureMockTrafficHandler = self.captureMockTrafficHandler
-        classProxy.captureMockTargetClass = proxyTarget
+        classProxy.captureMockTarget = proxyTarget
         classProxy.captureMockClassProxyName = proxyName
         classProxy.captureMockProxyName = proxyName
         return classProxy
@@ -124,7 +126,7 @@ class ModuleProxy(PythonProxy):
 
 class InstanceProxy(PythonProxy):
     moduleProxy = None
-    captureMockTargetClass = None
+    captureMockTarget = None
     captureMockClassProxyName = None
     def __init__(self, *args, **kw):
         if "captureMockProxyName" in kw:
@@ -132,7 +134,7 @@ class InstanceProxy(PythonProxy):
             PythonProxy.__init__(self, kw.get("captureMockProxyName"), kw.get("captureMockTrafficHandler"),
                                  kw.get("captureMockTarget"), kw.get("captureMockNameFinder"))
             if self.captureMockTarget is not None:
-                self.__class__.captureMockTargetClass = self.captureMockTarget.__class__
+                self.__class__.captureMockTarget = self.captureMockTarget.__class__
             self.__class__.captureMockNameFinder = self.captureMockNameFinder
             self.__class__.captureMockTrafficHandler = self.captureMockTrafficHandler
         else:
@@ -142,7 +144,7 @@ class InstanceProxy(PythonProxy):
             else:
                 proxyName = self.__class__.__module__ + "." + self.__class__.__name__
             proxyName, realObj = self.captureMockTrafficHandler.callConstructor(proxyName,
-                                                                                self.captureMockTargetClass,
+                                                                                self.captureMockTarget,
                                                                                 self,
                                                                                 *args, **kw)
             PythonProxy.__init__(self, proxyName, self.captureMockTrafficHandler,
@@ -169,12 +171,28 @@ class InstanceProxy(PythonProxy):
         proxyPos = allbases.index(PythonProxy) # should always exist
         return allbases[proxyPos + 1] # at least "object" should be there failing anything else
         
-    # In case of new-style objects, which define these in 'object'
+    # In case of new-style objects. Special methods have no means of being intercepted. See
+    # http://docs.python.org/reference/datamodel.html#new-style-special-lookup
     def __str__(self):
         return self.__getattr__("__str__")()
 
     def __repr__(self):
         return self.__getattr__("__repr__")()
 
+    def __nonzero__(self):
+        return self.__getattr__("__nonzero__")()
+
+    def __iter__(self):
+        return self.__getattr__("__iter__")()
+
     def __getitem__(self, *args):
         return self.__getattr__("__getitem__")(*args)
+
+    # For iterators. Doesn't do any harm being here in general, and otherwise an intercepted
+    # iterator will not be recognised. At worst this might replace one exception with another 
+    def next(self):
+        return self.__getattr__("next")()
+
+
+class ProxyMetaClass(type, PythonProxy):
+    pass
