@@ -3,7 +3,7 @@ Version 0.1:
     - initial release, derived from "Traffic mechanism" in TextTest 3.20
     - for changes compared to that version, see ChangeLog in TextTest 3.21 release
 
-Version 0.11
+Version 0.1.1
 
     - Fix to make it work with test discovery, e.g. nosetests (thanks Kumar McMillan)
 
@@ -23,3 +23,16 @@ Bugfixes:
     - Fixed bug which caused import problems when recording in some obscure situations
     - "check_repeated_calls" now also works with "partial interception", previously only worked when intercepting entire modules
 
+Version 0.3
+
+Enhancements:
+
+    - Now support 'inheriting across the interception boundary'
+	i.e. having your non-intercepted code inherit from classes you're intercepting
+    - Traffic alterations ("alterations" in the RC file) now also enabled on traffic from custom clients
+    - Can now enforce exact matching (i.e. disable the best-guess matching) when replaying. 
+	New rc file entry "use_exact_matching". See website.
+
+Bugfixes:
+
+    - Warn when provided RC file doesn't exist
