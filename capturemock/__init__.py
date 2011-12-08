@@ -207,11 +207,12 @@ class CaptureMockDecorator(object):
             try:
                 setUpPython(self.mode, recordFile, replayFile, self.rcFiles, self.pythonAttrs)
                 interceptor = interceptPython(self.mode, recordFile, replayFile, self.rcFiles, self.pythonAttrs)
-                func(*funcargs, **funckw)
+                result = func(*funcargs, **funckw)
                 if self.mode == config.REPLAY:
                     self.checkMatching(recordFile, replayFile)
                 elif os.path.isfile(recordFile):
                     shutil.move(recordFile, fileNameRoot)
+                return result
             finally:
                 if interceptor:
                     interceptor.resetIntercepts()
