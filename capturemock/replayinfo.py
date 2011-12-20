@@ -1,10 +1,13 @@
 
 """ Module to manage the information in the file and return appropriate matches """
 
-# For back-compatibility with Python 2.5
-from __future__ import with_statement
-import config, logging, difflib, re, os
-from ordereddict import OrderedDict
+import logging, difflib, re, os
+try:
+    from collections import OrderedDict
+    from . import config
+except ImportError:
+    from ordereddict import OrderedDict
+    import config
 
 class ReplayInfo:
     def __init__(self, mode, replayFile, rcHandler):
@@ -78,7 +81,7 @@ class ReplayInfo:
     def readIntoList(self, replayFile):
         trafficList = []
         currTraffic = ""
-        for line in open(replayFile, "rU").xreadlines():
+        for line in open(replayFile, "rU"):
             if line.startswith("<-") or line.startswith("->"):
                 if currTraffic:
                     trafficList.append(currTraffic)
@@ -115,7 +118,7 @@ class ReplayInfo:
             return desc
         elif not exact:
             if self.exactMatching:
-                raise config.CaptureMockReplayError, "Could not find any replay request matching '" + desc + "'"
+                raise config.CaptureMockReplayError("Could not find any replay request matching '" + desc + "'")
             else:
                 return self.findBestMatch(desc)
 
@@ -155,7 +158,7 @@ class ReplayInfo:
 
     def getMatchingBlocks(self, list1, list2):
         matcher = difflib.SequenceMatcher(None, list1, list2)
-        return matcher.get_matching_blocks()
+        return list(matcher.get_matching_blocks())
 
     def commonElementCount(self, blocks):
         return sum((block.size for block in blocks))

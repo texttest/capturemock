@@ -1,9 +1,10 @@
 
 """ Traffic classes for all kinds of Python calls """
 
-import traffic, sys, types, inspect
-from recordfilehandler import RecordFileHandler
-from config import CaptureMockReplayError
+import sys, types, inspect
+from . import traffic
+from .recordfilehandler import RecordFileHandler
+from .config import CaptureMockReplayError
 
 class PythonInstanceWrapper:
     allInstances = {}
@@ -26,7 +27,7 @@ class PythonInstanceWrapper:
     def getNewInstanceName(self):
         className = self.classDesc.split("(")[0].lower()
         num = 1
-        while self.allInstances.has_key(className + str(num)):
+        while className + str(num) in self.allInstances:
             num += 1
         return className + str(num)
 
@@ -45,7 +46,11 @@ class PythonTraffic(traffic.BaseTraffic):
         return PythonResponseTraffic(self.getExceptionText(exc_value))
 
     def getExceptionText(self, exc_value):
-        text = "raise " + exc_value.__class__.__module__ + "." + exc_value.__class__.__name__ + "(" + repr(str(exc_value)) + ")"
+        modStr = exc_value.__class__.__module__
+        classStr = exc_value.__class__.__name__
+        if modStr != "builtins":
+            classStr = modStr + "." + classStr
+        text = "raise " + classStr + "(" + repr(str(exc_value)) + ")"
         return self.applyAlterations(text)
 
 
@@ -113,7 +118,10 @@ class PythonModuleTraffic(PythonTraffic):
             return self.getIntercept(modOrAttr.rsplit(".", 1)[0])
 
     def isBasicType(self, obj):
-        return obj is None or obj is NotImplemented or type(obj) in (bool, float, int, long, str, unicode, list, dict, tuple)
+        basicTypes = (bool, float, int, str, list, dict, tuple)
+        if sys.version_info[0] == 2:
+            basicTypes += (long, unicode)
+        return obj is None or obj is NotImplemented or type(obj) in basicTypes
 
     def getResultText(self, result):
         text = repr(self.transformStructure(result, self.insertReprObjects))
@@ -170,9 +178,11 @@ class PythonModuleTraffic(PythonTraffic):
                 classes.append(name)
             else:
                 module = baseClass.__module__
-                if module != "__builtin__":
+                if module not in [ "__builtin__", "builtins" ]:
                     name = module + "." + name
-                classes.append(name)
+                # No point recording 'object' in Python3: everything is an object there
+                if name != "object" or sys.version_info[0] == 2:
+                    classes.append(name)
                 break
         return classes
 
@@ -193,9 +203,11 @@ class PythonAttributeTraffic(PythonModuleTraffic):
         super(PythonAttributeTraffic, self).__init__(fullAttrName, *args)
 
     def shouldCache(self, obj):
-        return type(obj) not in (types.FunctionType, types.GeneratorType, types.MethodType, types.BuiltinFunctionType,
-                                 types.ClassType, types.TypeType, types.ModuleType) and \
-                                 not hasattr(obj, "__call__")
+        cacheTypes = (types.FunctionType, types.GeneratorType, types.MethodType, types.BuiltinFunctionType,
+                      type, types.ModuleType)
+        if sys.version_info[0] == 2:
+            cacheTypes += (types.ClassType,)
+        return type(obj) not in cacheTypes and not hasattr(obj, "__call__")
 
     def getWrapper(self, instance):
         return self.cachedInstances.setdefault(self.text, PythonModuleTraffic.getWrapper(self, instance))
@@ -295,7 +307,7 @@ class PythonTrafficHandler:
     def getRealAttribute(self, target, attrName):
         if attrName == "__all__":
             # Need to provide something here, the application has probably called 'from module import *'
-            return filter(lambda x: not x.startswith("__"), dir(target))
+            return [x for x in dir(target) if not x.startswith("__")]
         else:
             return getattr(target, attrName)
 
@@ -357,7 +369,7 @@ class PythonTrafficHandler:
                 else:
                     return self.transformResponse(traffic, realAttr, proxy)
         else:
-            if type(realAttr) in (types.ClassType, types.TypeType):
+            if type(realAttr) is type or (sys.version_info[0] == 2 and type(realAttr) is types.ClassType):
                 classDesc = traffic.getClassDescription(realAttr)
                 return proxy.captureMockCreateClassProxy(fullAttrName, realAttr, classDesc)
             else:
@@ -420,7 +432,7 @@ class PythonTrafficHandler:
                     return instanceName
                 return eval(responses[0]), None
             else:
-                raise CaptureMockReplayError, "Could not match sufficiently well to construct object of type '" + captureMockClassName + "'"
+                raise CaptureMockReplayError("Could not match sufficiently well to construct object of type '" + captureMockClassName + "'")
         else:
             realObj = self.callStackChecker.callNoInterception(traffic.callRealFunction,
                                                                captureMockRealClass, self.recordFileHandler,

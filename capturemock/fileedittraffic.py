@@ -83,7 +83,7 @@ class FileEditTraffic(traffic.ResponseTraffic):
                 else:
                     shutil.copyfile(srcPath, dstPath)
             except IOError:
-                print "Could not transfer", srcPath, "to", dstPath
+                print("Could not transfer " + srcPath + " to " + dstPath)
 
     def restoreLink(self, srcPath, dstPath):
         linkTo = open(srcPath).read().strip()

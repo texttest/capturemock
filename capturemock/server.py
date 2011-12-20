@@ -42,8 +42,8 @@ def stopServer(servAddr):
     try:
         TrafficServer.sendTerminateMessage(serverAddress)
     except socket.error: # pragma: no cover - should be unreachable, just for robustness
-        print "Could not send terminate message to CaptureMock server at " + servAddr + \
-                  ", seemed not to be running anyway."
+        print("Could not send terminate message to CaptureMock server at " + servAddr + \
+                  ", seemed not to be running anyway.")
     
 
 class TrafficServer(TCPServer):
@@ -332,7 +332,7 @@ class TrafficRequestHandler(StreamRequestHandler):
         text = self.rfile.read()
         try:
             self.server.processText(text, self.wfile, self.requestNumber)
-        except config.CaptureMockReplayError, e:
+        except config.CaptureMockReplayError as e:
             self.wfile.write("CAPTUREMOCK MISMATCH: " + str(e))
         
 # The basic point here is to make sure that traffic appears in the record

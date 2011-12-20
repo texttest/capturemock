@@ -1,6 +1,10 @@
 
 """ Class to handle the interface with the rc file """
-from ConfigParser import ConfigParser
+try:
+    from ConfigParser import ConfigParser
+except ImportError: # python3
+    from configparser import ConfigParser
+    
 import os, sys, logging.config
 
 REPLAY = 0

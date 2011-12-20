@@ -1,7 +1,8 @@
 
 """ Generic front end module to all forms of Python interception"""
 
-import sys, os, config, logging, inspect, pythonclient
+import sys, os, logging, inspect
+from . import pythonclient, config
 
 class CallStackChecker:
     def __init__(self, rcHandler):
@@ -82,10 +83,10 @@ class ImportHandler:
                         sys.modules[currModName] = newModule
                         for attrName, otherMod in loadingMods:
                             varName = otherMod.__name__ + "." + attrName
-                            print "WARNING: having to reset the variable '" + varName + "'.\n" + \
+                            print("WARNING: having to reset the variable '" + varName + "'.\n" + \
                                   "This implies you are intercepting the module '" + modName + "'" + \
                                   " after importing it.\nWhile this might work, it may well be very slow and " + \
-                                  "is not recommended.\n"
+                                  "is not recommended.\n")
                             setattr(otherMod, attrName, newModule)
                     else:
                         del sys.modules[currModName]
@@ -153,7 +154,12 @@ class ImportHandler:
             del sys.modules[name]
         sys.meta_path.remove(self)
         try:
-            exec "import " + name + " as _realModule"
+            # This is a bit weird, but it's apparently necessary in python 3...
+            # See http://bugs.python.org/issue6862
+            cmd = "import " + name + " as _realModule"
+            d = {}
+            exec(cmd, d)
+            _realModule = d["_realModule"]
         finally:
             sys.meta_path.append(self)
             if name in sys.modules:
@@ -179,6 +185,9 @@ def interceptPython(*args, **kw):
 class TransparentProxy:
     def __init__(self, obj):
         self.obj = obj
+
+    def __call__(self, *args, **kw):
+        return self.obj(*args, **kw)
         
     def __getattr__(self, name):
         return getattr(self.obj, name)
@@ -190,7 +199,7 @@ class InterceptHandler:
         self.rcHandler = config.RcFileHandler(rcFiles)
         # Has too many side effects, because our log configuration file may conflict with the application's logging set up. Need to find another way.
         #self.rcHandler.setUpLogging()
-        import replayinfo
+        from . import replayinfo
         self.replayInfo = replayinfo.ReplayInfo(mode, replayFile, self.rcHandler)
         self.recordFile = recordFile
         self.allAttrNames = self.findAttributeNames(mode, pythonAttrs)
@@ -198,7 +207,7 @@ class InterceptHandler:
     def findAttributeNames(self, mode, pythonAttrs):
         rcAttrs = self.rcHandler.getIntercepts("python")
         if mode == config.REPLAY:
-            return pythonAttrs + filter(lambda attr: attr in self.replayInfo.replayItems, rcAttrs)
+            return pythonAttrs + [attr for attr in rcAttrs if attr in self.replayInfo.replayItems]
         else:
             return pythonAttrs + rcAttrs
 
@@ -224,7 +233,7 @@ class InterceptHandler:
             # Don't construct PythonTrafficHandler, which will delete any existing files
             return
         callStackChecker = CallStackChecker(self.rcHandler)
-        from pythontraffic import PythonTrafficHandler
+        from .pythontraffic import PythonTrafficHandler
         trafficHandler = PythonTrafficHandler(self.replayInfo, self.recordFile, self.rcHandler,
                                               callStackChecker, self.allAttrNames)
         if len(fullIntercepts):
@@ -246,7 +255,7 @@ class InterceptHandler:
 
     def canImport(self, moduleName):
         try:
-            exec "import " + moduleName
+            exec("import " + moduleName)
             return True
         except ImportError:
             return False

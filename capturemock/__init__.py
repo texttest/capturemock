@@ -1,9 +1,9 @@
 
-from capturepython import interceptPython
-from capturecommand import interceptCommand
-from config import CaptureMockReplayError, RECORD, REPLAY, REPLAY_OLD_RECORD_NEW
-
-import os, sys, shutil, config, cmdlineutils, filecmp, subprocess, tempfile, types
+from .capturepython import interceptPython
+from .capturecommand import interceptCommand
+from .config import CaptureMockReplayError, RECORD, REPLAY, REPLAY_OLD_RECORD_NEW
+from . import config, cmdlineutils
+import os, sys, shutil, filecmp, subprocess, tempfile, types
 from functools import wraps
 
 class CaptureMockManager:
@@ -24,7 +24,7 @@ class CaptureMockManager:
                 if var in environment:
                     del environment[var]
 
-            import server
+            from . import server
             self.serverProcess = server.startServer(rcFiles, mode, replayFile, replayEditDir,
                                                     recordFile, recordEditDir, sutDirectory,
                                                     environment)
@@ -51,7 +51,7 @@ class CaptureMockManager:
         file.write("#!" + sys.executable + "\n")
         file.write(self.fileContents)
         file.close()
-        os.chmod(interceptName, 0775) # make executable 
+        os.chmod(interceptName, 0o775) # make executable 
 
     def makePathIntercept(self, cmd, interceptDir):
         if not os.path.isdir(interceptDir):
@@ -75,7 +75,7 @@ class CaptureMockManager:
     def makePathIntercepts(self, commands, interceptDir, replayFile, mode):
         commands = self.filterAbsolute(commands)
         if replayFile and mode == config.REPLAY:
-            import replayinfo
+            from . import replayinfo
             commands = replayinfo.filterCommands(commands, replayFile)
         for command in commands:
             self.makePathIntercept(command, interceptDir)
@@ -84,7 +84,7 @@ class CaptureMockManager:
     def terminate(self):
         if self.serverProcess:
             if self.serverAddress:
-                from server import stopServer
+                from .server import stopServer
                 stopServer(self.serverAddress)
             self.writeServerErrors()
             self.serverProcess = None
@@ -113,7 +113,7 @@ def setUpPython(mode, recordFile, replayFile=None,
 def process_startup():
     rcFileStr = os.getenv("CAPTUREMOCK_PROCESS_START")
     if rcFileStr:
-        import config
+        from . import config
         rcFiles = rcFileStr.split(",")
         replayFile = os.getenv("CAPTUREMOCK_REPLAY_FILE")
         recordFile = os.getenv("CAPTUREMOCK_RECORD_FILE")
@@ -173,7 +173,7 @@ def capturemock(pythonAttrsOrFunc=[], *args, **kw):
 class CaptureMockDecorator(object):
     defaultMode = int(os.getenv("CAPTUREMOCK_MODE", "0"))
     defaultPythonAttrs = []
-    defaultRcFiles = filter(os.path.isfile, [".capturemockrc"])
+    defaultRcFiles = list(filter(os.path.isfile, [".capturemockrc"]))
     @classmethod
     def set_defaults(cls, pythonAttrs=[], mode=None, rcFiles=[]):
         if rcFiles:

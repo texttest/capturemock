@@ -26,7 +26,10 @@ class NameFinder(dict):
             classDecl = className.replace("(", "(InstanceProxy, ")
         else:
             classDecl = className + "(InstanceProxy)"
-        classDefStr = "class " + classDecl + " : __metaclass__ = ProxyMetaClass"
+        if sys.version_info[0] == 2:
+            classDefStr = "class " + classDecl + " : __metaclass__ = ProxyMetaClass"
+        else:
+            classDefStr = "class " + classDecl.replace(")", ", metaclass=ProxyMetaClass): pass")
         actualClassName = className.split("(")[0]
         return self.defineClass(actualClassName, classDefStr)
 
@@ -35,7 +38,7 @@ class NameFinder(dict):
 
     def defineClassLocally(self, classDefStr):
         try:
-            exec classDefStr in self
+            exec(classDefStr, self)
         except NameError:
             self.makeNewClasses = True
             self.defineClassLocally(classDefStr)
@@ -44,12 +47,12 @@ class NameFinder(dict):
     def __getitem__(self, name):
         if name not in self:
             if self.makeNewClasses:
-                exec "class " + name + ": pass" in self
+                exec("class " + name + ": pass", self)
                 self.newClassNames.append(name)
                 self.makeNewClasses = False
             else:
                 try:
-                    exec "import " + name in self
+                    exec("import " + name, self)
                 except ImportError:
                     pass
         return dict.__getitem__(self, name)
@@ -91,7 +94,7 @@ class PythonProxy(object):
 
     def captureMockEvaluate(self, response):
         if response.startswith("raise "):
-            exec response in self.captureMockNameFinder
+            exec(response, self.captureMockNameFinder)
         else:
             return eval(response, self.captureMockNameFinder)
 
@@ -179,6 +182,9 @@ class InstanceProxy(PythonProxy):
     def __repr__(self):
         return self.__getattr__("__repr__")()
 
+    def __bool__(self):
+        return self.__getattr__("__bool__")()
+
     def __nonzero__(self):
         return self.__getattr__("__nonzero__")()
 
@@ -190,6 +196,9 @@ class InstanceProxy(PythonProxy):
 
     # For iterators. Doesn't do any harm being here in general, and otherwise an intercepted
     # iterator will not be recognised. At worst this might replace one exception with another 
+    def __next__(self):
+        return self.__getattr__("__next__")()
+
     def next(self):
         return self.__getattr__("next")()
 
