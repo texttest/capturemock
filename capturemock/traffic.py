@@ -4,6 +4,7 @@
 import re
 
 class BaseTraffic(object):
+    alterationVariables = {}
     def __init__(self, text, rcHandler=None):
         self.text = text
         self.alterations = {}
@@ -15,8 +16,23 @@ class BaseTraffic(object):
                     self.alterations[re.compile(toFind)] = toReplace
 
     def applyAlterations(self, text):
-        for regex, repl in self.alterations.items():
-            text = regex.sub(repl, text)
+        return self._applyAlterations(text, self.alterations)
+
+    def applyAlterationVariables(self, text):
+        return self._applyAlterations(text, self.alterationVariables)
+
+    def _applyAlterations(self, text, alterations):
+        class AlterationReplacer:
+            def __init__(rself, repl):
+                rself.repl = repl
+
+            def __call__(rself, match):
+                if rself.repl.startswith("$"):
+                    self.alterationVariables[re.compile(rself.repl.replace("$", "\\$"))] = match.group(0)
+                return rself.repl
+                
+        for regex, repl in alterations.items():
+            text = regex.sub(AlterationReplacer(repl), text)
         return text
 
     def getAlterationSectionNames(self):

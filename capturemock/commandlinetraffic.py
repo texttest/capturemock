@@ -167,8 +167,8 @@ class StderrTraffic(traffic.ResponseTraffic):
 
 class SysExitTraffic(traffic.ResponseTraffic):
     typeId = "EXC"
-    def __init__(self, status, responseFile):
-        traffic.ResponseTraffic.__init__(self, str(status), responseFile)
+    def __init__(self, status, *args):
+        traffic.ResponseTraffic.__init__(self, str(status), *args)
         self.exitStatus = int(status)
     def hasInfo(self):
         return self.exitStatus != 0

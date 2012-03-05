@@ -35,23 +35,27 @@ class ClientSocketTraffic(traffic.Traffic):
 
 
 class XmlRpcClientTraffic(ClientSocketTraffic):
-    def __init__(self, text="", responseFile=None, method=None, params=None):
+    def __init__(self, text="", responseFile=None, rcHandler=None, method=None, params=None):
         if method is not None:
             self.method = method
             self.params = params
             text = self.method + repr(params).replace(",)", ")")
-        else:
+        ClientSocketTraffic.__init__(self, text, None, rcHandler)
+        if method is not None: # record
+            self.text = self.applyAlterations(self.text)
+        else: # replay
             self.method, paramText = text.split("(", 1)
+            paramText = self.applyAlterationVariables(paramText)
             self.params = eval("(" + paramText.rstrip())
-        ClientSocketTraffic.__init__(self, text, None)
                 
     def forwardToServer(self):
         try:
-            response = getattr(self.destination, self.method)(*self.params)
-            return [ XmlRpcServerTraffic(responseObject=response) ]
+            responseObject = getattr(self.destination, self.method)(*self.params)
         except xmlrpclib.Fault, e:
-            return [ XmlRpcServerTraffic(responseObject=e) ]
+            responseObject = e
 
+        text = self.applyAlterations(repr(responseObject))
+        return [ XmlRpcServerTraffic(text=text, responseObject=responseObject) ]
 
     def getXmlRpcResponse(self):
         return "" # not a response in the xmlrpc sense...
@@ -63,10 +67,9 @@ class ServerTraffic(traffic.Traffic):
 
 
 class XmlRpcServerTraffic(ServerTraffic):
-    def __init__(self, text="", responseFile=None, responseObject=None):
+    def __init__(self, text="", responseFile=None, rcHandler=None, responseObject=None):
         if responseObject is not None:
             self.responseObject = responseObject
-            text = repr(responseObject)
             if isinstance(responseObject, xmlrpclib.Fault):
                 text = "raise xmlrpclib.Fault(" + repr(responseObject.faultCode) + ", " + repr(responseObject.faultString) + ")"
         else:
@@ -74,7 +77,7 @@ class XmlRpcServerTraffic(ServerTraffic):
             if raiseException:
                 text = text[6:]
             self.responseObject = eval(text)
-        ServerTraffic.__init__(self, text, None)
+        ServerTraffic.__init__(self, text, None, rcHandler)
 
     def getXmlRpcResponse(self):
         if isinstance(self.responseObject, xmlrpclib.Fault):

@@ -1,5 +1,5 @@
 
-import os, stat, sys, logging, socket, threading, time, subprocess
+import os, stat, sys, logging, socket, threading, time, subprocess, xmlrpclib
 import config, recordfilehandler, cmdlineutils
 import commandlinetraffic, fileedittraffic, clientservertraffic, customtraffic
 from SocketServer import TCPServer, StreamRequestHandler
@@ -140,15 +140,24 @@ class XmlRpcDispatchInstance:
         self.dispatcher = dispatcher
 
     def _dispatch(self, method, params):
-        self.dispatcher.diag.info("Received XMLRPC traffic " + method + repr(params))
-        XmlRpcDispatchInstance.requestCount += 1
-        if method == "setServerLocation":
-            traffic = clientservertraffic.XmlRpcServerStateTraffic(params[0])
-        else:
-            traffic = clientservertraffic.XmlRpcClientTraffic(method=method, params=params)
-        responses = self.dispatcher.process(traffic, self.requestCount)
-        return responses[0].getXmlRpcResponse() if responses else ""
-        
+        try:
+            self.dispatcher.diag.info("Received XMLRPC traffic " + method + repr(params))
+            XmlRpcDispatchInstance.requestCount += 1
+            if method == "setServerLocation":
+                traffic = clientservertraffic.XmlRpcServerStateTraffic(params[0])
+            else:
+                traffic = clientservertraffic.XmlRpcClientTraffic(method=method, params=params, rcHandler=self.dispatcher.rcHandler)
+            responses = self.dispatcher.process(traffic, self.requestCount)
+            return responses[0].getXmlRpcResponse() if responses else ""
+        except xmlrpclib.Fault:
+            raise
+        except:
+            sys.stderr.write("Exception thrown while handling XMLRPC input :\n")
+            type, value, traceback = sys.exc_info()
+            from traceback import format_exception
+            exceptionString = "".join(format_exception(type, value, traceback))
+            sys.stderr.write(exceptionString)
+            return ""
         
 class ServerDispatcher:
     def __init__(self, options):
@@ -355,7 +364,7 @@ class ServerDispatcher:
                     changedPaths = self.findFilesAndLinks(storedFile)
                     return fileedittraffic.FileEditTraffic(fileName, editedFile, storedFile, changedPaths, reproduce=True)
         else:
-            return responseClass(text, traffic.responseFile)
+            return responseClass(text, traffic.responseFile, self.rcHandler)
 
     def findRemovedPath(self, removedPath):
         # We know this path is removed, what about its parents?
