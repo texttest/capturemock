@@ -3,6 +3,7 @@ import os, stat, sys, logging, socket, threading, time, subprocess
 import config, recordfilehandler, cmdlineutils
 import commandlinetraffic, fileedittraffic, clientservertraffic, customtraffic
 from SocketServer import TCPServer, StreamRequestHandler
+from SimpleXMLRPCServer import SimpleXMLRPCServer
 from ordereddict import OrderedDict
 from replayinfo import ReplayInfo
 
@@ -36,41 +37,25 @@ def startServer(rcFiles, mode, replayFile, replayEditDir,
     return subprocess.Popen(cmdArgs, env=environment.copy(), universal_newlines=True,
                             cwd=sutDirectory, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-def stopServer(servAddr):
-    host, port = servAddr.split(":")
-    serverAddress = (host, int(port))
-    try:
-        TrafficServer.sendTerminateMessage(serverAddress)
-    except socket.error: # pragma: no cover - should be unreachable, just for robustness
-        print("Could not send terminate message to CaptureMock server at " + servAddr + \
+def stopServer(servAddr, serverProc):
+    if servAddr.startswith("http"):
+        serverProc.terminate() # XMLRPC, no need to do anything clever (?)
+    else:
+        try:
+            ClassicTrafficServer.sendTerminateMessage(servAddr)
+        except socket.error: # pragma: no cover - should be unreachable, just for robustness
+            print("Could not send terminate message to CaptureMock server at " + servAddr + \
                   ", seemed not to be running anyway.")
-    
 
-class TrafficServer(TCPServer):
-    def __init__(self, options):
-        rcFiles = options.rcfiles.split(",") if options.rcfiles else []
-        self.rcHandler = config.RcFileHandler(rcFiles)
-        self.rcHandler.setUpLogging()
-        self.filesToIgnore = self.rcHandler.getList("ignore_edits", [ "command line" ])
-        self.useThreads = self.rcHandler.getboolean("server_multithreaded", [ "general" ], True)
-        self.replayInfo = ReplayInfo(options.mode, options.replay, self.rcHandler)
-        self.recordFileHandler = RecordFileHandler(options.record)
-        self.requestCount = 0
-        self.diag = logging.getLogger("Server")
-        self.topLevelForEdit = [] # contains only paths explicitly given. Always present.
-        self.fileEditData = OrderedDict() # contains all paths, including subpaths of the above. Empty when replaying.
+
+class ClassicTrafficServer(TCPServer):
+    def __init__(self, addrinfo, useThreads):
+        TCPServer.__init__(self, addrinfo, TrafficRequestHandler)
+        self.useThreads = useThreads
         self.terminate = False
-        self.hasAsynchronousEdits = False
-        # Default value of 5 isn't very much...
-        # There doesn't seem to be any disadvantage of allowing a longer queue, so we will increase it by a lot...
-        self.request_queue_size = 500
-        TCPServer.__init__(self, (socket.gethostname(), 0), TrafficRequestHandler)
-        host, port = self.socket.getsockname()
-        sys.stdout.write(host + ":" + str(port) + "\n") # Tell our caller, so they can tell the program being handled
-        sys.stdout.flush()
+        self.requestCount = 0
         
     def run(self):
-        self.diag.debug("Starting capturemock server")
         while not self.terminate:
             self.handle_request()
         # Join all remaining request threads so they don't
@@ -78,23 +63,33 @@ class TrafficServer(TCPServer):
         for t in threading.enumerate():
             if t.getName() == "request":
                 t.join()
-        self.diag.debug("Shut down capturemock server")
+
+    @classmethod
+    def sendTerminateMessage(cls, serverAddressStr):
+        host, port = serverAddressStr.split(":")
+        cls._sendTerminateMessage((host, int(port)))    
 
     @staticmethod
-    def sendTerminateMessage(serverAddress):
+    def _sendTerminateMessage(serverAddress):
         sendSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sendSocket.connect(serverAddress)
         sendSocket.sendall("TERMINATE_SERVER\n")
         sendSocket.shutdown(2)
-            
+        
+    @staticmethod
+    def getTrafficClasses(incoming):
+        if incoming:    
+            return [ clientservertraffic.ServerStateTraffic, clientservertraffic.ClientSocketTraffic ]
+        else:
+            return [ clientservertraffic.ServerTraffic, clientservertraffic.ClientSocketTraffic ]
+
     def shutdown(self):
-        self.diag.debug("Told to shut down!")
         if self.useThreads:
             # Setting terminate will only work if we do it in the main thread:
             # otherwise the main thread might be in a blocking call at the time
             # So we reset the thread flag and send a new message
             self.useThreads = False
-            self.sendTerminateMessage(self.socket.getsockname())
+            self._sendTerminateMessage(self.socket.getsockname())
         else:
             self.terminate = True
         
@@ -117,6 +112,83 @@ class TrafficServer(TCPServer):
             t.start()
         else:
             self.process_request_thread(request, client_address, self.requestCount)
+
+    def getAddress(self):
+        host, port = self.socket.getsockname()
+        return host + ":" + str(port)
+
+class XmlRpcTrafficServer(SimpleXMLRPCServer):
+    def run(self):
+        self.serve_forever()
+
+    def getAddress(self):
+        host, port = self.socket.getsockname()
+        # hardcode http? Seems to be what you get...
+        return "http://" + host + ":" + str(port)
+
+    @staticmethod
+    def getTrafficClasses(incoming):
+        if incoming:    
+            return [ clientservertraffic.XmlRpcServerStateTraffic, clientservertraffic.XmlRpcClientTraffic ]
+        else:
+            return [ clientservertraffic.XmlRpcServerTraffic, clientservertraffic.XmlRpcClientTraffic ]
+
+
+class XmlRpcDispatchInstance:
+    requestCount = 0
+    def __init__(self, dispatcher):
+        self.dispatcher = dispatcher
+
+    def _dispatch(self, method, params):
+        self.dispatcher.diag.info("Received XMLRPC traffic " + method + repr(params))
+        XmlRpcDispatchInstance.requestCount += 1
+        if method == "setServerLocation":
+            traffic = clientservertraffic.XmlRpcServerStateTraffic(params[0])
+        else:
+            traffic = clientservertraffic.XmlRpcClientTraffic(method=method, params=params)
+        responses = self.dispatcher.process(traffic, self.requestCount)
+        return responses[0].getXmlRpcResponse() if responses else ""
+        
+        
+class ServerDispatcher:
+    def __init__(self, options):
+        rcFiles = options.rcfiles.split(",") if options.rcfiles else []
+        self.rcHandler = config.RcFileHandler(rcFiles)
+        self.rcHandler.setUpLogging()
+        self.filesToIgnore = self.rcHandler.getList("ignore_edits", [ "command line" ])
+        self.useThreads = self.rcHandler.getboolean("server_multithreaded", [ "general" ], True)
+        self.replayInfo = ReplayInfo(options.mode, options.replay, self.rcHandler)
+        self.recordFileHandler = RecordFileHandler(options.record)
+        self.diag = logging.getLogger("Server")
+        self.topLevelForEdit = [] # contains only paths explicitly given. Always present.
+        self.fileEditData = OrderedDict() # contains all paths, including subpaths of the above. Empty when replaying.
+        self.terminate = False
+        self.hasAsynchronousEdits = False
+        # Default value of 5 isn't very much...
+        # There doesn't seem to be any disadvantage of allowing a longer queue, so we will increase it by a lot...
+        self.request_queue_size = 500
+        self.server = self.makeServer()
+        sys.stdout.write(self.server.getAddress() + "\n") # Tell our caller, so they can tell the program being handled
+        sys.stdout.flush()
+
+    def makeServer(self):
+        protocol = self.rcHandler.get("server_protocol", [ "general" ], "classic")
+        if protocol == "classic":
+            TrafficRequestHandler.dispatcher = self
+            return ClassicTrafficServer((socket.gethostname(), 0), TrafficRequestHandler)
+        elif protocol == "xmlrpc":
+            server = XmlRpcTrafficServer((socket.gethostname(), 0), logRequests=False)
+            server.register_instance(XmlRpcDispatchInstance(self))
+            return server
+            
+    def run(self):
+        self.diag.debug("Starting capturemock server")
+        self.server.run()
+        self.diag.debug("Shut down capturemock server")
+        
+    def shutdown(self):
+        self.diag.debug("Told to shut down!")
+        self.server.shutdown()
         
     def findFilesAndLinks(self, path):
         if not os.path.exists(path):
@@ -187,13 +259,14 @@ class TrafficServer(TCPServer):
             for fileTraffic in self.getLatestFileEdits():
                 self._process(fileTraffic, reqNo)
 
-        self._process(traffic, reqNo)
+        responses = self._process(traffic, reqNo)
         self.hasAsynchronousEdits |= traffic.makesAsynchronousEdits()
         self.recordFileHandler.requestComplete(reqNo)
         if not self.hasAsynchronousEdits:
             # Unless we've marked it as asynchronous we start again for the next traffic.
             self.topLevelForEdit = []
             self.fileEditData = OrderedDict()
+        return responses
         
     def _process(self, traffic, reqNo):
         self.diag.debug("Processing traffic " + traffic.__class__.__name__)
@@ -205,12 +278,13 @@ class TrafficServer(TCPServer):
             response.record(self.recordFileHandler, reqNo)
             for chainResponse in response.forwardToDestination():
                 self._process(chainResponse, reqNo)
-            self.diag.debug("Completed response of type " + response.__class__.__name__)            
+            self.diag.debug("Completed response of type " + response.__class__.__name__)
+        return responses
 
     def getTrafficClasses(self, incoming):
         classes = []
         # clientservertraffic must be last, it's the fallback option
-        for mod in [ commandlinetraffic, fileedittraffic, customtraffic, clientservertraffic ]:
+        for mod in [ commandlinetraffic, fileedittraffic, customtraffic, self.server ]:
             classes += mod.getTrafficClasses(incoming)
         return classes
 
@@ -323,15 +397,16 @@ class TrafficServer(TCPServer):
 
 
 class TrafficRequestHandler(StreamRequestHandler):
+    dispatcher = None
     def __init__(self, requestNumber, *args):
         self.requestNumber = requestNumber
         StreamRequestHandler.__init__(self, *args)
         
     def handle(self):
-        self.server.diag.debug("Received incoming request...")
+        self.dispatcher.diag.debug("Received incoming request...")
         text = self.rfile.read()
         try:
-            self.server.processText(text, self.wfile, self.requestNumber)
+            self.dispatcher.processText(text, self.wfile, self.requestNumber)
         except config.CaptureMockReplayError as e:
             self.wfile.write("CAPTUREMOCK MISMATCH: " + str(e))
         
@@ -384,5 +459,5 @@ if __name__ == "__main__":
     
     fileedittraffic.FileEditTraffic.configure(options)
 
-    server = TrafficServer(options)
+    server = ServerDispatcher(options)
     server.run()
