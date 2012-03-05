@@ -4,10 +4,10 @@
 import logging, difflib, re, os
 try:
     from collections import OrderedDict
-    from . import config
 except ImportError:
     from ordereddict import OrderedDict
-    import config
+
+import config
 
 class ReplayInfo:
     def __init__(self, mode, replayFile, rcHandler):
