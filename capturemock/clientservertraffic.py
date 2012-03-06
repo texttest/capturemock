@@ -91,8 +91,10 @@ class ServerStateTraffic(ServerTraffic):
     def __init__(self, inText, *args):
         ServerTraffic.__init__(self, inText, *args)
         lastWord = inText.strip().split()[-1]
-        host, port = lastWord.split(":")
-        ClientSocketTraffic.setServerLocation((host, int(port)))
+        if ":" in lastWord:
+            host, port = lastWord.split(":")
+            if port.isdigit():
+                ClientSocketTraffic.setServerLocation((host, int(port)))
 
     def forwardToDestination(self):
         return []
