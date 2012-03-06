@@ -2,12 +2,14 @@
 """ Module to manage the information in the file and return appropriate matches """
 
 import logging, difflib, re, os
-try:
+try: # Python 2.7, Python 3.x
     from collections import OrderedDict
-except ImportError:
+except ImportError: # Python 2.6 and earlier
     from ordereddict import OrderedDict
-
-import config
+try: # Python 2.x
+    import config
+except ImportError: # Python 3.x
+    from . import config
 
 class ReplayInfo:
     def __init__(self, mode, replayFile, rcHandler):
