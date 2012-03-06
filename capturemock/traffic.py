@@ -1,7 +1,7 @@
 
 """ Defining the base traffic class which the useful traffic classes inherit """
 
-import re
+import re, os
 
 class BaseTraffic(object):
     alterationVariables = {}
@@ -9,8 +9,9 @@ class BaseTraffic(object):
         self.text = text
         self.alterations = {}
         if rcHandler:
+            self.diag = rcHandler.diag
             for alterStr in rcHandler.getList("alterations", self.getAlterationSectionNames()):
-                toFind = rcHandler.get("match_pattern", [ alterStr ])
+                toFind = os.path.expandvars(rcHandler.get("match_pattern", [ alterStr ]))
                 toReplace = rcHandler.get("replacement", [ alterStr ])
                 if toFind and toReplace is not None:
                     self.alterations[re.compile(toFind)] = toReplace
@@ -28,7 +29,10 @@ class BaseTraffic(object):
 
             def __call__(rself, match):
                 if rself.repl.startswith("$"):
-                    self.alterationVariables[re.compile(rself.repl.replace("$", "\\$"))] = match.group(0)
+                    replText = rself.repl.replace("$", "\\$")
+                    matched = match.group(0)
+                    self.diag.info("Adding alteration variable for " + replText + " = " + matched)
+                    self.alterationVariables[re.compile(replText)] = matched
                 return rself.repl
                 
         for regex, repl in alterations.items():

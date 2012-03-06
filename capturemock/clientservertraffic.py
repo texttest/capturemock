@@ -44,9 +44,12 @@ class XmlRpcClientTraffic(ClientSocketTraffic):
         if method is not None: # record
             self.text = self.applyAlterations(self.text)
         else: # replay
-            self.method, paramText = text.split("(", 1)
+            self.method, paramText = text.rstrip().split("(", 1)
+            paramText = "(" + paramText
             paramText = self.applyAlterationVariables(paramText)
-            self.params = eval("(" + paramText.rstrip())
+            if "," not in paramText and paramText != "()":
+                paramText = paramText[:-1] + ",)" # make proper tuple output
+            self.params = eval(paramText)
                 
     def forwardToServer(self):
         try:

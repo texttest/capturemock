@@ -163,12 +163,11 @@ class ServerDispatcher:
     def __init__(self, options):
         rcFiles = options.rcfiles.split(",") if options.rcfiles else []
         self.rcHandler = config.RcFileHandler(rcFiles)
-        self.rcHandler.setUpLogging()
+        self.diag = self.rcHandler.setUpLogging("Server")
         self.filesToIgnore = self.rcHandler.getList("ignore_edits", [ "command line" ])
         self.useThreads = self.rcHandler.getboolean("server_multithreaded", [ "general" ], True)
         self.replayInfo = ReplayInfo(options.mode, options.replay, self.rcHandler)
         self.recordFileHandler = RecordFileHandler(options.record)
-        self.diag = logging.getLogger("Server")
         self.topLevelForEdit = [] # contains only paths explicitly given. Always present.
         self.fileEditData = OrderedDict() # contains all paths, including subpaths of the above. Empty when replaying.
         self.terminate = False

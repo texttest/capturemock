@@ -17,6 +17,7 @@ class CaptureMockReplayError(RuntimeError):
 class RcFileHandler:
     def __init__(self, rcFiles):
         self.parser = ConfigParser()
+        self.diag = None
         if rcFiles:
             for rcFile in rcFiles:
                 if not os.path.isfile(rcFile):
@@ -52,12 +53,14 @@ class RcFileHandler:
                     result += listStr.split(",")
         return result
 
-    def setUpLogging(self):
+    def setUpLogging(self, mainLogName):
         logConfigFile = self.get("log_config_file", [ "general" ],
                                  self.getPersonalPath("logging.conf"))
         if os.path.isfile(logConfigFile):
             defaults = { "LOCAL_DIR" : os.path.dirname(logConfigFile) }
             logging.config.fileConfig(logConfigFile, defaults)
+            self.diag = logging.getLogger(mainLogName)
+            return self.diag
 
 
 def isActive(mode, replayFile):
