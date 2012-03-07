@@ -59,8 +59,8 @@ class RcFileHandler:
         if os.path.isfile(logConfigFile):
             defaults = { "LOCAL_DIR" : os.path.dirname(logConfigFile) }
             logging.config.fileConfig(logConfigFile, defaults)
-            self.diag = logging.getLogger(mainLogName)
-            return self.diag
+        self.diag = logging.getLogger(mainLogName)
+        return self.diag
 
 
 def isActive(mode, replayFile):
