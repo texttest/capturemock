@@ -2,9 +2,10 @@
 """ Defining the base traffic class which the useful traffic classes inherit """
 
 import re, os
+from ordereddict import OrderedDict
 
 class BaseTraffic(object):
-    alterationVariables = {}
+    alterationVariables = OrderedDict()
     def __init__(self, text, rcHandler=None):
         self.text = text
         self.alterations = {}
@@ -29,15 +30,34 @@ class BaseTraffic(object):
 
             def __call__(rself, match):
                 if rself.repl.startswith("$"):
-                    replText = rself.repl.replace("$", "\\$")
-                    matched = match.group(0)
-                    self.diag.info("Adding alteration variable for " + replText + " = " + matched)
-                    self.alterationVariables[re.compile(replText)] = matched
-                return rself.repl
-                
-        for regex, repl in alterations.items():
+                    return self.storeAlterationVariable(rself.repl, match.group(0))
+                else:
+                    return rself.repl
+
+        # Reverse it for the alteration variables, we may add newer ones as we go along, want to check those first...
+        for regex, repl in reversed(alterations.items()):
             text = regex.sub(AlterationReplacer(repl), text)
         return text
+
+    @staticmethod
+    def findNextNameCandidate(name):
+        parts = name.split("_")
+        if len(parts) > 1 and parts[-1].isdigit():
+            parts[-1] = str(int(parts[-1]) + 1)
+            return "_".join(parts)
+        else:
+            return name + "_2"
+        
+    def storeAlterationVariable(self, repl, matched):
+        replText = repl
+        regex = re.compile(replText.replace("$", "\\$"))
+        while regex in self.alterationVariables and self.alterationVariables[regex] != matched:
+            replText = self.findNextNameCandidate(replText)
+            regex = re.compile(replText.replace("$", "\\$"))
+            
+        self.diag.info("Adding alteration variable for " + replText + " = " + matched)
+        self.alterationVariables[regex] = matched
+        return replText
 
     def getAlterationSectionNames(self):
         return [ "general" ]
@@ -65,20 +85,27 @@ class BaseTraffic(object):
             desc += "\n"
         recordFileHandler.record(desc, *args)
 
+    def findQuote(self, out):
+        for quoteChar in "'\"":
+            pos = out.find(quoteChar, 0, 2)
+            if pos != -1:
+                return pos, quoteChar
+        return None, None
+
     def fixMultilineStrings(self, arg):
         out = repr(arg)
         # Replace linebreaks but don't mangle e.g. Windows paths
         # This won't work if both exist in the same string - fixing that requires
         # using a regex and I couldn't make it work [gjb 100922]
-        if "\\n" in out and "\\\\n" not in out: 
-            pos = out.find("'", 0, 2)
-            if pos != -1:
-                return out[:pos] + "''" + out[pos:].replace("\\n", "\n") + "''"
-            else:
-                pos = out.find('"', 0, 2)
-                return out[:pos] + '""' + out[pos:].replace("\\n", "\n") + '""'
-        else:
-            return out
+        if "\\n" in out and "\\\\n" not in out:
+            pos, quoteChar = self.findQuote(out)
+            if pos is not None:
+                return self.makeMultiline(out, pos, quoteChar)
+        return out
+
+    def makeMultiline(self, out, pos, quoteChar):
+        endPos = out.rfind(quoteChar, -3, -1)
+        return out[:pos] + quoteChar * 2 + out[pos:endPos].replace("\\n", "\n").replace("\\t", "\t") + quoteChar * 2 + out[endPos:]
 
     
 class Traffic(BaseTraffic):
