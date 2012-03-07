@@ -65,11 +65,16 @@ class ReplayInfo:
         else:
             return traffic.isMarkedForReplay(set(self.replayItems + self.instanceNames))
 
+    def getTrafficLookupKey(self, trafficStr):
+        # If we're matching server communications it means we're 'playing client'
+        # In this case we should just send all our stuff in order and not worry about matching things.
+        return "<-SRV" if trafficStr.startswith("<-SRV") else trafficStr
+
     def parseTrafficList(self, trafficList):
         currResponseHandler = None
         for trafficStr in trafficList:
             if trafficStr.startswith("<-"):
-                currTrafficIn = trafficStr.strip()
+                currTrafficIn = self.getTrafficLookupKey(trafficStr.strip())
                 currResponseHandler = self.responseMap.get(currTrafficIn)
                 if currResponseHandler:
                     currResponseHandler.newResponse()
@@ -113,7 +118,7 @@ class ReplayInfo:
                     return responses[0][6:]
 
     def getResponseMapKey(self, traffic, exact):
-        desc = traffic.getDescription()
+        desc = self.getTrafficLookupKey(traffic.getDescription())
         self.diag.debug("Trying to match '" + desc + "'")
         if desc in self.responseMap:
             self.diag.debug("Found exact match")
