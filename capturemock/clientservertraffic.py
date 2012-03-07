@@ -57,7 +57,7 @@ class XmlRpcClientTraffic(ClientSocketTraffic):
         except xmlrpclib.Fault, e:
             responseObject = e
 
-        text = self.applyAlterations(repr(responseObject))
+        text = self.applyAlterations(self.fixMultilineStrings(responseObject))
         return [ XmlRpcServerTraffic(text=text, responseObject=responseObject) ]
 
     def getXmlRpcResponse(self):

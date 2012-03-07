@@ -65,6 +65,21 @@ class BaseTraffic(object):
             desc += "\n"
         recordFileHandler.record(desc, *args)
 
+    def fixMultilineStrings(self, arg):
+        out = repr(arg)
+        # Replace linebreaks but don't mangle e.g. Windows paths
+        # This won't work if both exist in the same string - fixing that requires
+        # using a regex and I couldn't make it work [gjb 100922]
+        if "\\n" in out and "\\\\n" not in out: 
+            pos = out.find("'", 0, 2)
+            if pos != -1:
+                return out[:pos] + "''" + out[pos:].replace("\\n", "\n") + "''"
+            else:
+                pos = out.find('"', 0, 2)
+                return out[:pos] + '""' + out[pos:].replace("\\n", "\n") + '""'
+        else:
+            return out
+
     
 class Traffic(BaseTraffic):
     def __init__(self, text, responseFile, *args):
@@ -89,6 +104,7 @@ class Traffic(BaseTraffic):
 
     def filterReplay(self, trafficList):
         return trafficList
+
     
 class ResponseTraffic(Traffic):
     direction = "->"
