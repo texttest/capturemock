@@ -2,6 +2,7 @@
 """ Defining the base traffic class which the useful traffic classes inherit """
 
 import re, os
+from pprint import pformat
 from ordereddict import OrderedDict
 
 class BaseTraffic(object):
@@ -93,7 +94,7 @@ class BaseTraffic(object):
         return None, None
 
     def fixMultilineStrings(self, arg):
-        out = repr(arg)
+        out = pformat(arg, width=130)
         # Replace linebreaks but don't mangle e.g. Windows paths
         # This won't work if both exist in the same string - fixing that requires
         # using a regex and I couldn't make it work [gjb 100922]
