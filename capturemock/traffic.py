@@ -3,7 +3,10 @@
 
 import re, os
 from pprint import pformat
-from ordereddict import OrderedDict
+try:
+    from collections import OrderedDict
+except ImportError:
+    from ordereddict import OrderedDict
 
 class BaseTraffic(object):
     alterationVariables = OrderedDict()
