@@ -39,7 +39,7 @@ class BaseTraffic(object):
                     return rself.repl
 
         # Reverse it for the alteration variables, we may add newer ones as we go along, want to check those first...
-        for regex, repl in reversed(alterations.items()):
+        for regex, repl in reversed(list(alterations.items())):
             text = regex.sub(AlterationReplacer(repl), text)
         return text
 
