@@ -141,9 +141,17 @@ class PythonModuleTraffic(PythonTraffic):
         else:
             return result
 
+    def instanceHasAttribute(self, instance, attr):
+        # hasattr fails if the intercepted instance defines __getattr__, when it always returns True
+        # dir() can throw exceptions if __dir__ does (instance can be anything at all, and its __dir__ might raise anything at all)
+        try:
+            return attr in dir(instance)
+        except:
+            return False
+
     def getWrapper(self, instance):
         # hasattr fails if the intercepted instance defines __getattr__, when it always returns True
-        if "captureMockTarget" in dir(instance):
+        if self.instanceHasAttribute(instance, "captureMockTarget"):
             return self.getWrapper(instance.captureMockTarget)
         classDesc = self.getClassDescription(instance.__class__)
         return PythonInstanceWrapper.getWrapperFor(instance, classDesc)
