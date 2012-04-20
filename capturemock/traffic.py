@@ -36,7 +36,7 @@ class BaseTraffic(object):
                 if rself.repl.startswith("$"):
                     return self.storeAlterationVariable(rself.repl, match.group(0))
                 else:
-                    return rself.repl
+                    return match.expand(rself.repl)
 
         # Reverse it for the alteration variables, we may add newer ones as we go along, want to check those first...
         for regex, repl in reversed(list(alterations.items())):
