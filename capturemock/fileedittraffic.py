@@ -71,6 +71,8 @@ class FileEditTraffic(traffic.ResponseTraffic):
             try:
                 dstParent = os.path.dirname(dstPath)
                 if not os.path.isdir(dstParent):
+                    if os.path.islink(dstParent) or os.path.isfile(dstParent):
+                        os.remove(dstParent)
                     os.makedirs(dstParent)
                 if srcPath.endswith(self.linkSuffix):
                     self.restoreLink(srcPath, dstPath.replace(self.linkSuffix, ""))
