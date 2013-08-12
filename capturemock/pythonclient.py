@@ -186,7 +186,13 @@ class InstanceProxy(PythonProxy):
         return self.__getattr__("__bool__")()
 
     def __nonzero__(self):
-        return self.__getattr__("__nonzero__")()
+        try:
+            return self.__getattr__("__nonzero__")()
+        except AttributeError:
+            try:
+                return bool(self.__getattr__("__len__")())
+            except AttributeError:
+                return True
 
     def __iter__(self):
         return self.__getattr__("__iter__")()
