@@ -78,12 +78,23 @@ class ReplayInfo:
                 currResponseHandler = self.responseMap.get(currTrafficIn)
                 if currResponseHandler:
                     currResponseHandler.newResponse()
+                    if trafficStr.startswith("<-PYT") and not "(" in trafficStr:
+                        self.registerIntermediateCalls(currResponseHandler)
                 else:
                     currResponseHandler = ReplayedResponseHandler()
                     self.responseMap[currTrafficIn] = currResponseHandler
             elif currResponseHandler:
                 currResponseHandler.addResponse(trafficStr)
         self.diag.debug("Replay info " + repr(self.responseMap))
+
+    def registerIntermediateCalls(self, currResponseHandler):
+        intermediate = []
+        for trafficIn, responseHandler in reversed(self.responseMap.items()):
+            if responseHandler is currResponseHandler:
+                break
+            if "(" in trafficIn:
+                intermediate.insert(0, responseHandler)
+        currResponseHandler.addIntermediate(intermediate)
 
     def readIntoList(self, replayFile):
         trafficList = []
@@ -113,7 +124,7 @@ class ReplayInfo:
     def findResponseToTrafficStartingWith(self, prefix):
         for currDesc, responseHandler in self.responseMap.items():
             if currDesc[6:].startswith(prefix):
-                responses = responseHandler.getCurrentStrings()
+                responses, inc = responseHandler.getCurrentStrings()
                 if len(responses):
                     return responses[0][6:]
 
@@ -210,31 +221,49 @@ class ReplayedResponseHandler:
     def __init__(self):
         self.timesChosen = 0
         self.responses = [[]]
+        self.intermediateHandlers = []
+
     def __repr__(self):
         return repr(self.responses)
+
+    def addIntermediate(self, handlers):
+        self.intermediateHandlers.append(handlers)
+
     def newResponse(self):
         self.responses.append([])        
+
     def addResponse(self, trafficStr):
         self.responses[-1].append(trafficStr)
+
+    def allIntermediatesCalled(self):
+        return all((handler.timesChosen for handler in self.intermediateHandlers[self.timesChosen - 1 ]))
+
     def getCurrentStrings(self):
-        if self.timesChosen < len(self.responses):
+        if self.intermediateHandlers:
+            if self.timesChosen == 0:
+                return self.responses[0], 1
+            elif self.allIntermediatesCalled():
+                return self.responses[self.timesChosen], 1
+            else:
+                return self.responses[self.timesChosen - 1], 0
+        elif self.timesChosen < len(self.responses):
             currStrings = self.responses[self.timesChosen]
         else:
             currStrings = self.responses[0]
-        return currStrings
+        return currStrings, 1
 
     def getUnmatchedResponseCount(self):
         return len(self.responses) - self.timesChosen
     
     def makeResponses(self, allClasses):
-        trafficStrings = self.getCurrentStrings()
+        trafficStrings, increment = self.getCurrentStrings()
         responses = []
         for trafficStr in trafficStrings:
             trafficType = trafficStr[2:5]
             for trafficClass in allClasses:
                 if trafficClass.typeId == trafficType:
                     responses.append((trafficClass, trafficStr[6:]))
-        self.timesChosen += 1
+        self.timesChosen += increment
         return responses
 
 
