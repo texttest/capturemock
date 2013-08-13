@@ -181,20 +181,24 @@ class PythonModuleTraffic(PythonTraffic):
 
 
 class PythonAttributeTraffic(PythonModuleTraffic):
-    cachedAttributes = set()
+    cachedAttributes = {}
     cachedInstances = {}
     @classmethod
     def resetCaches(cls):
-        cls.cachedAttributes = set()
+        cls.cachedAttributes = {}
         cls.cachedInstances = {}
+            
+    def shouldUpdateCache(self, obj):
+        if self.isBasicType(obj):
+            if self.text in self.cachedAttributes:
+                cachedObj = self.cachedAttributes.get(self.text)
+                if cachedObj == obj:
+                    return False
+            self.cachedAttributes[self.text] = obj
+            return True
+        else:
+            return self.text not in self.cachedInstances
         
-    def __init__(self, fullAttrName, *args):
-        # Should record these at most once, and only then if they return something in their own right
-        # rather than a function etc
-        self.foundInCache = fullAttrName in self.cachedAttributes
-        self.cachedAttributes.add(fullAttrName)
-        super(PythonAttributeTraffic, self).__init__(fullAttrName, *args)
-
     def shouldCache(self, obj):
         cacheTypes = (types.FunctionType, types.GeneratorType, types.MethodType, types.BuiltinFunctionType,
                       type, types.ModuleType)
@@ -320,7 +324,7 @@ class PythonTrafficHandler:
     def getAttributeFromReplay(self, traffic, proxyTarget, attrName, proxy, fullAttrName):
         responses = self.getReplayResponses(traffic, exact=True)
         if len(responses):
-            if not traffic.foundInCache:
+            if traffic.shouldUpdateCache(responses[0]):
                 traffic.record(self.recordFileHandler)
                 self.recordResponse(responses[0])
             return proxy.captureMockEvaluate(responses[0])
@@ -344,15 +348,13 @@ class PythonTrafficHandler:
             realAttr = self.callStackChecker.callNoInterception(self.getRealAttribute, proxyTarget, attrName)
         except:
             responseTraffic = traffic.getExceptionResponse(sys.exc_info())
-            if not traffic.foundInCache:
+            if traffic.shouldUpdateCache(responseTraffic.text):
                 traffic.record(self.recordFileHandler)
                 responseTraffic.record(self.recordFileHandler)
             raise
                 
         if traffic.shouldCache(realAttr):
-            if traffic.foundInCache:
-                return traffic.transformResponse(realAttr, proxy)[1]
-            else:
+            if traffic.shouldUpdateCache(realAttr):
                 traffic.record(self.recordFileHandler)
                 if attrName == "__path__":
                     # don't want to record the real absolute path, which is just hard to filter
@@ -361,6 +363,8 @@ class PythonTrafficHandler:
                     return realAttr
                 else:
                     return self.transformResponse(traffic, realAttr, proxy)
+            else:
+                return traffic.transformResponse(realAttr, proxy)[1]
         else:
             if type(realAttr) is type or (sys.version_info[0] == 2 and type(realAttr) is types.ClassType):
                 classDesc = traffic.getClassDescription(realAttr)
