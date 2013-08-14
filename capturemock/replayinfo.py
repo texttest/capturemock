@@ -89,7 +89,8 @@ class ReplayInfo:
 
     def registerIntermediateCalls(self, currResponseHandler):
         intermediate = []
-        for trafficIn, responseHandler in reversed(self.responseMap.items()):
+        for trafficIn in reversed(self.responseMap):
+            responseHandler = self.responseMap[trafficIn]
             if responseHandler is currResponseHandler:
                 break
             if "(" in trafficIn:
