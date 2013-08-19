@@ -244,7 +244,8 @@ class ReplayedResponseHandler:
             if self.timesChosen == 0:
                 return self.responses[0], 1
             elif self.allIntermediatesCalled():
-                return self.responses[self.timesChosen], 1
+                moreHandlers = self.timesChosen < len(self.intermediateHandlers)
+                return self.responses[self.timesChosen], int(moreHandlers)
             else:
                 return self.responses[self.timesChosen - 1], 0
         elif self.timesChosen < len(self.responses):
