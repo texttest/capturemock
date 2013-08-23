@@ -81,13 +81,13 @@ class BaseTraffic(object):
     def makesAsynchronousEdits(self):
         return False
     
-    def record(self, recordFileHandler, *args):
+    def record(self, recordFileHandler, *args, **kw):
         if not self.hasInfo():
             return
         desc = self.getDescription()
         if not desc.endswith("\n"):
             desc += "\n"
-        recordFileHandler.record(desc, *args)
+        recordFileHandler.record(desc, *args, **kw)
 
     def findQuote(self, out):
         for quoteChar in "'\"":

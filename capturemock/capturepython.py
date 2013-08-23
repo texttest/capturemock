@@ -10,20 +10,26 @@ class CallStackChecker:
         # TODO - ignore_callers list should be able to vary between different calls
         self.ignoreModuleCalls = set([ "capturecommand" ] + rcHandler.getList("ignore_callers", [ "python" ]))
         self.excludeLevel = 0
+        self.inCallback = False
         self.logger = logging.getLogger("Call Stack Checker")
         self.stdlibDir = os.path.dirname(os.path.realpath(os.__file__))
         self.logger.debug("Found stdlib directory at " + self.stdlibDir)
         self.logger.debug("Ignoring calls from " + repr(self.ignoreModuleCalls))
 
-    def callNoInterception(self, method, *args, **kw):
-        self.excludeLevel += 1
+    def callNoInterception(self, callback, method, *args, **kw):
+        delta = -1 if callback else 1
+        self.excludeLevel += delta
+        if callback:
+            self.inCallback = True
         try:
             return method(*args, **kw)
         finally:
-            self.excludeLevel -= 1
+            self.excludeLevel -= delta
+            if callback:
+                self.inCallback = False
         
-    def callerExcluded(self, stackDistance):
-        if self.excludeLevel:
+    def callerExcluded(self, stackDistance=1, callback=False):
+        if (callback and self.excludeLevel < 0) or (not callback and self.excludeLevel > 0):
             # If we get called recursively, must call the real thing to avoid infinite loop...
             return True
 

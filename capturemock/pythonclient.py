@@ -60,12 +60,15 @@ class NameFinder(dict):
 
 class PythonProxy(object):
     def __init__(self, captureMockProxyName, captureMockTrafficHandler,
-                 captureMockTarget, captureMockNameFinder):
+                 captureMockTarget, captureMockNameFinder, captureMockCallback=False):
         # Will be passed into real code. Try to minimise the risk of name clashes
         self.captureMockProxyName = captureMockProxyName
         self.captureMockTrafficHandler = captureMockTrafficHandler
         self.captureMockTarget = captureMockTarget
         self.captureMockNameFinder = captureMockNameFinder
+        self.captureMockCallback = captureMockCallback
+        if "." not in captureMockProxyName and captureMockProxyName not in self.captureMockNameFinder:
+            self.captureMockNameFinder[captureMockProxyName] = self
 
     def __getattr__(self, attrname):
         return self.captureMockTrafficHandler.getAttribute(self.captureMockProxyName,
@@ -73,7 +76,7 @@ class PythonProxy(object):
                                                            self,
                                                            self.captureMockTarget)
 
-    def captureMockCreateInstanceProxy(self, proxyName, proxyTarget=None, classDesc=None):
+    def captureMockCreateInstanceProxy(self, proxyName, proxyTarget=None, classDesc=None, captureMockCallback=False):
         if classDesc:
             newClass = self.captureMockNameFinder.makeClass(classDesc)
         else:
@@ -81,8 +84,9 @@ class PythonProxy(object):
         return newClass(captureMockProxyName=proxyName,
                         captureMockTrafficHandler=self.captureMockTrafficHandler,
                         captureMockTarget=proxyTarget,
-                        captureMockNameFinder=self.captureMockNameFinder)
-
+                        captureMockNameFinder=self.captureMockNameFinder,
+                        captureMockCallback=captureMockCallback)
+        
     def captureMockCreateClassProxy(self, proxyName, proxyTarget, classDesc):
         classProxy = self.captureMockNameFinder.makeClass(classDesc)
         classProxy.captureMockNameFinder = self.captureMockNameFinder
@@ -90,6 +94,7 @@ class PythonProxy(object):
         classProxy.captureMockTarget = proxyTarget
         classProxy.captureMockClassProxyName = proxyName
         classProxy.captureMockProxyName = proxyName
+        classProxy.captureMockCallback = False
         return classProxy
 
     def captureMockEvaluate(self, response):
