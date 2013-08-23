@@ -22,6 +22,9 @@ class NameFinder(dict):
         return newClass
 
     def makeClass(self, className):
+        actualClassName = className.split("(")[0]
+        if actualClassName in self:
+            return self[actualClassName]
         if "(" in className:
             classDecl = className.replace("(", "(InstanceProxy, ")
         else:
@@ -30,7 +33,6 @@ class NameFinder(dict):
             classDefStr = "class " + classDecl + " : __metaclass__ = ProxyMetaClass"
         else:
             classDefStr = "class " + classDecl.replace(")", ", metaclass=ProxyMetaClass): pass")
-        actualClassName = className.split("(")[0]
         return self.defineClass(actualClassName, classDefStr)
 
     def makeInstance(self, className, instanceName):
@@ -43,6 +45,11 @@ class NameFinder(dict):
             self.makeNewClasses = True
             self.defineClassLocally(classDefStr)
             self.makeNewClasses = False
+        except TypeError, e:
+            if "MRO" in str(e):
+                self.defineClassLocally(classDefStr.replace("InstanceProxy, ", ""))
+            else:
+                raise
         
     def __getitem__(self, name):
         if name not in self:
