@@ -310,6 +310,9 @@ class PythonTrafficHandler:
 
     def importModule(self, name, proxy, loadModule):
         traffic = PythonImportTraffic(name, self.rcHandler)
+        if self.callStackChecker.callerExcluded(stackDistance=3):
+            return loadModule(name)
+        
         traffic.record(self.recordFileHandler)
         if self.replayInfo.isActiveFor(traffic):
             return self.processReplay(traffic, proxy)

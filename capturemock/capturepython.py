@@ -173,6 +173,7 @@ class ImportHandler:
                     sys.modules[name] = oldMod
                 else:
                     del sys.modules[name]
+        self.interceptImportedPackageSubmodules(name)
         return _realModule
 
     def reset(self):
@@ -180,6 +181,25 @@ class ImportHandler:
             if modName in sys.modules:
                 del sys.modules[modName]
         sys.meta_path.remove(self)
+
+    def interceptImportedPackageSubmodules(self, name):
+        """ Handle the situation where intercepted package A is preloaded, and intercepted module B imports submodules of A """
+        for submodule in self.getImportedPackageSubmodules(name):
+            proxy = pythonclient.ModuleProxy(submodule, self.trafficHandler, sys.modules.get)
+            sys.modules[submodule] = proxy
+            self.interceptedNames.add(submodule)
+            parts = submodule.rsplit(".", 1)
+            setattr(sys.modules.get(parts[0]), parts[1], proxy)
+        
+    def getImportedPackageSubmodules(self, name):
+        submodules = []
+        for other in self.interceptedNames:
+            if other != name and not name.startswith(other):
+                for subModName in self.findSubModules(other, sys.modules.get(other)):
+                    if not isinstance(sys.modules.get(subModName), pythonclient.ModuleProxy):
+                        submodules.append(subModName)
+        return submodules
+
 
 def interceptPython(*args, **kw):
     handler = InterceptHandler(*args, **kw)
