@@ -143,6 +143,9 @@ class InstanceProxy(PythonProxy):
     moduleProxy = None
     captureMockTarget = None
     captureMockClassProxyName = None
+    def __new__(cls, *args, **kw):
+        return super(InstanceProxy, cls).__new__(cls)
+            
     def __init__(self, *args, **kw):
         if "captureMockProxyName" in kw:
             # 'Internal' constructor, from above
