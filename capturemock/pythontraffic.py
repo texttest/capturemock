@@ -96,7 +96,10 @@ class PythonModuleTraffic(PythonTraffic):
             # Stick to 2 dp for recording floating point values
             return ReprObject(str(round(arg, 2)))
         elif self.isCallableType(arg):
-            return ReprObject("Callback('" + arg.__name__ + "')")
+            if arg.__module__ == "__builtin__":
+                return ReprObject(arg.__name__)
+            else:
+                return ReprObject("Callback('" + arg.__name__ + "')")
         else:
             return ReprObject(self.fixMultilineStrings(arg))
 
@@ -264,7 +267,8 @@ class PythonFunctionCallTraffic(PythonModuleTraffic):
         return arg 
             
     def wrapCallbacks(self, arg, captureMockProxy):
-        if not hasattr(arg, "captureMockTarget") and self.isCallableType(arg):
+        # If we pass a builtin function, don't intercept it...
+        if not hasattr(arg, "captureMockTarget") and self.isCallableType(arg) and arg.__module__ != "__builtin__":
             return captureMockProxy.captureMockCreateInstanceProxy(arg.__name__, arg, captureMockCallback=True)
         else:
             return arg
