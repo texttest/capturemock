@@ -15,7 +15,8 @@ class PythonInstanceWrapper:
         self.name = self.getNewInstanceName()
         self.allInstances[self.name] = self
         self.wrappersByInstance[id(self.target)] = self
-
+        self.doneFullRepr = False
+        
     @classmethod
     def getWrapperFor(cls, instance, *args):
         storedWrapper = cls.wrappersByInstance.get(id(instance))
@@ -26,6 +27,10 @@ class PythonInstanceWrapper:
         return id(instance) in cls.wrappersByInstance       
 
     def __repr__(self):
+        if self.doneFullRepr:
+            return self.name
+        
+        self.doneFullRepr = True
         return "Instance(" + repr(self.classDesc) + ", " + repr(self.name) + ")"
 
     def getNewInstanceName(self):
@@ -34,6 +39,27 @@ class PythonInstanceWrapper:
         while className + str(num) in self.allInstances:
             num += 1
         return className + str(num)
+    
+    def createProxy(self, proxy):
+        return proxy.captureMockCreateInstanceProxy(self.name, self.target, self.classDesc)
+    
+class PythonCallbackWrapper:
+    def __init__(self, function, proxy):
+        self.name = function.__name__
+        self.target = function
+        self.proxy = proxy.captureMockCreateInstanceProxy(self.name, self.target, captureMockCallback=True)
+        
+    def isBuiltin(self):
+        return self.target.__module__ == "__builtin__"
+        
+    def __repr__(self):
+        return self.name if self.isBuiltin() else "Callback('" + self.name + "')"
+
+    def createProxy(self, proxy):
+        if self.isBuiltin():
+            return self.target
+        else:  
+            return self.proxy
 
 
 class PythonTraffic(traffic.BaseTraffic):
@@ -85,21 +111,17 @@ class PythonModuleTraffic(PythonTraffic):
         if hasattr(obj, "__module__"): # classes, functions, many instances
             return obj.__module__
         else:
-            return obj.__class__.__module__ # many other instances
-
+            return self.getClass(obj).__module__ # many other instances
+            
+    def getClass(self, obj):
+        return obj.__class__ if hasattr(obj, "__class__") else type(obj)
+            
     def insertReprObjects(self, arg):
         if hasattr(arg, "captureMockProxyName"):
             return ReprObject(arg.captureMockProxyName)
-        elif self.direction == "->" and PythonInstanceWrapper.hasWrapper(arg):
-            return ReprObject(PythonInstanceWrapper.getWrapperFor(arg).name) 
         elif isinstance(arg, float):
             # Stick to 2 dp for recording floating point values
             return ReprObject(str(round(arg, 2)))
-        elif self.isCallableType(arg):
-            if arg.__module__ == "__builtin__":
-                return ReprObject(arg.__name__)
-            else:
-                return ReprObject("Callback('" + arg.__name__ + "')")
         else:
             return ReprObject(self.fixMultilineStrings(arg))
 
@@ -149,14 +171,14 @@ class PythonModuleTraffic(PythonTraffic):
             return transformMethod(result, *args)
         
     def addInstanceWrapper(self, result):
-        if not self.isBasicType(result) and self.getIntercept(self.getModuleName(result)):
+        if not hasattr(result, "captureMockName") and not self.isBasicType(result) and self.getIntercept(self.getModuleName(result)):
             return self.getWrapper(result)
         else:
             return result
 
     def insertProxy(self, result, proxy):
         if isinstance(result, PythonInstanceWrapper):
-            return proxy.captureMockCreateInstanceProxy(result.name, result.target, result.classDesc)
+            return result.createProxy(proxy)
         else:
             return result
 
@@ -172,7 +194,7 @@ class PythonModuleTraffic(PythonTraffic):
         # hasattr fails if the intercepted instance defines __getattr__, when it always returns True
         if self.instanceHasAttribute(instance, "captureMockTarget"):
             return self.getWrapper(instance.captureMockTarget)
-        classDesc = self.getClassDescription(instance.__class__)
+        classDesc = self.getClassDescription(self.getClass(instance))
         return PythonInstanceWrapper.getWrapperFor(instance, classDesc)
 
     def getClassDescription(self, cls):
@@ -233,11 +255,15 @@ class PythonSetAttributeTraffic(PythonModuleTraffic):
 
 class PythonFunctionCallTraffic(PythonModuleTraffic):
     cachedFunctions = set()
-    def __init__(self, functionName, rcHandler, interceptModules, callback, *args, **kw):
-        if callback:
+    def __init__(self, functionName, rcHandler, interceptModules, proxy, *args, **kw):
+        self.interceptModules = interceptModules
+        if proxy.captureMockCallback:
             self.direction = "->"
-        argsForRecord = self.transformStructure(list(args), self.insertReprObjects)
-        keywForRecord = self.transformStructure(kw, self.insertReprObjects)
+        self.args = self.transformStructure(args, self.transformArg, proxy)
+        self.kw = self.transformStructure(kw, self.transformArg, proxy)
+        
+        argsForRecord = self.transformStructure(list(self.args), self.insertReprObjects)
+        keywForRecord = self.transformStructure(self.kw, self.insertReprObjects)
         for key in sorted(keywForRecord.keys()):
             value = keywForRecord[key]
             recordArg = ReprObject(key + "=" + repr(value))
@@ -254,29 +280,33 @@ class PythonFunctionCallTraffic(PythonModuleTraffic):
             
     def getTextMarker(self):
         return self.functionName
-
+    
+    def transformArg(self, arg, proxy):
+        if proxy.captureMockCallback:
+            return self.addInstanceWrapper(arg)
+        elif not hasattr(arg, "captureMockTarget") and self.isCallableType(arg):
+            return PythonCallbackWrapper(arg, proxy)
+        else:
+            return arg
+            
     def switchProxies(self, arg, captureMockProxy):
         # we need our proxies present in system calls, and absent in real calls to intercepted code
         # So we remove them from normal function calls, and add them in callbacks
         if self.direction == "<-":
-            if hasattr(arg, "captureMockTarget") and not arg.captureMockCallback:
-                return arg.captureMockTarget
+            if hasattr(arg, "captureMockTarget"):
+                if not arg.captureMockCallback:
+                    return arg.captureMockTarget
+            elif isinstance(arg, PythonCallbackWrapper):
+                return arg.createProxy(captureMockProxy)
         else:
-            if PythonInstanceWrapper.hasWrapper(arg):
-                return self.insertProxy(PythonInstanceWrapper.getWrapperFor(arg), captureMockProxy)
+            if isinstance(arg, PythonInstanceWrapper):
+                return self.insertProxy(arg, captureMockProxy)
         return arg 
             
-    def wrapCallbacks(self, arg, captureMockProxy):
-        # If we pass a builtin function, don't intercept it...
-        if not hasattr(arg, "captureMockTarget") and self.isCallableType(arg) and arg.__module__ != "__builtin__":
-            return captureMockProxy.captureMockCreateInstanceProxy(arg.__name__, arg, captureMockCallback=True)
-        else:
-            return arg
-
     # Naming to avoid clashes as args and kw come from the application
-    def callRealFunction(self, captureMockFunction, captureMockRecordHandler, captureMockProxy, *args, **kw):
-        realArgs = self.transformStructure(args, self.switchProxies, captureMockProxy)
-        realKw = self.transformStructure(kw, self.switchProxies, captureMockProxy)
+    def callRealFunction(self, captureMockFunction, captureMockRecordHandler, captureMockProxy):
+        realArgs = self.transformStructure(self.args, self.switchProxies, captureMockProxy)
+        realKw = self.transformStructure(self.kw, self.switchProxies, captureMockProxy)
         try:
             return captureMockFunction(*realArgs, **realKw)
         except:
@@ -334,8 +364,10 @@ class PythonTrafficHandler:
     def processReplay(self, traffic, proxy, record=True):
         lastResponse = None
         for responseClass, responseText in self.getReplayResponses(traffic):
-            if record and responseClass is PythonResponseTraffic:
-                self.record(responseClass(responseText))
+            if record:
+                traffic = responseClass(responseText)
+                traffic.direction = "->"
+                self.record(traffic)
             lastResponse = proxy.captureMockEvaluate(responseText)
         return lastResponse
 
@@ -436,16 +468,15 @@ class PythonTrafficHandler:
             return captureMockFunction(*args, **kw)
         else:
             traffic = PythonFunctionCallTraffic(captureMockProxyName, self.rcHandler,
-                                                self.interceptModules, isCallback, *args, **kw)
-            if traffic.shouldRecord:
+                                                self.interceptModules, captureMockProxy, *args, **kw)
+            replayActive = self.replayInfo.isActiveFor(traffic)
+            if traffic.shouldRecord and (not isCallback or not replayActive):
                 self.record(traffic)
-            realArgs = traffic.transformStructure(args, traffic.wrapCallbacks, captureMockProxy)
-            realKw = traffic.transformStructure(kw, traffic.wrapCallbacks, captureMockProxy)
-            if not isCallback and self.replayInfo.isActiveFor(traffic):
+            if not isCallback and replayActive:
                 return self.processReplay(traffic, captureMockProxy, traffic.shouldRecord)
             else:
                 return self.callStackChecker.callNoInterception(isCallback, self.callRealFunction, traffic,
-                                                                captureMockFunction, captureMockProxy, *realArgs, **realKw)
+                                                                captureMockFunction, captureMockProxy)
 
     def callRealFunction(self, captureMockTraffic, captureMockFunction, captureMockProxy, *args, **kw):
         realRet = captureMockTraffic.callRealFunction(captureMockFunction, self.recordFileHandler,
@@ -459,7 +490,7 @@ class PythonTrafficHandler:
     def callConstructor(self, captureMockClassName, captureMockRealClass, captureMockProxy,
                         *args, **kw):
         traffic = PythonFunctionCallTraffic(captureMockClassName, self.rcHandler,
-                                            self.interceptModules, False, *args, **kw)
+                                            self.interceptModules, captureMockProxy, *args, **kw)
         if self.callStackChecker.callerExcluded(stackDistance=3):
             realObj = captureMockRealClass(*args, **kw)
             wrapper = traffic.getWrapper(realObj)
@@ -479,7 +510,7 @@ class PythonTrafficHandler:
         else:
             realObj = self.callStackChecker.callNoInterception(False, traffic.callRealFunction,
                                                                captureMockRealClass, self.recordFileHandler,
-                                                               captureMockProxy, *args, **kw)
+                                                               captureMockProxy)
             wrapper = traffic.getWrapper(realObj)
             self.recordResponse(repr(wrapper))
             return wrapper.name, realObj

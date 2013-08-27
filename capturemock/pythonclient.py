@@ -152,9 +152,11 @@ class InstanceProxy(PythonProxy):
             PythonProxy.__init__(self, kw.get("captureMockProxyName"), kw.get("captureMockTrafficHandler"),
                                  kw.get("captureMockTarget"), kw.get("captureMockNameFinder"))
             if self.captureMockTarget is not None:
-                self.__class__.captureMockTarget = self.captureMockTarget.__class__
+                targetClass = self.captureMockTarget.__class__ if hasattr(self.captureMockTarget, "__class__") else type(self.captureMockTarget)
+                self.__class__.captureMockTarget = targetClass
             self.__class__.captureMockNameFinder = self.captureMockNameFinder
             self.__class__.captureMockTrafficHandler = self.captureMockTrafficHandler
+            self.__class__.captureMockCallback = self.captureMockCallback
         else:
             # 'External' constructor, from client code
             if self.captureMockClassProxyName is not None:
