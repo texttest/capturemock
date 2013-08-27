@@ -144,7 +144,6 @@ class InstanceProxy(PythonProxy):
     captureMockTarget = None
     captureMockClassProxyName = None
     def __new__(cls, *args, **kw):
-        import inspect
         # Is there an easier way? Seems horribly complicated
         for superCls in inspect.getmro(cls)[3:]:    # 0 is the class, 1 is InstanceProxy, 2 is PythonProxy
             if hasattr(superCls, "__new__"):
