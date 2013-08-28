@@ -45,15 +45,19 @@ class PythonInstanceWrapper:
     
 class PythonCallbackWrapper:
     def __init__(self, function, proxy):
-        self.name = function.__name__
-        self.target = function
+        if hasattr(function, "captureMockTarget"):
+            self.name = function.captureMockProxyName
+            self.target = function.captureMockTarget
+        else:
+            self.name = function.__name__
+            self.target = function
         self.proxy = proxy.captureMockCreateInstanceProxy(self.name, self.target, captureMockCallback=True)
         
     def isBuiltin(self):
         return self.target.__module__ == "__builtin__"
         
     def __repr__(self):
-        return self.name if self.isBuiltin() else "Callback('" + self.name + "')"
+        return self.name if (self.isBuiltin() or "." in self.name) else "Callback('" + self.name + "')"
 
     def createProxy(self, proxy):
         if self.isBuiltin():
@@ -284,10 +288,16 @@ class PythonFunctionCallTraffic(PythonModuleTraffic):
     def transformArg(self, arg, proxy):
         if proxy.captureMockCallback:
             return self.addInstanceWrapper(arg)
-        elif not hasattr(arg, "captureMockTarget") and self.isCallableType(arg):
+        elif self.isRealArgCallable(arg):
             return PythonCallbackWrapper(arg, proxy)
         else:
             return arg
+    
+    def isRealArgCallable(self, arg):
+        if hasattr(arg, "captureMockTarget"):
+            return self.isCallableType(arg.captureMockTarget)
+        else:
+            return self.isCallableType(arg)
             
     def switchProxies(self, arg, captureMockProxy):
         # we need our proxies present in system calls, and absent in real calls to intercepted code
@@ -361,6 +371,10 @@ class PythonTrafficHandler:
     def record(self, traffic):
         traffic.record(self.recordFileHandler, delay=self.callStackChecker.inCallback)
 
+    def evaluateForReplay(self, proxy, responseText, responseClass):
+        if responseClass is PythonResponseTraffic or not "." in responseText:
+            return proxy.captureMockEvaluate(responseText)
+
     def processReplay(self, traffic, proxy, record=True):
         lastResponse = None
         for responseClass, responseText in self.getReplayResponses(traffic):
@@ -368,7 +382,7 @@ class PythonTrafficHandler:
                 traffic = responseClass(responseText)
                 traffic.direction = "->"
                 self.record(traffic)
-            lastResponse = proxy.captureMockEvaluate(responseText)
+            lastResponse = self.evaluateForReplay(proxy, responseText, responseClass)
         return lastResponse
 
     def getReplayResponses(self, traffic, **kw):
