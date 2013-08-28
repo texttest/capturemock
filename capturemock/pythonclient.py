@@ -145,12 +145,16 @@ class InstanceProxy(PythonProxy):
     captureMockClassProxyName = None
     def __new__(cls, *args, **kw):
         # Is there an easier way? Seems horribly complicated
-        for superCls in inspect.getmro(cls)[3:]:    # 0 is the class, 1 is InstanceProxy, 2 is PythonProxy
-            if hasattr(superCls, "__new__"):
-                try:
-                    return superCls.__new__(cls)
-                except TypeError:
-                    pass
+        passedPythonProxy = False
+        for superCls in inspect.getmro(cls):
+            if passedPythonProxy:
+                if hasattr(superCls, "__new__"):
+                    try:
+                        return superCls.__new__(cls)
+                    except TypeError:
+                        pass
+            elif superCls is PythonProxy:
+                passedPythonProxy = True
             
     def __init__(self, *args, **kw):
         if "captureMockProxyName" in kw:
