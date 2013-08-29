@@ -69,22 +69,42 @@ class ReplayInfo:
         # If we're matching server communications it means we're 'playing client'
         # In this case we should just send all our stuff in order and not worry about matching things.
         return "<-SRV" if trafficStr.startswith("<-SRV") else trafficStr
+    
+    def responseCompleted(self, currResponseHandlers, indentLevel, fromSUT):
+        prevIndentLevel = len(currResponseHandlers) - 1
+        if indentLevel < prevIndentLevel:
+            return True
+        elif indentLevel == prevIndentLevel:
+            _, prevFromSUT = currResponseHandlers[-1]
+            return fromSUT == prevFromSUT
+        else:
+            return False
 
     def parseTrafficList(self, trafficList):
-        currResponseHandler = None
+        currResponseHandlers = []
         for trafficStr in trafficList:
-            if trafficStr.startswith("<-"):
+            prefix = trafficStr.split(":")[0]
+            indentLevel = len(prefix) / 2 - 2
+            fromSUT = prefix.startswith("<-")
+            while self.responseCompleted(currResponseHandlers, indentLevel, fromSUT):
+                currResponseHandlers.pop()
+            if currResponseHandlers and (not fromSUT or indentLevel % 2 == 1):
+                responseHandler, _ = currResponseHandlers[-1]
+                responseHandler.addResponse(trafficStr)
+            if fromSUT or indentLevel > len(currResponseHandlers) - 1:
                 currTrafficIn = self.getTrafficLookupKey(trafficStr.strip())
-                currResponseHandler = self.responseMap.get(currTrafficIn)
-                if currResponseHandler:
-                    currResponseHandler.newResponse()
-                    if trafficStr.startswith("<-PYT") and not "(" in trafficStr:
-                        self.registerIntermediateCalls(currResponseHandler)
+                responseHandler = self.responseMap.get(currTrafficIn)
+                if responseHandler:
+                    responseHandler.newResponse()
+                    if prefix.endswith("PYT") and not "(" in trafficStr:
+                        self.registerIntermediateCalls(responseHandler)
                 else:
-                    currResponseHandler = ReplayedResponseHandler()
-                    self.responseMap[currTrafficIn] = currResponseHandler
-            elif currResponseHandler:
-                currResponseHandler.addResponse(trafficStr)
+                    responseHandler = ReplayedResponseHandler()
+                    self.responseMap[currTrafficIn] = responseHandler
+                if indentLevel > len(currResponseHandlers) - 1:
+                    currResponseHandlers.append((responseHandler, fromSUT))
+                else:
+                    currResponseHandlers[-1] = responseHandler, fromSUT
         self.diag.debug("Replay info " + repr(self.responseMap))
 
     def registerIntermediateCalls(self, currResponseHandler):
@@ -101,7 +121,8 @@ class ReplayInfo:
         trafficList = []
         currTraffic = ""
         for line in open(replayFile, "rU"):
-            if line.startswith("<-") or line.startswith("->"):
+            prefix = line.split(":")[0]
+            if len(prefix) < 10 and (prefix.startswith("<-") or prefix[-5:-3] == "->"):
                 if currTraffic:
                     trafficList.append(currTraffic)
                 currTraffic = ""
@@ -124,8 +145,9 @@ class ReplayInfo:
 
     def findResponseToTrafficStartingWith(self, prefix):
         for currDesc, responseHandler in self.responseMap.items():
-            if currDesc[6:].startswith(prefix):
-                responses, inc = responseHandler.getCurrentStrings()
+            _, text = currDesc.split(":", 1)
+            if text.startswith(prefix):
+                responses, _ = responseHandler.getCurrentStrings()
                 if len(responses):
                     return responses[0][6:]
 
@@ -261,10 +283,11 @@ class ReplayedResponseHandler:
         trafficStrings, increment = self.getCurrentStrings()
         responses = []
         for trafficStr in trafficStrings:
-            trafficType = trafficStr[2:5]
+            prefix, text = trafficStr.split(":", 1)
+            trafficType = prefix[-3:]
             for trafficClass in allClasses:
                 if trafficClass.typeId == trafficType:
-                    responses.append((trafficClass, trafficStr[6:]))
+                    responses.append((trafficClass, text))
         self.timesChosen += increment
         return responses
 
