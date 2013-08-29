@@ -45,7 +45,7 @@ class NameFinder(dict):
             self.makeNewClasses = True
             self.defineClassLocally(classDefStr)
             self.makeNewClasses = False
-        except TypeError, e:
+        except TypeError as e:
             if "MRO" in str(e):
                 self.defineClassLocally(classDefStr.replace("InstanceProxy, ", ""))
             else:
