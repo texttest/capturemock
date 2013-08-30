@@ -84,10 +84,11 @@ class ReplayInfo:
         currResponseHandlers = []
         for trafficStr in trafficList:
             prefix = trafficStr.split(":")[0]
-            indentLevel = len(prefix) / 2 - 2
+            indentLevel = int(len(prefix) / 2) - 2
             fromSUT = prefix.startswith("<-")
             while self.responseCompleted(currResponseHandlers, indentLevel, fromSUT):
                 currResponseHandlers.pop()
+                
             if currResponseHandlers and (not fromSUT or indentLevel % 2 == 1):
                 responseHandler, _ = currResponseHandlers[-1]
                 responseHandler.addResponse(trafficStr)
