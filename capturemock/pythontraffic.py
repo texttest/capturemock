@@ -1,7 +1,7 @@
 
 """ Traffic classes for all kinds of Python calls """
 
-import sys, types, inspect
+import sys, types, inspect, re
 from . import traffic
 from .recordfilehandler import RecordFileHandler
 from .config import CaptureMockReplayError
@@ -10,10 +10,10 @@ class PythonInstanceWrapper:
     allInstances = {}
     wrappersByInstance = {}
     classDescriptions = {}
-    def __init__(self, instance, classDesc):
+    def __init__(self, instance, classDesc, namingHint=None):
         self.target = instance
         self.classDesc = classDesc
-        self.name = self.getNewInstanceName()
+        self.name = self.getNewInstanceName(namingHint)
         self.allInstances[self.name] = self
         self.wrappersByInstance[id(self.target)] = self
         self.doneFullRepr = False
@@ -42,8 +42,12 @@ class PythonInstanceWrapper:
         self.doneFullRepr = True
         return "Instance(" + repr(self.classDesc) + ", " + repr(self.name) + ")"
 
-    def getNewInstanceName(self):
+    def getNewInstanceName(self, namingHint):
         className = self.classDesc.split("(")[0].lower()
+        if namingHint:
+            className += "_" + namingHint
+            if className not in self.allInstances:
+                return className
         num = 1
         while className + str(num) in self.allInstances:
             num += 1
@@ -208,12 +212,12 @@ class PythonModuleTraffic(PythonTraffic):
         except:
             return False
 
-    def getWrapper(self, instance):
+    def getWrapper(self, instance, *args):
         # hasattr fails if the intercepted instance defines __getattr__, when it always returns True
         if self.instanceHasAttribute(instance, "captureMockTarget"):
-            return self.getWrapper(instance.captureMockTarget)
+            return self.getWrapper(instance.captureMockTarget, *args)
         classDesc = self.getClassDescription(self.getClass(instance))
-        return PythonInstanceWrapper.getWrapperFor(instance, classDesc)
+        return PythonInstanceWrapper.getWrapperFor(instance, classDesc, *args)
 
     def getClassDescription(self, cls):
         if cls.__name__ in PythonInstanceWrapper.classDescriptions:
@@ -280,6 +284,7 @@ class PythonFunctionCallTraffic(PythonModuleTraffic):
         self.interceptModules = interceptModules
         if proxy.captureMockCallback:
             self.direction = "--->"
+        self.args = [] # Prevent naming hints being added when transforming arguments
         self.args = self.transformStructure(args, self.transformArg, proxy)
         self.kw = self.transformStructure(kw, self.transformArg, proxy)
         
@@ -349,6 +354,19 @@ class PythonFunctionCallTraffic(PythonModuleTraffic):
                 responseText = self.getExceptionText(exc_value)
                 PythonResponseTraffic(responseText).record(captureMockRecordHandler)
                 raise
+    
+
+    def makePythonName(self, arg):
+        # Swiped from http://stackoverflow.com/questions/3303312/how-do-i-convert-a-string-to-a-valid-variable-name-in-python
+        return re.sub('\W|^(?=\d)','_', arg.strip().lower())
+
+    def getNamingHint(self):
+        for arg in self.args:
+            if isinstance(arg, str) and "\n" not in arg and len(arg) < 20: # Don't use long arguments
+                return self.makePythonName(arg)
+    
+    def getWrapper(self, instance):
+        return PythonModuleTraffic.getWrapper(self, instance, self.getNamingHint())
                 
 
 class PythonResponseTraffic(traffic.BaseTraffic):
