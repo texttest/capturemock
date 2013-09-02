@@ -9,6 +9,7 @@ from .config import CaptureMockReplayError
 class PythonInstanceWrapper:
     allInstances = {}
     wrappersByInstance = {}
+    classDescriptions = {}
     def __init__(self, instance, classDesc):
         self.target = instance
         self.classDesc = classDesc
@@ -16,6 +17,14 @@ class PythonInstanceWrapper:
         self.allInstances[self.name] = self
         self.wrappersByInstance[id(self.target)] = self
         self.doneFullRepr = False
+        if classDesc not in self.classDescriptions:
+            self.classDescriptions[classDesc.split("(")[0]] = classDesc
+            
+    @classmethod
+    def resetCaches(cls):
+        cls.allInstances = {}
+        cls.wrappersByInstance = {}
+        cls.classDescriptions = {}
         
     @classmethod
     def getWrapperFor(cls, instance, *args):
@@ -207,6 +216,9 @@ class PythonModuleTraffic(PythonTraffic):
         return PythonInstanceWrapper.getWrapperFor(instance, classDesc)
 
     def getClassDescription(self, cls):
+        if cls.__name__ in PythonInstanceWrapper.classDescriptions:
+            return cls.__name__
+        
         baseClasses = self.findRelevantBaseClasses(cls)
         if len(baseClasses):
             return cls.__name__ + "(" + ", ".join(baseClasses) + ")"
@@ -356,7 +368,7 @@ class PythonTrafficHandler:
         self.callStackChecker = callStackChecker
         self.rcHandler = rcHandler
         self.interceptModules = interceptModules
-        PythonInstanceWrapper.allInstances = {} # reset, in case of previous tests
+        PythonInstanceWrapper.resetCaches() # reset, in case of previous tests
         PythonAttributeTraffic.resetCaches()
 
     def importModule(self, name, proxy, loadModule):
