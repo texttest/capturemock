@@ -33,7 +33,23 @@ class PythonInstanceWrapper:
     
     @classmethod
     def hasWrapper(cls, instance):
-        return id(instance) in cls.wrappersByInstance       
+        return id(instance) in cls.wrappersByInstance
+    
+    @classmethod
+    def renameInstance(cls, instanceName, namingHint):
+        if instanceName in cls.allInstances:
+            return cls.allInstances[instanceName].rename(namingHint)  
+
+    def shouldRename(self):
+        className = self.getClassName()
+        return self.name.replace(className, "").isdigit()
+    
+    def rename(self, namingHint):
+        if self.shouldRename(): 
+            del self.allInstances[self.name]
+            self.name = self.getNewInstanceName(namingHint)
+            self.allInstances[self.name] = self
+            return self.name
 
     def __repr__(self):
         if self.doneFullRepr:
@@ -42,8 +58,11 @@ class PythonInstanceWrapper:
         self.doneFullRepr = True
         return "Instance(" + repr(self.classDesc) + ", " + repr(self.name) + ")"
 
+    def getClassName(self):
+        return self.classDesc.split("(")[0].lower()
+
     def getNewInstanceName(self, namingHint):
-        className = self.classDesc.split("(")[0].lower()
+        className = self.getClassName()
         if namingHint:
             className += "_" + namingHint
             if className not in self.allInstances:
@@ -355,7 +374,17 @@ class PythonFunctionCallTraffic(PythonModuleTraffic):
                 PythonResponseTraffic(responseText).record(captureMockRecordHandler)
                 raise
     
-
+    def tryRenameInstance(self, proxy, recordHandler):
+        if self.functionName.count(".") == 1:
+            objName, localName = self.functionName.split(".")
+            if localName.startswith("set") or localName.startswith("Set"):
+                hint = self.getNamingHint()
+                if hint:
+                    newName = PythonInstanceWrapper.renameInstance(objName, hint)
+                    if newName is not None:
+                        proxy.captureMockNameFinder.rename(objName, newName)
+                        recordHandler.rerecord(objName, newName)
+                    
     def makePythonName(self, arg):
         # Swiped from http://stackoverflow.com/questions/3303312/how-do-i-convert-a-string-to-a-valid-variable-name-in-python
         return re.sub('\W|^(?=\d)','_', arg.strip().lower())
@@ -394,7 +423,7 @@ class PythonTrafficHandler:
         if self.callStackChecker.callerExcluded(stackDistance=3):
             return loadModule(name)
         
-        traffic.record(self.recordFileHandler)
+        self.record(traffic)
         if self.replayInfo.isActiveFor(traffic):
             return self.processReplay(traffic, proxy)
         else:
@@ -406,7 +435,7 @@ class PythonTrafficHandler:
                 raise
             
     def record(self, traffic):
-        traffic.record(self.recordFileHandler)
+        traffic.record(self.recordFileHandler, truncationPoint="Instance('" in traffic.text)
 
     def evaluateForReplay(self, traffic, proxy):
         if isinstance(traffic, PythonResponseTraffic) or not "." in traffic.text:
@@ -532,6 +561,7 @@ class PythonTrafficHandler:
             if not isCallback and replayActive:
                 return self.processReplay(traffic, captureMockProxy, traffic.shouldRecord)
             else:
+                traffic.tryRenameInstance(captureMockProxy, self.recordFileHandler)
                 return self.callRealFunction(traffic, captureMockFunction, captureMockProxy)
 
     def callRealFunction(self, captureMockTraffic, captureMockFunction, captureMockProxy):

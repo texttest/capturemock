@@ -37,6 +37,12 @@ class NameFinder(dict):
 
     def makeInstance(self, className, instanceName):
         return self.moduleProxy.captureMockCreateInstanceProxy(instanceName, classDesc=className)
+    
+    def rename(self, oldName, newName):
+        proxy = dict.__getitem__(self, oldName)
+        proxy.captureMockProxyName = newName
+        del self[oldName]
+        self[newName] = proxy
 
     def defineClassLocally(self, classDefStr):
         try:
