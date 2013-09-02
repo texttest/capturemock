@@ -54,7 +54,7 @@ class PythonCallbackWrapper:
         self.proxy = proxy.captureMockCreateInstanceProxy(self.name, self.target, captureMockCallback=True)
         
     def isBuiltin(self):
-        return self.target.__module__ == "__builtin__"
+        return self.target.__module__ in [ "__builtin__", "builtins" ]
         
     def __repr__(self):
         return self.name if (self.isBuiltin() or "." in self.name) else "Callback('" + self.name + "')"
