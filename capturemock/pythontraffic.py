@@ -303,7 +303,8 @@ class PythonFunctionCallTraffic(PythonModuleTraffic):
         self.interceptModules = interceptModules
         if proxy.captureMockCallback:
             self.direction = "--->"
-        self.args = [] # Prevent naming hints being added when transforming arguments
+        self.args = [] 
+        self.kw = {} # Prevent naming hints being added when transforming arguments
         self.args = self.transformStructure(args, self.transformArg, proxy)
         self.kw = self.transformStructure(kw, self.transformArg, proxy)
         
@@ -390,8 +391,15 @@ class PythonFunctionCallTraffic(PythonModuleTraffic):
         return re.sub('\W|^(?=\d)','_', arg.strip().lower())
 
     def getNamingHint(self):
+        def isSuitable(arg):
+            return isinstance(arg, str) and "\n" not in arg and len(arg) < 20 # Don't use long arguments
+            
         for arg in self.args:
-            if isinstance(arg, str) and "\n" not in arg and len(arg) < 20: # Don't use long arguments
+            if isSuitable(arg):
+                return self.makePythonName(arg)
+            
+        for arg in sorted(self.kw.values()):
+            if isSuitable(arg):
                 return self.makePythonName(arg)
     
     def getWrapper(self, instance):
