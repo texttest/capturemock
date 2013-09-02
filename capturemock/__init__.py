@@ -216,6 +216,8 @@ class CaptureMockDecorator(object):
             finally:
                 if interceptor:
                     interceptor.resetIntercepts()
+                if os.path.isfile(recordFile):
+                    os.remove(recordFile)
                 terminate()
         return wrapped_func
 
