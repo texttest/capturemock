@@ -156,8 +156,8 @@ class PythonImportTraffic(PythonTraffic):
         text = "import " + self.moduleName
         super(PythonImportTraffic, self).__init__(text, *args)
 
-    def isMarkedForReplay(self, replayItems):
-        return self.moduleName in replayItems
+    def isMarkedForReplay(self, replayItems, responses):
+        return self.getDescription() in responses
 
 
 class ReprObject:
@@ -204,9 +204,9 @@ class PythonModuleTraffic(PythonTraffic):
         return type(obj) in cacheTypes or hasattr(obj, "__call__")
 
 
-    def isMarkedForReplay(self, replayItems):
-        textMarker = self.getTextMarker()
-        return any((item == textMarker or textMarker.startswith(item + ".") for item in replayItems))
+    def isMarkedForReplay(self, replayItems, responses):
+        fullTextMarker = self.direction + self.typeId + ":" + self.getTextMarker()
+        return any((item == fullTextMarker or item.startswith(fullTextMarker + "(") for item in responses))
 
     def getIntercept(self, modOrAttr):
         if modOrAttr in self.interceptModules:

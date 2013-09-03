@@ -15,7 +15,7 @@ class ReplayInfo:
     def __init__(self, mode, replayFile, rcHandler):
         self.responseMap = OrderedDict()
         self.diag = logging.getLogger("Replay")
-        self.replayItems = []
+        self.replayItems = set()
         self.replayAll = mode == config.REPLAY
         self.exactMatching = rcHandler.getboolean("use_exact_matching", [ "general" ], False)
         if replayFile:
@@ -24,26 +24,14 @@ class ReplayInfo:
             items = self.makeCommandItems(rcHandler.getIntercepts("command line")) + \
                     self.makePythonItems(rcHandler.getIntercepts("python"))
             self.replayItems = self.filterForReplay(items, trafficList)
-            self.instanceNames = self.findInstanceNames(trafficList)
-
-    def findInstanceNames(self, lines):
-        names = []
-        for line in lines:
-            pos = line.find("Instance(")
-            while pos != -1:
-                nameStart = line.find("', '", pos) + 4
-                nameEnd = line.find("'", nameStart)
-                names.append(line[nameStart:nameEnd])
-                pos = line.find("Instance(", nameEnd)
-        return names
 
     @staticmethod
     def filterForReplay(itemInfo, lines):
-        newItems = []
+        newItems = set()
         for line in lines:
             for item, regexp in itemInfo:
-                if item not in newItems and regexp.search(line):
-                    newItems.append(item)
+                if regexp.search(line):
+                    newItems.add(item)
         return newItems
 
     @staticmethod
@@ -63,7 +51,7 @@ class ReplayInfo:
         elif self.replayAll:
             return True
         else:
-            return traffic.isMarkedForReplay(set(self.replayItems + self.instanceNames))
+            return traffic.isMarkedForReplay(self.replayItems, self.responseMap.keys())
 
     def getTrafficLookupKey(self, trafficStr):
         # If we're matching server communications it means we're 'playing client'

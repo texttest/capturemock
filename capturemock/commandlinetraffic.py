@@ -37,7 +37,7 @@ class CommandLineTraffic(traffic.Traffic):
                     envVarsSet.append((var, value))
         return envVarsSet, envVarsUnset
 
-    def isMarkedForReplay(self, replayItems):
+    def isMarkedForReplay(self, replayItems, *args):
         return self.commandName in replayItems
 
     def getRcSections(self):
