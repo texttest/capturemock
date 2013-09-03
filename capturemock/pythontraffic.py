@@ -6,35 +6,62 @@ from . import traffic
 from .recordfilehandler import RecordFileHandler
 from .config import CaptureMockReplayError
 
-class PythonInstanceWrapper:
-    allInstances = {}
-    wrappersByInstance = {}
-    classDescriptions = {}
-    def __init__(self, instance, classDesc, namingHint=None):
-        self.target = instance
-        self.classDesc = classDesc
-        self.name = self.getNewInstanceName(namingHint)
+class PythonWrapper:
+    def __init__(self, name, target):
+        self.name = name
+        self.target = target
         self.allInstances[self.name] = self
-        self.wrappersByInstance[id(self.target)] = self
+        self.wrappersByInstance[self.getId(self.target)] = self
         self.doneFullRepr = False
-        if classDesc not in self.classDescriptions:
-            self.classDescriptions[classDesc.split("(")[0]] = classDesc
-            
-    @classmethod
-    def resetCaches(cls):
-        cls.allInstances = {}
-        cls.wrappersByInstance = {}
-        cls.classDescriptions = {}
         
+    def addNumericPostfix(self, stem):
+        num = 1
+        while stem + str(num) in self.allInstances:
+            num += 1
+        return stem + str(num)
+
+    @classmethod
+    def getId(cls, target):
+        return id(target)
+
     @classmethod
     def getWrapperFor(cls, instance, *args):
-        storedWrapper = cls.wrappersByInstance.get(id(instance))
+        storedWrapper = cls.wrappersByInstance.get(cls.getId(instance))
         return storedWrapper or cls(instance, *args)
     
     @classmethod
     def hasWrapper(cls, instance):
-        return id(instance) in cls.wrappersByInstance
+        return cls.getId(instance) in cls.wrappersByInstance
     
+    @classmethod
+    def resetCaches(cls):
+        cls.allInstances = {}
+        cls.wrappersByInstance = {}
+        
+    def __repr__(self):
+        if self.doneFullRepr:
+            return self.name
+        
+        self.doneFullRepr = True
+        return self.getFullRepr()
+    
+
+class PythonInstanceWrapper(PythonWrapper):
+    allInstances = {}
+    wrappersByInstance = {}
+    classDescriptions = {}
+    def __init__(self, instance, classDesc, namingHint=None):
+        self.classDesc = classDesc
+        if classDesc not in self.classDescriptions:
+            self.classDescriptions[classDesc.split("(")[0]] = classDesc
+        name = self.getNewInstanceName(namingHint)
+        PythonWrapper.__init__(self, name, instance)
+            
+    @classmethod
+    def resetCaches(cls):
+        PythonWrapper.resetCaches.im_func(cls)
+        cls.classDescriptions = {}
+        
     @classmethod
     def renameInstance(cls, instanceName, namingHint):
         if instanceName in cls.allInstances:
@@ -51,11 +78,7 @@ class PythonInstanceWrapper:
             self.allInstances[self.name] = self
             return self.name
 
-    def __repr__(self):
-        if self.doneFullRepr:
-            return self.name
-        
-        self.doneFullRepr = True
+    def getFullRepr(self):
         return "Instance(" + repr(self.classDesc) + ", " + repr(self.name) + ")"
 
     def getClassName(self):
@@ -67,32 +90,43 @@ class PythonInstanceWrapper:
             className += "_" + namingHint
             if className not in self.allInstances:
                 return className
-        num = 1
-        while className + str(num) in self.allInstances:
-            num += 1
-        return className + str(num)
-    
+        
+        return self.addNumericPostfix(className)
+                
     def createProxy(self, proxy):
         return proxy.captureMockCreateInstanceProxy(self.name, self.target, self.classDesc)
     
-class PythonCallbackWrapper:
-    def __init__(self, function, proxy):
-        if hasattr(function, "captureMockTarget"):
-            self.name = function.captureMockProxyName
-            self.target = function.captureMockTarget
-        else:
-            self.name = function.__name__
-            self.target = function
+def isBuiltin(cls):
+    return cls.__module__ in [ "__builtin__", "builtins" ]
+    
+def getFullClassName(cls):
+    classStr = cls.__name__
+    if not isBuiltin(cls):
+        classStr = cls.__module__  + "." + classStr
+    return classStr
+    
+class PythonCallbackWrapper(PythonWrapper):
+    allInstances = {}
+    wrappersByInstance = {}
+    def __init__(self, function, proxy, name):
+        if name in self.allInstances:
+            name = self.addNumericPostfix(name)
+        target = function.captureMockTarget if hasattr(function, "captureMockTarget") else function
+        PythonWrapper.__init__(self, name, target)
         self.proxy = proxy.captureMockCreateInstanceProxy(self.name, self.target, captureMockCallback=True)
-        
-    def isBuiltin(self):
-        return self.target.__module__ in [ "__builtin__", "builtins" ]
-        
-    def __repr__(self):
-        return self.name if (self.isBuiltin() or "." in self.name) else "Callback('" + self.name + "')"
+                
+    def hasExternalName(self):
+        return isBuiltin(self.target) or "." in self.name
 
+    def getFullRepr(self):
+        return self.name if self.hasExternalName() else "Callback('" + self.name + "')"
+
+    @classmethod
+    def getId(cls, target):
+        return id(target.im_func) if not hasattr(target, "captureMockTarget") and hasattr(target, "im_func") else id(target)
+    
     def createProxy(self, proxy):
-        if self.isBuiltin():
+        if isBuiltin(self.target):
             return self.target
         else:  
             return self.proxy
@@ -112,11 +146,7 @@ class PythonTraffic(traffic.BaseTraffic):
         return PythonResponseTraffic(self.getExceptionText(exc_value), inCallback=inCallback)
 
     def getExceptionText(self, exc_value):
-        modStr = exc_value.__class__.__module__
-        classStr = exc_value.__class__.__name__
-        if modStr != "builtins":
-            classStr = modStr + "." + classStr
-        text = "raise " + classStr + "(" + repr(str(exc_value)) + ")"
+        text = "raise " + getFullClassName(exc_value.__class__) + "(" + repr(str(exc_value)) + ")"
         return self.applyAlterations(text)
 
 
@@ -255,9 +285,7 @@ class PythonModuleTraffic(PythonTraffic):
             if self.getIntercept(baseClass.__module__):
                 classes.append(name)
             else:
-                module = baseClass.__module__
-                if module not in [ "__builtin__", "builtins" ]:
-                    name = module + "." + name
+                name = getFullClassName(baseClass)
                 # No point recording 'object' in Python3: everything is an object there
                 if name != "object" or sys.version_info[0] == 2:
                     classes.append(name)
@@ -303,8 +331,9 @@ class PythonFunctionCallTraffic(PythonModuleTraffic):
         self.interceptModules = interceptModules
         if proxy.captureMockCallback:
             self.direction = "--->"
-        self.args = [] 
-        self.kw = {} # Prevent naming hints being added when transforming arguments
+        self.functionName = functionName
+        self.args = args
+        self.kw = kw # Prevent naming hints being added when transforming arguments
         self.args = self.transformStructure(args, self.transformArg, proxy)
         self.kw = self.transformStructure(kw, self.transformArg, proxy)
         
@@ -315,7 +344,6 @@ class PythonFunctionCallTraffic(PythonModuleTraffic):
             recordArg = ReprObject(key + "=" + repr(value))
             argsForRecord.append(recordArg)
         text = functionName + "(" + repr(argsForRecord)[1:-1] + ")"
-        self.functionName = functionName
         super(PythonFunctionCallTraffic, self).__init__(text, rcHandler, interceptModules, inCallback)
         checkRepeats = rcHandler.getboolean("check_repeated_calls", [ self.getIntercept(self.functionName), "python" ], True)
         if checkRepeats:
@@ -331,9 +359,22 @@ class PythonFunctionCallTraffic(PythonModuleTraffic):
         if proxy.captureMockCallback:
             return self.addInstanceWrapper(arg)
         elif self.isRealArgCallable(arg):
-            return PythonCallbackWrapper(arg, proxy)
+            return PythonCallbackWrapper.getWrapperFor(arg, proxy, self.getCallbackName(arg))
         else:
             return arg
+        
+    def getCallbackName(self, arg):
+        if hasattr(arg, "captureMockTarget"):
+            return arg.captureMockProxyName
+        elif isBuiltin(arg):
+            return arg.__name__
+        
+        callbackName = self.functionName.split(".")[0]
+        hint = self.getNamingHint()
+        if hint:
+            callbackName += "_" + hint
+        callbackName += "_callback"
+        return callbackName
     
     def isRealArgCallable(self, arg):
         if hasattr(arg, "captureMockTarget"):
@@ -374,7 +415,7 @@ class PythonFunctionCallTraffic(PythonModuleTraffic):
                 responseText = self.getExceptionText(exc_value)
                 PythonResponseTraffic(responseText).record(captureMockRecordHandler)
                 raise
-    
+                        
     def tryRenameInstance(self, proxy, recordHandler):
         if self.functionName.count(".") == 1:
             objName, localName = self.functionName.split(".")
@@ -424,6 +465,7 @@ class PythonTrafficHandler:
         self.rcHandler = rcHandler
         self.interceptModules = interceptModules
         PythonInstanceWrapper.resetCaches() # reset, in case of previous tests
+        PythonCallbackWrapper.resetCaches()
         PythonAttributeTraffic.resetCaches()
 
     def importModule(self, name, proxy, loadModule):
