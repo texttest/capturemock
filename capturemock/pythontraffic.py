@@ -358,7 +358,7 @@ class PythonFunctionCallTraffic(PythonModuleTraffic):
     def transformArg(self, arg, proxy):
         if proxy.captureMockCallback:
             return self.addInstanceWrapper(arg)
-        elif self.isRealArgCallable(arg):
+        elif self.isRealArgCallable(arg) and not self.getIntercept(self.getModuleName(arg)):
             return PythonCallbackWrapper.getWrapperFor(arg, proxy, self.getCallbackName(arg))
         else:
             return arg
