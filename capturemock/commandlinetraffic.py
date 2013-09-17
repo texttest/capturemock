@@ -19,9 +19,9 @@ class CommandLineTraffic(traffic.Traffic):
         self.commandName = os.path.basename(self.fullCommand)
         self.cmdArgs = [ self.commandName ] + argv[1:]
         self.asynchronousEdits = rcHandler.getboolean("asynchronous", self.getRcSections(), False)
-        envVarsSet, envVarsUnset = self.filterEnvironment(self.cmdEnviron, rcHandler)
+        self.envVarsSet, envVarsUnset = self.filterEnvironment(self.cmdEnviron, rcHandler)
         cmdString = " ".join(map(self.quoteArg, self.cmdArgs))
-        text = self.getEnvString(envVarsSet, envVarsUnset) + cmdString
+        text = self.getEnvString(self.envVarsSet, envVarsUnset) + cmdString
         super(CommandLineTraffic, self).__init__(text, responseFile, rcHandler)
         
     def filterEnvironment(self, cmdEnviron, rcHandler):
@@ -80,6 +80,9 @@ class CommandLineTraffic(traffic.Traffic):
         changedCwd = self.hasChangedWorkingDirectory()
         if changedCwd:
             edits.append(self.cmdCwd)
+        for _, value in self.envVarsSet:
+            if os.path.isabs(value):
+                edits.append(value)
         for arg in self.cmdArgs[1:]:
             for word in self.getFileWordsFromArg(arg):
                 if os.path.isabs(word):

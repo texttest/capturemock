@@ -383,6 +383,7 @@ class ServerDispatcher:
             newPaths = self.findFilesAndLinks(file)
             for subPath in newPaths:
                 newEditInfo = self.getLatestModification(subPath)
+                self.diag.debug("Found subpath " + subPath + " edit info " + repr(newEditInfo))
                 if newEditInfo != self.fileEditData.get(subPath):
                     changedPaths.append(subPath)
                     self.fileEditData[subPath] = newEditInfo
