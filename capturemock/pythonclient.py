@@ -124,7 +124,7 @@ class PythonProxy(object):
 
     def __setattr__(self, attrname, value):
         self.__dict__[attrname] = value
-        if not attrname.startswith("captureMock"):
+        if not attrname.startswith("captureMock") and attrname != "__file__":
             if self.captureMockTarget is not None:
                 setattr(self.captureMockTarget, attrname, value)
             # Don't record internally-set module setup when importing modules from packages
@@ -136,6 +136,7 @@ class PythonProxy(object):
 
 class ModuleProxy(PythonProxy):
     def __init__(self, name, trafficHandler, loadModule):
+        self.__file__ = __file__
         PythonProxy.__init__(self, name, trafficHandler, None, NameFinder(self))
         self.captureMockTarget = trafficHandler.importModule(name, self, loadModule) 
         self.captureMockModuleLoader = loadModule
@@ -185,11 +186,11 @@ class InstanceProxy(PythonProxy):
                                                                                 *args, **kw)
             PythonProxy.__init__(self, proxyName, self.captureMockTrafficHandler,
                                  realObj, self.captureMockNameFinder)
-            
+                        
     # Used by mixins of this class and new-style classes
     def __getattribute__(self, attrname):
         if attrname.startswith("captureMock") or \
-               attrname in [ "__dict__", "__class__", "__getattr__", "__members__", "__methods__" ] or \
+               attrname in [ "__file__", "__dict__", "__class__", "__getattr__", "__members__", "__methods__" ] or \
                self.captureMockDefinedInNonInterceptedSubclass(attrname):
             return object.__getattribute__(self, attrname)
         else:
