@@ -6,7 +6,7 @@ from . import traffic
 from .recordfilehandler import RecordFileHandler
 from .config import CaptureMockReplayError
 
-class PythonWrapper:
+class PythonWrapper(object):
     def __init__(self, name, target):
         self.name = name
         self.target = target
@@ -55,11 +55,11 @@ class PythonInstanceWrapper(PythonWrapper):
         if classDesc not in self.classDescriptions:
             self.classDescriptions[classDesc.split("(")[0]] = classDesc
         name = self.getNewInstanceName(namingHint)
-        PythonWrapper.__init__(self, name, instance)
+        super(PythonInstanceWrapper, self).__init__(name, instance)
             
     @classmethod
     def resetCaches(cls):
-        PythonWrapper.resetCaches.im_func(cls)
+        super(PythonInstanceWrapper, cls).resetCaches()
         cls.classDescriptions = {}
         
     @classmethod
@@ -112,7 +112,7 @@ class PythonCallbackWrapper(PythonWrapper):
         if name in self.allInstances:
             name = self.addNumericPostfix(name)
         target = function.captureMockTarget if hasattr(function, "captureMockTarget") else function
-        PythonWrapper.__init__(self, name, target)
+        super(PythonCallbackWrapper, self).__init__(name, target)
         self.proxy = proxy.captureMockCreateInstanceProxy(self.name, self.target, captureMockCallback=True)
                 
     def hasExternalName(self):
