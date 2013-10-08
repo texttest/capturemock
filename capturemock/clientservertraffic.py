@@ -1,7 +1,11 @@
 
 """ Traffic classes for capturing client-server interaction """
 
-import traffic, socket, sys, xmlrpclib
+import traffic, socket, sys
+try:
+    import xmlrpclib
+except ImportError:
+    import xmlrpc.client as xmlrpclib
 
 class ClientSocketTraffic(traffic.Traffic):
     destination = None

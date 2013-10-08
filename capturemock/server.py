@@ -1,9 +1,14 @@
 
-import os, stat, sys, logging, socket, threading, time, subprocess, xmlrpclib
+import os, stat, sys, socket, threading, time, subprocess
 import config, recordfilehandler, cmdlineutils
 import commandlinetraffic, fileedittraffic, clientservertraffic, customtraffic
 from SocketServer import TCPServer, StreamRequestHandler
-from SimpleXMLRPCServer import SimpleXMLRPCServer
+try:
+    from xmlrpclib import Fault
+    from SimpleXMLRPCServer import SimpleXMLRPCServer
+except ImportError: # Python 3
+    from xmlrpc.client import Fault
+    from xmlrpc.server import SimpleXMLRPCServer
 from ordereddict import OrderedDict
 from replayinfo import ReplayInfo
 
@@ -149,7 +154,7 @@ class XmlRpcDispatchInstance:
                 traffic = clientservertraffic.XmlRpcClientTraffic(method=method, params=params, rcHandler=self.dispatcher.rcHandler)
             responses = self.dispatcher.process(traffic, self.requestCount)
             return responses[0].getXmlRpcResponse() if responses else ""
-        except xmlrpclib.Fault:
+        except Fault:
             raise
         except:
             sys.stderr.write("Exception thrown while handling XMLRPC input :\n")
