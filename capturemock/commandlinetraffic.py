@@ -1,7 +1,8 @@
 
 """ Traffic classes to do with captured command lines """
 
-import traffic, fileedittraffic, os, logging, subprocess
+import os, logging, subprocess
+from . import traffic, fileedittraffic
 
 class CommandLineTraffic(traffic.Traffic):
     typeId = "CMD"

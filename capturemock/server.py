@@ -1,16 +1,19 @@
 
 import os, stat, sys, socket, threading, time, subprocess
-import config, recordfilehandler, cmdlineutils
-import commandlinetraffic, fileedittraffic, clientservertraffic, customtraffic
-from SocketServer import TCPServer, StreamRequestHandler
+from . import config, recordfilehandler, cmdlineutils
+from . import commandlinetraffic, fileedittraffic, clientservertraffic, customtraffic
 try:
+    from SocketServer import TCPServer, StreamRequestHandler
     from xmlrpclib import Fault
     from SimpleXMLRPCServer import SimpleXMLRPCServer
+    from ordereddict import OrderedDict
 except ImportError: # Python 3
+    from socketserver import TCPServer, StreamRequestHandler
     from xmlrpc.client import Fault
     from xmlrpc.server import SimpleXMLRPCServer
-from ordereddict import OrderedDict
-from replayinfo import ReplayInfo
+    from collections import OrderedDict
+
+from .replayinfo import ReplayInfo
 
 def getPython():
     if os.name == "nt":

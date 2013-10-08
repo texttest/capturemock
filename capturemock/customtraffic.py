@@ -1,7 +1,8 @@
 
 """ Traffic whose format and real behaviour is defined in a custom client """
 
-import traffic, socket, sys
+from . import traffic
+import socket, sys
 
 class CustomTraffic(traffic.Traffic):
     direction = "<-"
