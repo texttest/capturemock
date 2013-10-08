@@ -1,8 +1,7 @@
 
 """ Capturing edits for files, currently only from command line traffic """
 
-from . import traffic
-import os, logging, shutil
+import traffic, os, logging, shutil
 
 class FileEditTraffic(traffic.ResponseTraffic):
     typeId = "FIL"

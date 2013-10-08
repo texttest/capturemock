@@ -1,8 +1,7 @@
 
 """ Traffic classes for capturing client-server interaction """
 
-from . import traffic
-import socket, sys
+import traffic, socket, sys
 try:
     import xmlrpclib
 except ImportError:
@@ -59,7 +58,7 @@ class XmlRpcClientTraffic(ClientSocketTraffic):
     def forwardToServer(self):
         try:
             responseObject = getattr(self.destination, self.method)(*self.params)
-        except xmlrpclib.Fault as e:
+        except xmlrpclib.Fault, e:
             responseObject = e
 
         text = self.applyAlterations(self.fixMultilineStrings(responseObject))
