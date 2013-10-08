@@ -123,7 +123,7 @@ class PythonCallbackWrapper(PythonWrapper):
 
     @classmethod
     def getId(cls, target):
-        return id(target.im_func) if not hasattr(target, "captureMockTarget") and hasattr(target, "im_func") else id(target)
+        return id(target.__func__) if not hasattr(target, "captureMockTarget") and hasattr(target, "__func__") else id(target)
     
     def createProxy(self, proxy):
         if isBuiltin(self.target):

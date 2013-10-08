@@ -81,7 +81,7 @@ class CommandLineTraffic(traffic.Traffic):
         if changedCwd:
             edits.append(self.cmdCwd)
         for _, value in self.envVarsSet:
-            if os.path.isabs(value):
+            if os.pathsep not in value and os.path.isabs(value):
                 edits.append(value)
         for arg in self.cmdArgs[1:]:
             for word in self.getFileWordsFromArg(arg):
