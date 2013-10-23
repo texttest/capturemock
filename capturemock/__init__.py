@@ -85,7 +85,7 @@ class CaptureMockManager:
         if self.serverProcess:
             if self.serverAddress:
                 from .server import stopServer
-                stopServer(self.serverAddress, self.serverProcess)
+                stopServer(self.serverAddress)
             self.writeServerErrors()
             self.serverProcess = None
         

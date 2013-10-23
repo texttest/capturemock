@@ -4,10 +4,10 @@ import config, recordfilehandler, cmdlineutils
 import commandlinetraffic, fileedittraffic, clientservertraffic, customtraffic
 from SocketServer import TCPServer, StreamRequestHandler
 try:
-    from xmlrpclib import Fault
+    from xmlrpclib import Fault, ServerProxy
     from SimpleXMLRPCServer import SimpleXMLRPCServer
 except ImportError: # Python 3
-    from xmlrpc.client import Fault
+    from xmlrpc.client import Fault, ServerProxy
     from xmlrpc.server import SimpleXMLRPCServer
 from ordereddict import OrderedDict
 from replayinfo import ReplayInfo
@@ -42,9 +42,10 @@ def startServer(rcFiles, mode, replayFile, replayEditDir,
     return subprocess.Popen(cmdArgs, env=environment.copy(), universal_newlines=True,
                             cwd=sutDirectory, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-def stopServer(servAddr, serverProc):
+def stopServer(servAddr):
     if servAddr.startswith("http"):
-        serverProc.terminate() # XMLRPC, no need to do anything clever (?)
+        s = ServerProxy(servAddr)
+        s.shutdownCaptureMockServer()
     else:
         try:
             ClassicTrafficServer.sendTerminateMessage(servAddr)
@@ -130,6 +131,12 @@ class XmlRpcTrafficServer(SimpleXMLRPCServer):
         host, port = self.socket.getsockname()
         # hardcode http? Seems to be what you get...
         return "http://" + host + ":" + str(port)
+    
+    def setShutdownFlag(self):
+        # Not supposed to know about this variable, implementation detail of SocketServer
+        # But seems like the only way to shutdown the server from within a request
+        # Otherwise we have to start using ForkingMixin, ThreadingMixin etc which seems like overkill just to access a variable
+        self._BaseServer__shutdown_request = True
 
     @staticmethod
     def getTrafficClasses(incoming):
@@ -148,7 +155,10 @@ class XmlRpcDispatchInstance:
         try:
             self.dispatcher.diag.info("Received XMLRPC traffic " + method + repr(params))
             XmlRpcDispatchInstance.requestCount += 1
-            if method == "setServerLocation":
+            if method == "shutdownCaptureMockServer":
+                self.dispatcher.server.setShutdownFlag()
+                return ""
+            elif method == "setServerLocation":
                 traffic = clientservertraffic.XmlRpcServerStateTraffic(params[0])
             else:
                 traffic = clientservertraffic.XmlRpcClientTraffic(method=method, params=params, rcHandler=self.dispatcher.rcHandler)
