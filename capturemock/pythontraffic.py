@@ -225,25 +225,25 @@ class PythonModuleTraffic(PythonTraffic):
         return self.applyAlterations(text)
 
     def transformResponse(self, response, proxy):
-        wrappedValue = self.transformStructure(response, self.addInstanceWrapper)
+        wrappedValue = self.transformStructure(response, self.addInstanceWrapper, responseIsBasic=self.isBasicType(response))
         responseText = self.getResultText(wrappedValue)
         transformedResponse = self.transformStructure(wrappedValue, self.insertProxy, proxy)
         return responseText, transformedResponse
 
-    def transformStructure(self, result, transformMethod, *args):
+    def transformStructure(self, result, transformMethod, *args, **kw):
         if type(result) in (list, tuple):
-            return type(result)([ self.transformStructure(elem, transformMethod, *args) for elem in result ])
+            return type(result)([ self.transformStructure(elem, transformMethod, *args, **kw) for elem in result ])
         elif type(result) == dict:
             newResult = {}
             for key, value in result.items():
-                newResult[key] = self.transformStructure(value, transformMethod, *args)
+                newResult[key] = self.transformStructure(value, transformMethod, *args, **kw)
             return newResult
         else:
-            return transformMethod(result, *args)
+            return transformMethod(result, *args, **kw)
         
-    def addInstanceWrapper(self, result):
+    def addInstanceWrapper(self, result, **kw):
         if not hasattr(result, "captureMockProxyName") and not self.isBasicType(result) and self.getIntercept(self.getModuleName(result)):
-            return self.getWrapper(result)
+            return self.getWrapper(result, **kw)
         else:
             return result
 
@@ -261,12 +261,12 @@ class PythonModuleTraffic(PythonTraffic):
         except:
             return False
 
-    def getWrapper(self, instance, *args):
+    def getWrapper(self, instance, namingHint=None, **kw):
         # hasattr fails if the intercepted instance defines __getattr__, when it always returns True
         if self.instanceHasAttribute(instance, "captureMockTarget"):
-            return self.getWrapper(instance.captureMockTarget, *args)
+            return self.getWrapper(instance.captureMockTarget, namingHint)
         classDesc = self.getClassDescription(self.getClass(instance))
-        return PythonInstanceWrapper.getWrapperFor(instance, classDesc, *args)
+        return PythonInstanceWrapper.getWrapperFor(instance, classDesc, namingHint)
 
     def getClassDescription(self, cls):
         if cls.__name__ in PythonInstanceWrapper.classDescriptions:
@@ -315,8 +315,9 @@ class PythonAttributeTraffic(PythonModuleTraffic):
     def shouldCache(self, obj):
         return not self.isCallableType(obj)
 
-    def getWrapper(self, instance):
-        return self.cachedInstances.setdefault(self.text, PythonModuleTraffic.getWrapper(self, instance))
+    def getWrapper(self, instance, namingHint=None, responseIsBasic=True):
+        wrapper = PythonModuleTraffic.getWrapper(self, instance, namingHint)
+        return wrapper if responseIsBasic else self.cachedInstances.setdefault(self.text, wrapper)
 
         
 class PythonSetAttributeTraffic(PythonModuleTraffic):
@@ -443,7 +444,7 @@ class PythonFunctionCallTraffic(PythonModuleTraffic):
             if isSuitable(arg):
                 return self.makePythonName(arg)
     
-    def getWrapper(self, instance):
+    def getWrapper(self, instance, **kw):
         return PythonModuleTraffic.getWrapper(self, instance, self.getNamingHint())
                 
 
