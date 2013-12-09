@@ -186,17 +186,18 @@ class InstanceProxy(PythonProxy):
                                                                                 *args, **kw)
             PythonProxy.__init__(self, proxyName, self.captureMockTrafficHandler,
                                  realObj, self.captureMockNameFinder)
-            if self.captureMockTarget is not None:
-                for method in self.captureMockFindMissingMethods():
-                    self.captureMockAddInterceptionForDerivedOnly(method)
+            for method in self.captureMockFindMissingMethods():
+                self.captureMockAddInterceptionForDerivedOnly(method)
             
     def captureMockFindMissingMethods(self):
+        if self.captureMockTarget is None:
+            return []
         targetMethods = dir(self.captureMockTarget.__class__)
         proxyMethods = dir(super(self.__class__, self))
         proxyClassMethods = dir(InstanceProxy)
         allToRemove = targetMethods + proxyMethods + proxyClassMethods
-        selfMethods = dir(self.__class__)
         allToRemove.append("__metaclass__") # seems to be an exception...
+        selfMethods = dir(self.__class__)
         return filter(lambda m: m not in allToRemove, selfMethods)
 
     def captureMockAddInterceptionForDerivedOnly(self, methodName):
