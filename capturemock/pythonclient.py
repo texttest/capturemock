@@ -8,7 +8,6 @@ class NameFinder(dict):
         self.moduleProxy = moduleProxy
         self["InstanceProxy"] = InstanceProxy
         self["ProxyMetaClass"] = ProxyMetaClass
-        self["Instance"] = self.makeInstance
         self.makeNewClasses = False
         self.newClassNames = []
 
@@ -63,6 +62,8 @@ class NameFinder(dict):
                 exec("class " + name + ": pass", self)
                 self.newClassNames.append(name)
                 self.makeNewClasses = False
+            elif name == "Instance":
+                return self.makeInstance
             else:
                 try:
                     exec("import " + name, self)
