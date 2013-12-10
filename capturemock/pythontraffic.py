@@ -219,6 +219,9 @@ class PythonModuleTraffic(PythonTraffic):
         if sys.version_info[0] == 2:
             basicTypes += (long, unicode)
         return obj is None or obj is NotImplemented or type(obj) in basicTypes
+    
+    def isIterator(self, obj):
+        return hasattr(obj, "__iter__") and (hasattr(obj, "next") or hasattr(obj, "__next__"))
 
     def getResultText(self, result):
         text = repr(self.transformStructure(result, self.insertReprObjects))
@@ -242,7 +245,10 @@ class PythonModuleTraffic(PythonTraffic):
             return transformMethod(result, *args, **kw)
         
     def addInstanceWrapper(self, result, **kw):
-        if not hasattr(result, "captureMockProxyName") and not self.isBasicType(result) and self.getIntercept(self.getModuleName(result)):
+        # We add wrappers if we aren't already a proxy, if we're a complex type, and if we're either being intercepted, or an iterator
+        # Iterators returned from proxy operations do not follow repr-eval, so we need to intercept them too
+        if not hasattr(result, "captureMockProxyName") and not self.isBasicType(result) and \
+            (self.getIntercept(self.getModuleName(result)) or self.isIterator(result)):
             return self.getWrapper(result, **kw)
         else:
             return result
