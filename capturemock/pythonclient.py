@@ -7,6 +7,7 @@ class NameFinder(dict):
         dict.__init__(self)
         self.moduleProxy = moduleProxy
         self["InstanceProxy"] = InstanceProxy
+        self["PythonProxy"] = PythonProxy
         self["ProxyMetaClass"] = ProxyMetaClass
         self["Instance"] = self.makeInstance
         self.makeNewClasses = False
@@ -22,7 +23,16 @@ class NameFinder(dict):
         self["Instance"] = self.makeInstance # In case we created a class called Instance...
         return newClass
 
-    def makeClass(self, className):
+    def makeMetaClass(self, realMetaClass):
+        fullClassName = realMetaClass.__module__ + "." + realMetaClass.__name__
+        clsName = realMetaClass.__name__ + "Proxy"
+        if clsName in self.moduleProxy.__dict__:
+            return self.moduleProxy.__dict__[clsName]
+        classDefStr = "class " + clsName + "(" + fullClassName + ", PythonProxy) : pass"
+        self.defineClass(clsName, classDefStr)
+        return clsName
+
+    def makeClass(self, className, metaClassName):
         actualClassName = className.split("(")[0]
         moduleDict = self.moduleProxy.__dict__
         if actualClassName in moduleDict:
@@ -32,9 +42,9 @@ class NameFinder(dict):
         else:
             classDecl = className + "(InstanceProxy)"
         if sys.version_info[0] == 2:
-            classDefStr = "class " + classDecl + " : __metaclass__ = ProxyMetaClass"
+            classDefStr = "class " + classDecl + " : __metaclass__ = " + metaClassName
         else:
-            classDefStr = "class " + classDecl.replace(")", ", metaclass=ProxyMetaClass): pass")
+            classDefStr = "class " + classDecl.replace(")", ", metaclass=" + metaClassName + "): pass")
         return self.defineClass(actualClassName, classDefStr)
 
     def makeInstance(self, className, instanceName):
@@ -93,7 +103,7 @@ class PythonProxy(object):
 
     def captureMockCreateInstanceProxy(self, proxyName, proxyTarget=None, classDesc=None, captureMockCallback=False):
         if classDesc:
-            newClass = self.captureMockNameFinder.makeClass(classDesc)
+            newClass = self.captureMockMakeClass(classDesc, type(proxyTarget))
         else:
             newClass = PythonProxy
         return newClass(captureMockProxyName=proxyName,
@@ -101,9 +111,17 @@ class PythonProxy(object):
                         captureMockTarget=proxyTarget,
                         captureMockNameFinder=self.captureMockNameFinder,
                         captureMockCallback=captureMockCallback)
+       
+    def captureMockMakeClass(self, classDesc, proxyTargetClass):
+        metaClassName = "ProxyMetaClass"
+        if proxyTargetClass is not None:
+            metaClass = type(proxyTargetClass)
+            if metaClass not in [ type, types.ClassType ]:
+                metaClassName = self.captureMockNameFinder.makeMetaClass(metaClass)
+        return self.captureMockNameFinder.makeClass(classDesc, metaClassName)
         
     def captureMockCreateClassProxy(self, proxyName, proxyTarget, classDesc):
-        classProxy = self.captureMockNameFinder.makeClass(classDesc)
+        classProxy = self.captureMockMakeClass(classDesc, proxyTarget)
         classProxy.captureMockNameFinder = self.captureMockNameFinder
         classProxy.captureMockTrafficHandler = self.captureMockTrafficHandler
         classProxy.captureMockTarget = proxyTarget
@@ -265,6 +283,16 @@ class InstanceProxy(PythonProxy):
 
     def next(self):
         return self.__getattr__("next")()
+
+    # For classes that subclass collections.MutableMapping
+    def __setitem__(self, key, val):
+        return self.__getattr__("__setitem__")(key, val)
+
+    def __delitem__(self, key):
+        return self.__getattr__("__delitem__")(key)
+
+    def __len__(self):
+        return self.__getattr__("__len__")()
 
 
 class ProxyMetaClass(type, PythonProxy):
