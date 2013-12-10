@@ -8,6 +8,7 @@ class NameFinder(dict):
         self.moduleProxy = moduleProxy
         self["InstanceProxy"] = InstanceProxy
         self["ProxyMetaClass"] = ProxyMetaClass
+        self["Instance"] = self.makeInstance
         self.makeNewClasses = False
         self.newClassNames = []
 
@@ -18,12 +19,14 @@ class NameFinder(dict):
         self.newClassNames = []
         newClass = dict.__getitem__(self, className)
         newClass.__module__ = self.moduleProxy.captureMockProxyName
+        self["Instance"] = self.makeInstance # In case we created a class called Instance...
         return newClass
 
     def makeClass(self, className):
         actualClassName = className.split("(")[0]
-        if actualClassName in self:
-            return self[actualClassName]
+        moduleDict = self.moduleProxy.__dict__
+        if actualClassName in moduleDict:
+            return moduleDict[actualClassName]
         if "(" in className:
             classDecl = className.replace("(", "(InstanceProxy, ")
         else:
@@ -62,8 +65,6 @@ class NameFinder(dict):
                 exec("class " + name + ": pass", self)
                 self.newClassNames.append(name)
                 self.makeNewClasses = False
-            elif name == "Instance":
-                return self.makeInstance
             else:
                 try:
                     exec("import " + name, self)
