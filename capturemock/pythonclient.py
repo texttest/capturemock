@@ -116,7 +116,10 @@ class PythonProxy(object):
         metaClassName = "ProxyMetaClass"
         if proxyTargetClass is not None:
             metaClass = type(proxyTargetClass)
-            if metaClass not in [ type, types.ClassType ]:
+            classTypes = [ type ]
+            if sys.version_info[0] == 2:
+                classTypes.append(types.ClassType)
+            if metaClass not in classTypes:
                 metaClassName = self.captureMockNameFinder.makeMetaClass(metaClass)
         return self.captureMockNameFinder.makeClass(classDesc, metaClassName)
         
