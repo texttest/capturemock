@@ -1,5 +1,6 @@
 
 import os, stat, sys, socket, threading, time, subprocess
+from copy import copy
 import config, recordfilehandler, cmdlineutils
 import commandlinetraffic, fileedittraffic, clientservertraffic, customtraffic
 from SocketServer import TCPServer, StreamRequestHandler
@@ -243,21 +244,23 @@ class ServerDispatcher:
             return None, 0
         
     def addPossibleFileEdits(self, traffic):
-        allEdits = traffic.findPossibleFileEdits()
+        allEdits = traffic.findPossibleFileEdits() 
+        topLevelForEdit = copy(self.topLevelForEdit)
+        fileEditData = copy(self.fileEditData)
         for file in allEdits:
-            if file in self.topLevelForEdit:
-                self.topLevelForEdit.remove(file)
+            if file in topLevelForEdit:
+                topLevelForEdit.remove(file)
             # Always move them to the beginning, most recent edits are most relevant
-            self.topLevelForEdit.insert(0, file)
+            topLevelForEdit.insert(0, file)
 
             # edit times aren't interesting when doing pure replay
             if not self.replayInfo.isActiveForAll():
                 for subPath in self.findFilesAndLinks(file):                
                     modTime, modSize = self.getLatestModification(subPath)
-                    self.fileEditData[subPath] = modTime, modSize
+                    fileEditData[subPath] = modTime, modSize
                     self.diag.debug("Adding possible sub-path edit for " + subPath + " with mod time " +
                                    time.strftime("%d%b%H:%M:%S", time.localtime(modTime)) + " and size " + str(modSize))
-        return len(allEdits) > 0
+        return topLevelForEdit, fileEditData
 
     def processText(self, text, wfile, reqNo):
         self.diag.debug("Request text : " + text)
@@ -279,22 +282,17 @@ class ServerDispatcher:
         if not self.replayInfo.isActiveFor(traffic):
             # If we're recording, check for file changes before we do
             # Must do this before as they may be a side effect of whatever it is we're processing
-            for fileTraffic in self.getLatestFileEdits():
+            for fileTraffic in self.getLatestFileEdits(self.topLevelForEdit, self.fileEditData):
                 self._process(fileTraffic, reqNo)
 
         responses = self._process(traffic, reqNo)
-        self.hasAsynchronousEdits |= traffic.makesAsynchronousEdits()
         self.recordFileHandler.requestComplete(reqNo)
-        if not self.hasAsynchronousEdits:
-            # Unless we've marked it as asynchronous we start again for the next traffic.
-            self.topLevelForEdit = []
-            self.fileEditData = OrderedDict()
         return responses
         
     def _process(self, traffic, reqNo):
         self.diag.debug("Processing traffic " + traffic.__class__.__name__)
-        hasFileEdits = self.addPossibleFileEdits(traffic)
-        responses = self.getResponses(traffic, hasFileEdits)
+        topLevelForEdit, fileEditData = self.addPossibleFileEdits(traffic)
+        responses = self.getResponses(traffic, topLevelForEdit, fileEditData)
         traffic.record(self.recordFileHandler, reqNo)
         for response in responses:
             self.diag.debug("Response of type " + response.__class__.__name__ + " with text " + repr(response.text))
@@ -302,6 +300,11 @@ class ServerDispatcher:
             for chainResponse in response.forwardToDestination():
                 self._process(chainResponse, reqNo)
             self.diag.debug("Completed response of type " + response.__class__.__name__)
+        self.hasAsynchronousEdits |= traffic.makesAsynchronousEdits()
+        if self.hasAsynchronousEdits:
+            # Unless we've marked it as asynchronous we start again for the next traffic.
+            self.topLevelForEdit += topLevelForEdit
+            self.fileEditData.update(fileEditData)
         return responses
 
     def getTrafficClasses(self, incoming):
@@ -311,29 +314,29 @@ class ServerDispatcher:
             classes += mod.getTrafficClasses(incoming)
         return classes
 
-    def getResponses(self, traffic, hasFileEdits):
+    def getResponses(self, traffic, topLevelForEdit, fileEditData):
         if self.replayInfo.isActiveFor(traffic):
             self.diag.debug("Replay active for current command")
             replayedResponses = []
             filesMatched = []
             responseClasses = self.getTrafficClasses(incoming=False)
             for responseClass, text in self.replayInfo.readReplayResponses(traffic, responseClasses):
-                responseTraffic = self.makeResponseTraffic(traffic, responseClass, text, filesMatched)
+                responseTraffic = self.makeResponseTraffic(traffic, responseClass, text, filesMatched, topLevelForEdit)
                 if responseTraffic:
                     replayedResponses.append(responseTraffic)
             return traffic.filterReplay(replayedResponses)
         else:
             trafficResponses = traffic.forwardToDestination()
-            if hasFileEdits: # Only if the traffic itself can produce file edits do we check here
-                return self.getLatestFileEdits() + trafficResponses
+            if topLevelForEdit: # Only if the traffic itself can produce file edits do we check here
+                return self.getLatestFileEdits(topLevelForEdit, fileEditData) + trafficResponses
             else:
                 return trafficResponses
 
-    def getFileBeingEdited(self, givenName, fileType, filesMatched):
+    def getFileBeingEdited(self, givenName, fileType, filesMatched, topLevelForEdit):
         # drop the suffix which is internal to TextTest
         fileName = givenName.split(".edit_")[0]
         bestMatch, bestScore = None, -1
-        for editedFile in self.topLevelForEdit:
+        for editedFile in topLevelForEdit:
             if (fileType == "directory" and os.path.isfile(editedFile)) or \
                (fileType == "file" and os.path.isdir(editedFile)):
                 continue
@@ -365,14 +368,14 @@ class ServerDispatcher:
             score += 1
         return score
 
-    def makeResponseTraffic(self, traffic, responseClass, text, filesMatched):
+    def makeResponseTraffic(self, traffic, responseClass, text, filesMatched, topLevelForEdit):
         if responseClass is fileedittraffic.FileEditTraffic:
             fileName = text.strip()
             self.diag.debug("Looking up file edit data for " + repr(fileName)) 
             storedFile, fileType = fileedittraffic.FileEditTraffic.getFileWithType(fileName)
             if storedFile:
                 self.diag.debug("Found file " + repr(storedFile) + " of type " + fileType)
-                editedFile = self.getFileBeingEdited(fileName, fileType, filesMatched)
+                editedFile = self.getFileBeingEdited(fileName, fileType, filesMatched, topLevelForEdit)
                 if editedFile:
                     self.diag.debug("Will use it to edit file at " + str(editedFile))
                     changedPaths = self.findFilesAndLinks(storedFile)
@@ -389,21 +392,21 @@ class ServerDispatcher:
         else:
             return self.findRemovedPath(parent)
 
-    def getLatestFileEdits(self):
+    def getLatestFileEdits(self, topLevelForEdit, fileEditData):
         traffic = []
         removedPaths = []
-        for file in self.topLevelForEdit:
+        for file in topLevelForEdit:
             self.diag.debug("Looking for file edits under " + file)
             changedPaths = []
             newPaths = self.findFilesAndLinks(file)
             for subPath in newPaths:
                 newEditInfo = self.getLatestModification(subPath)
                 self.diag.debug("Found subpath " + subPath + " edit info " + repr(newEditInfo))
-                if newEditInfo != self.fileEditData.get(subPath):
+                if newEditInfo != fileEditData.get(subPath):
                     changedPaths.append(subPath)
-                    self.fileEditData[subPath] = newEditInfo
+                    fileEditData[subPath] = newEditInfo
 
-            for oldPath in self.fileEditData.keys():
+            for oldPath in fileEditData.keys():
                 if (oldPath == file or oldPath.startswith(file + os.sep)) and oldPath not in newPaths:
                     removedPath = self.findRemovedPath(oldPath)
                     self.diag.debug("Deletion of " + oldPath + "\n - registering " + removedPath)
@@ -415,7 +418,7 @@ class ServerDispatcher:
                 traffic.append(fileedittraffic.FileEditTraffic.makeRecordedTraffic(file, changedPaths))
 
         for path in removedPaths:
-            del self.fileEditData[path]
+            del fileEditData[path]
 
         return traffic
 
