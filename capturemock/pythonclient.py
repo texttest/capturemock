@@ -129,7 +129,10 @@ class PythonProxy(object):
             return self.captureMockNameFinder.makeClass(classDesc, metaClassName)
         except TypeError as e:
             if "metaclass conflict" in str(e):
-                for baseClassStr in classDesc.split("(")[-1][:-1].split(","):
+                startIdx = classDesc.index('(') + 1
+                endIdx = classDesc.index(')')
+                baseclassDesc = classDesc[startIdx:endIdx]
+                for baseClassStr in baseclassDesc.split(","):
                     baseClass = eval(baseClassStr, self.captureMockNameFinder)
                     metaClass = self.getMetaClass(baseClass)
                     if metaClass:
