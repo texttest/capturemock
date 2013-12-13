@@ -112,17 +112,31 @@ class PythonProxy(object):
                         captureMockNameFinder=self.captureMockNameFinder,
                         captureMockCallback=captureMockCallback)
        
+    def getMetaClass(self, cls):
+        metaClass = type(cls)
+        classTypes = [ type ]
+        if sys.version_info[0] == 2:
+            classTypes.append(types.ClassType)
+        return metaClass if metaClass not in classTypes else None
+       
     def captureMockMakeClass(self, classDesc, proxyTargetClass):
         metaClassName = "ProxyMetaClass"
         if proxyTargetClass is not None:
-            metaClass = type(proxyTargetClass)
-            classTypes = [ type ]
-            if sys.version_info[0] == 2:
-                classTypes.append(types.ClassType)
-            if metaClass not in classTypes:
+            metaClass = self.getMetaClass(proxyTargetClass)
+            if metaClass:
                 metaClassName = self.captureMockNameFinder.makeMetaClass(metaClass)
-        return self.captureMockNameFinder.makeClass(classDesc, metaClassName)
-        
+        try:
+            return self.captureMockNameFinder.makeClass(classDesc, metaClassName)
+        except TypeError as e:
+            if "metaclass conflict" in str(e):
+                for baseClassStr in classDesc.split("(")[-1][:-1].split(","):
+                    baseClass = eval(baseClassStr, self.captureMockNameFinder)
+                    metaClass = self.getMetaClass(baseClass)
+                    if metaClass:
+                        metaClassName = self.captureMockNameFinder.makeMetaClass(metaClass)
+                        return self.captureMockNameFinder.makeClass(classDesc, metaClassName)
+            raise
+            
     def captureMockCreateClassProxy(self, proxyName, proxyTarget, classDesc):
         classProxy = self.captureMockMakeClass(classDesc, proxyTarget)
         classProxy.captureMockNameFinder = self.captureMockNameFinder
