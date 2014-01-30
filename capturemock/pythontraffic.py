@@ -558,6 +558,14 @@ class PythonTrafficHandler:
             def Instance(classDesc, instanceName):
                 return classDesc
             return eval(response)
+        
+    def getReplayInstanceName(self, text, proxy):
+        def Instance(classDesc, instanceName):
+            return instanceName
+        if text.startswith("raise "):
+            proxy.captureMockEvaluate(text) # raise the exception
+        else:
+            return eval(text)
 
     def getAndRecordRealAttribute(self, traffic, proxyTarget, attrName, proxy, fullAttrName):
         try:
@@ -648,9 +656,7 @@ class PythonTrafficHandler:
             if len(responses):
                 firstText = responses[0][1]
                 self.recordResponse(firstText)
-                def Instance(classDesc, instanceName):
-                    return instanceName
-                return eval(firstText), None
+                return self.getReplayInstanceName(firstText, captureMockProxy), None
             else:
                 raise CaptureMockReplayError("Could not match sufficiently well to construct object of type '" + captureMockClassName + "'")
         else:
