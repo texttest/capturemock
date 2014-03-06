@@ -418,7 +418,8 @@ class ServerDispatcher:
                 traffic.append(fileedittraffic.FileEditTraffic.makeRecordedTraffic(file, changedPaths))
 
         for path in removedPaths:
-            del fileEditData[path]
+            if path in fileEditData:
+                del fileEditData[path]
 
         return traffic
 
