@@ -72,7 +72,7 @@ class BaseTraffic(object):
     def hasInfo(self):
         return len(self.text) > 0
 
-    def isMarkedForReplay(self, replayItems):
+    def isMarkedForReplay(self, *args):
         return True # Some things can't be disabled and hence can't be added on piecemeal afterwards
 
     def getDescription(self):
