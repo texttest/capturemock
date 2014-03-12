@@ -90,11 +90,13 @@ class BaseTraffic(object):
         recordFileHandler.record(desc, *args, **kw)
 
     def findQuote(self, out):
+        bestPos, bestQuoteChar = None, None
         for quoteChar in "'\"":
             pos = out.find(quoteChar, 0, 2)
-            if pos != -1:
-                return pos, quoteChar
-        return None, None
+            if pos != -1 and (bestPos is None or pos < bestPos):
+                bestPos = pos
+                bestQuoteChar = quoteChar
+        return bestPos, bestQuoteChar
 
     def fixMultilineStrings(self, arg):
         out = pformat(arg, width=130)
