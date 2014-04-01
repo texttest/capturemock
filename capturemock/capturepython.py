@@ -33,7 +33,7 @@ class CallStackChecker:
         dirs = [ get_python_lib(standard_lib=True, prefix=sys.prefix) ]
         if hasattr(sys, "real_prefix"): # virtualenv
             dirs.append(get_python_lib(standard_lib=True, prefix=sys.real_prefix))
-        return dirs
+        return map(os.path.normcase, dirs)
         
     def callerExcluded(self, stackDistance=1, callback=False):
         if (callback and self.excludeLevel < 0) or (not callback and self.excludeLevel > 0):
@@ -42,10 +42,7 @@ class CallStackChecker:
 
         # Don't intercept if we've been called from within the standard library
         self.excludeLevel += 1
-        if os.name == "nt":
-            # Recompute this: mostly a workaround for applications that reset os.sep on Windows
-            self.stdlibDirs = self.findStandardLibDirs()
-
+        
         framerecord = inspect.stack()[stackDistance]
         fileName = framerecord[1]
         dirName = self.getDirectory(fileName)
@@ -63,7 +60,7 @@ class CallStackChecker:
             return given
 
     def getDirectory(self, fileName):
-        dirName, local = os.path.split(os.path.realpath(fileName))
+        dirName, local = os.path.split(os.path.normcase(os.path.realpath(fileName)))
         if local.startswith("__init__"):
             return self.getDirectory(dirName)
         else:
@@ -73,7 +70,7 @@ class CallStackChecker:
         if not hasattr(mod, "__file__"):
             return False
         
-        modFile = os.path.realpath(mod.__file__)
+        modFile = os.path.normcase(os.path.realpath(mod.__file__))
         return any((modFile.startswith(stdlibDir) for stdlibDir in self.stdlibDirs)) or \
                modName.split(".")[0] in self.ignoreModuleCalls
                
