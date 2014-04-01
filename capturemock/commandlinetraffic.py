@@ -65,13 +65,20 @@ class CommandLineTraffic(traffic.Traffic):
         for var in envVarsUnset:
             recStr += "--unset=" + var + " "
         for var, value in envVarsSet:
-            recStr += "'" + var + "=" + self.getEnvValueString(var, value) + "' "
+            valueStr = self.getEnvValueString(var, value)
+            if valueStr is not None:
+                recStr += "'" + var + "=" + valueStr + "' "
         return recStr
 
     def getEnvValueString(self, var, value):
         oldVal = os.getenv(var)
         if oldVal and oldVal != value:            
-            return value.replace(oldVal, "$" + var)
+            compactValue = value.replace(oldVal, "$" + var)
+            additional = compactValue.replace("$" + var, "")
+            if additional not in oldVal:
+                return compactValue
+            # Don't react if something is adding the same element to a path multiple times, for example
+            # GTK+ on Windows adds a new copy of itself for every Python process started
         else:
             return value
         
