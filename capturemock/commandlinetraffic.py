@@ -34,7 +34,9 @@ class CommandLineTraffic(traffic.Traffic):
                 if value is None:
                     envVarsUnset.append(var)
                 else:
-                    envVarsSet.append((var, value))
+                    valueStr = self.getEnvValueString(var, value)
+                    if valueStr is not None:
+                        envVarsSet.append((var, valueStr))
         return envVarsSet, envVarsUnset
 
     def isMarkedForReplay(self, replayItems, *args):
@@ -65,9 +67,7 @@ class CommandLineTraffic(traffic.Traffic):
         for var in envVarsUnset:
             recStr += "--unset=" + var + " "
         for var, value in envVarsSet:
-            valueStr = self.getEnvValueString(var, value)
-            if valueStr is not None:
-                recStr += "'" + var + "=" + valueStr + "' "
+            recStr += "'" + var + "=" + value + "' "
         return recStr
 
     def getEnvValueString(self, var, value):
@@ -76,7 +76,11 @@ class CommandLineTraffic(traffic.Traffic):
             compactValue = value.replace(oldVal, "$" + var)
             additional = compactValue.replace("$" + var, "")
             if additional not in oldVal:
+                self.diag.debug("Compacted value to " + repr(compactValue))
                 return compactValue
+            else:
+                self.diag.debug("Added text " + repr(additional) + " already present, assuming not changed in essence")
+            
             # Don't react if something is adding the same element to a path multiple times, for example
             # GTK+ on Windows adds a new copy of itself for every Python process started
         else:
