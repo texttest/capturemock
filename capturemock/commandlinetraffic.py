@@ -75,11 +75,16 @@ class CommandLineTraffic(traffic.Traffic):
         if oldVal and oldVal != value:            
             compactValue = value.replace(oldVal, "$" + var)
             additional = compactValue.replace("$" + var, "")
-            if additional not in oldVal:
+            if "PATH" not in var or additional not in oldVal:
                 self.diag.debug("Compacted value to " + repr(compactValue))
                 return compactValue
             else:
-                self.diag.debug("Added text " + repr(additional) + " already present, assuming not changed in essence")
+                newParts = filter(lambda p: p not in oldVal, additional.split(":"))
+                if newParts:
+                    self.diag.debug("Additional path elements " + repr(newParts))
+                    return ":".join(additional) + ":$" + var
+                else:
+                    self.diag.debug("Added text " + repr(additional) + " already present, assuming not changed in essence")
             
             # Don't react if something is adding the same element to a path multiple times, for example
             # GTK+ on Windows adds a new copy of itself for every Python process started
