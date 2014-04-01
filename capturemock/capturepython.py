@@ -2,6 +2,7 @@
 """ Generic front end module to all forms of Python interception"""
 
 import sys, os, logging, inspect
+from distutils.sysconfig import get_python_lib
 from . import pythonclient, config
 
 class CallStackChecker:
@@ -12,8 +13,8 @@ class CallStackChecker:
         self.excludeLevel = 0
         self.inCallback = False
         self.logger = logging.getLogger("Call Stack Checker")
-        self.stdlibDir = os.path.dirname(os.path.realpath(os.__file__))
-        self.logger.debug("Found stdlib directory at " + self.stdlibDir)
+        self.stdlibDirs = self.findStandardLibDirs()
+        self.logger.debug("Found stdlib directories at " + repr(self.stdlibDirs))
         self.logger.debug("Ignoring calls from " + repr(self.ignoreModuleCalls))
 
     def callNoInterception(self, callback, method, *args, **kw):
@@ -27,6 +28,12 @@ class CallStackChecker:
             self.excludeLevel -= delta
             if callback:
                 self.inCallback = False
+                
+    def findStandardLibDirs(self):
+        dirs = [ get_python_lib(standard_lib=True, prefix=sys.prefix) ]
+        if hasattr(sys, "real_prefix"): # virtualenv
+            dirs.append(get_python_lib(standard_lib=True, prefix=sys.real_prefix))
+        return dirs
         
     def callerExcluded(self, stackDistance=1, callback=False):
         if (callback and self.excludeLevel < 0) or (not callback and self.excludeLevel > 0):
@@ -37,7 +44,7 @@ class CallStackChecker:
         self.excludeLevel += 1
         if os.name == "nt":
             # Recompute this: mostly a workaround for applications that reset os.sep on Windows
-            self.stdlibDir = os.path.dirname(os.path.realpath(os.__file__))
+            self.stdlibDirs = self.findStandardLibDirs()
 
         framerecord = inspect.stack()[stackDistance]
         fileName = framerecord[1]
@@ -46,7 +53,7 @@ class CallStackChecker:
         moduleNames = set([ moduleName, os.path.basename(dirName) ])
         self.logger.debug("Checking call from " + dirName + ", modules " + repr(moduleNames))
         self.excludeLevel -= 1
-        return dirName == self.stdlibDir or len(moduleNames.intersection(self.ignoreModuleCalls)) > 0
+        return dirName in self.stdlibDirs or len(moduleNames.intersection(self.ignoreModuleCalls)) > 0
 
     def getModuleName(self, fileName):
         given = inspect.getmodulename(fileName)
@@ -65,7 +72,9 @@ class CallStackChecker:
     def moduleExcluded(self, modName, mod):
         if not hasattr(mod, "__file__"):
             return False
-        return os.path.realpath(mod.__file__).startswith(self.stdlibDir) or \
+        
+        modFile = os.path.realpath(mod.__file__)
+        return any((modFile.startswith(stdlibDir) for stdlibDir in self.stdlibDirs)) or \
                modName.split(".")[0] in self.ignoreModuleCalls
                
 
