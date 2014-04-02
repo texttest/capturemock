@@ -278,7 +278,9 @@ class InterceptHandler:
         trafficHandler = PythonTrafficHandler(self.replayInfo, self.recordFile, self.rcHandler,
                                               callStackChecker, self.allAttrNames)
         if len(fullIntercepts):
-            sys.meta_path = [ ImportHandler(fullIntercepts, callStackChecker, trafficHandler) ]
+            import_handler = ImportHandler(fullIntercepts, callStackChecker, trafficHandler)
+            if import_handler not in sys.meta_path:
+                sys.meta_path.append(import_handler)
         for moduleName, attributes in partialIntercepts.items():
             self.interceptAttributes(moduleName, attributes, trafficHandler)
 

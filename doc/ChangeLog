@@ -40,5 +40,51 @@ Bugfixes:
 Version 0.3.1
 
 Bugfixes:
-	
     - Make sure wrapped functions that return values preserve the return values (Thanks Carol Lin)
+
+Version 0.4
+
+Enhancements:
+
+    - Supports python callbacks in a limited fashion (i.e. intercepted code calling back into non-intercepted code)
+	Indented syntax for this. Makes it possible to e.g. intercept Tkinter and use CaptureMock for a limited kind of GUI
+	testing.
+    - Should work better in Python 3
+    - Naming of "variables" is more intelligent and descriptive, make use of strings provided when the objects first appear
+    - Mock files are more readable, we use pprint to ensure it doesn't get too wide
+    - Client-server support now handles XMLRPC servers
+
+Bugfixes:
+    (Python)
+    - Don't overwrite sys.meta_path, should work better with py.test (Thanks Marc Abramowitz)
+    - Fixing custom metaclass issues in https://bugs.launchpad.net/capturemock/+bug/1256218 (Thanks Marc Abramowitz)
+    - Callstack checking, and hence not recording stuff used from the standard library, should work better in virtual
+	environments now
+    - Supports use of Abstract Base Classes, i.e. collections.MutableMapping etc
+    - Does not fail on classes named Instance
+    - Handle multiline strings starting with a '
+    - Handle exceptions raised by constructors properly
+    - Handle standard iterators produced by custom lists
+    - Fixed bug with attributes of list objects (Thanks Marc Abramowitz again)
+    - Special handling of __file__, it rarely makes sense to record this
+    - Making mixed mode more useful for Python attributes: use any replay info which matches at least function names
+    - Don't repeat base class descriptions unnecessarily
+    - Don't leak temporary files if exceptions are thrown
+    - Improve handling of very deep inheritance structures
+    - Handle subclasses of immutable types like int
+    - Handle multiline strings in lists
+    - Handle submodules imported via other packages
+    - Handle __nonzero__ methods properly (Thanks Lars Stavholm)
+    - Handle exceptions thrown by __dir__ methods
+    - Better handling of repeated references to the same attribute when replaying
+    - Trying to handle side-effect assignments properly, notice when their value changes
+    (Command line)
+    - If the same location is added several times to e.g. PATH, only mention it once in command line calls.
+    - Preventing server crashes if file edits are found more than once
+    - File edits now treat environment variables the same way as command line options, and hence find more files
+    - File edits are more threadsafe, simultaneous edits should not interfere
+    - Handle edits that turn a link into a directory
+    - Fixing diagnostic related problems if no logging.conf exists
+    (Client-Server)
+    - Client responses are returned in order, not using matching
+
