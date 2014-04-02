@@ -69,6 +69,9 @@ class CommandLineTraffic(traffic.Traffic):
         for var, value in envVarsSet:
             recStr += "'" + var + "=" + value + "' "
         return recStr
+    
+    def getNewElements(self, pathStr, oldVal):
+        return filter(lambda p: p not in oldVal, pathStr.split(os.pathsep))
 
     def getEnvValueString(self, var, value):
         oldVal = os.getenv(var)
@@ -78,13 +81,18 @@ class CommandLineTraffic(traffic.Traffic):
                 self.diag.debug("Compacted value to " + repr(compactValue))
                 return compactValue
             
-            additional = compactValue.replace("$" + var, "")
-            newParts = filter(lambda p: p not in oldVal, additional.split(os.pathsep))
-            if newParts:
-                self.diag.debug("Additional path elements " + repr(newParts))
-                return ":".join(newParts) + ":$" + var
+            pre, post = compactValue.split("$" + var)
+            newPre = self.getNewElements(pre, oldVal)
+            newPost = self.getNewElements(post, oldVal)
+            if newPre or newPost:
+                newValue = "$" + var
+                if newPre:
+                    newValue = ":".join(newPre) + ":" + newValue
+                if newPost:
+                    newValue += ":" + ":".join(newPost)
+                return newValue
             else:
-                self.diag.debug("Added text " + repr(additional) + " already present, assuming not changed in essence")
+                self.diag.debug("Added text " + repr(compactValue) + " already present, assuming not changed in essence")
             
             # Don't react if something is adding the same element to a path multiple times, for example
             # GTK+ on Windows adds a new copy of itself for every Python process started
