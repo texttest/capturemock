@@ -42,7 +42,7 @@ Version 0.3.1
 Bugfixes:
     - Make sure wrapped functions that return values preserve the return values (Thanks Carol Lin)
 
-Version 0.4
+Version 1.0
 
 Enhancements:
 
