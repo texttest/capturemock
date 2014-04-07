@@ -88,3 +88,7 @@ Bugfixes:
     (Client-Server)
     - Client responses are returned in order, not using matching
 
+Version 1.0.1
+
+Bugfix:
+    - Don't use machine name for starting server, DNS not always working. Use localhost instead.
