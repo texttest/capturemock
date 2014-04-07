@@ -199,9 +199,9 @@ class ServerDispatcher:
         protocol = self.rcHandler.get("server_protocol", [ "general" ], "classic")
         if protocol == "classic":
             TrafficRequestHandler.dispatcher = self
-            return ClassicTrafficServer((socket.gethostname(), 0), TrafficRequestHandler)
+            return ClassicTrafficServer(("localhost", 0), TrafficRequestHandler)
         elif protocol == "xmlrpc":
-            server = XmlRpcTrafficServer((socket.gethostname(), 0), logRequests=False)
+            server = XmlRpcTrafficServer(("localhost", 0), logRequests=False)
             server.register_instance(XmlRpcDispatchInstance(self))
             return server
             

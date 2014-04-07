@@ -158,7 +158,8 @@ def commandline():
                 recordEditDir=options.record_file_edits, replayEditDir=options.replay_file_edits,
                 rcFiles=rcFiles, interceptDir=interceptDir)
     subprocess.call(args)
-    shutil.rmtree(interceptDir)
+    if os.path.exists(interceptDir):
+        shutil.rmtree(interceptDir)
     terminate()
 
 
