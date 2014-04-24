@@ -175,10 +175,11 @@ class PythonProxy(object):
 
 
 class ModuleProxy(PythonProxy):
-    def __init__(self, name, trafficHandler, loadModule):
+    def __init__(self, name, trafficHandler, loadModule, target=None):
         self.__file__ = __file__
-        PythonProxy.__init__(self, name, trafficHandler, None, NameFinder(self))
-        self.captureMockTarget = trafficHandler.importModule(name, self, loadModule) 
+        PythonProxy.__init__(self, name, trafficHandler, target, NameFinder(self))
+        if self.captureMockTarget is None:
+            self.captureMockTarget = trafficHandler.importModule(name, self, loadModule) 
         self.captureMockModuleLoader = loadModule
 
     def captureMockLoadRealModule(self):

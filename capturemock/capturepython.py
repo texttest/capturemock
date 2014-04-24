@@ -1,7 +1,7 @@
 
 """ Generic front end module to all forms of Python interception"""
 
-import sys, os, logging, inspect
+import sys, os, logging, inspect, types
 from distutils.sysconfig import get_python_lib
 from . import pythonclient, config
 
@@ -315,7 +315,10 @@ class InterceptHandler:
             return # If the real object doesn't have it, assume the fake one doesn't either...
 
         if len(parts) == 1:
-            proxy = pythonclient.PythonProxy(proxyName, trafficHandler, realObj, sys.modules)
+            if type(realObj) == types.ModuleType:
+                proxy = pythonclient.ModuleProxy(proxyName, trafficHandler, sys.modules.get, realObj)
+            else:
+                proxy = pythonclient.PythonProxy(proxyName, trafficHandler, realObj, sys.modules)
             self.performAttributeInterception(realObj, currAttrName, getattr(proxy, currAttrName))
         else:
             currRealAttr = getattr(realObj, currAttrName)
