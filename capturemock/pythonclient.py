@@ -1,6 +1,6 @@
 
 """ Actual interception objects used by Python interception mechanism """
-import sys, os, types, inspect
+import sys, types, inspect
 
 class NameFinder(dict):
     def __init__(self, moduleProxy):
@@ -26,10 +26,9 @@ class NameFinder(dict):
     def makeMetaClass(self, realMetaClass):
         fullClassName = realMetaClass.__module__ + "." + realMetaClass.__name__
         clsName = realMetaClass.__name__ + "Proxy"
-        if clsName in self.moduleProxy.__dict__:
-            return self.moduleProxy.__dict__[clsName]
-        classDefStr = "class " + clsName + "(" + fullClassName + ", PythonProxy) : pass"
-        self.defineClass(clsName, classDefStr)
+        if clsName not in self.moduleProxy.__dict__:
+            classDefStr = "class " + clsName + "(" + fullClassName + ", PythonProxy) : pass"
+            self.defineClass(clsName, classDefStr)
         return clsName
 
     def makeClass(self, className, metaClassName):
@@ -179,7 +178,10 @@ class ModuleProxy(PythonProxy):
         self.__file__ = __file__
         PythonProxy.__init__(self, name, trafficHandler, target, NameFinder(self))
         if self.captureMockTarget is None:
-            self.captureMockTarget = trafficHandler.importModule(name, self, loadModule) 
+            self.captureMockTarget = trafficHandler.importModule(name, self, loadModule)
+        else:
+            # Partial interception. Anything this refers to in the same module should fetch the real version
+            self.captureMockNameFinder[name] = self.captureMockTarget
         self.captureMockModuleLoader = loadModule
 
     def captureMockLoadRealModule(self):

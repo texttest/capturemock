@@ -590,7 +590,7 @@ class PythonTrafficHandler:
             else:
                 return traffic.transformResponse(realAttr, proxy)[1]
         else:
-            if type(realAttr) is type or (sys.version_info[0] == 2 and type(realAttr) is types.ClassType):
+            if issubclass(type(realAttr), type) or (sys.version_info[0] == 2 and type(realAttr) is types.ClassType):
                 classDesc = traffic.getClassDescription(realAttr)
                 return proxy.captureMockCreateClassProxy(fullAttrName, realAttr, classDesc)
             else:
