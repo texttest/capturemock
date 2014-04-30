@@ -137,7 +137,7 @@ class ImportHandler:
         # Can't assume the attribute will have the same name of the module,
         # because of "import x as y" construct
         for currAttrName in dir(module):
-            if getattr(module, currAttrName) is attr:
+            if getattr(module, currAttrName, None) is attr:
                 return currAttrName
 
     def shouldIntercept(self, name):
