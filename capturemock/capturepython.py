@@ -188,7 +188,7 @@ class ImportHandler:
                     sys.modules[name] = oldMod
                 else:
                     del sys.modules[name]
-        self.interceptImportedPackageSubmodules(name)
+        self.interceptImportedPackageSubmodules(name, _realModule)
         return _realModule
 
     def reset(self):
@@ -197,20 +197,23 @@ class ImportHandler:
                 del sys.modules[modName]
         sys.meta_path.remove(self)
 
-    def interceptImportedPackageSubmodules(self, name):
+    def interceptImportedPackageSubmodules(self, name, realModule):
         """ Handle the situation where intercepted package A is preloaded, and intercepted module B imports submodules of A """
-        for submodule in self.getImportedPackageSubmodules(name):
+        for submodule in self.getImportedPackageSubmodules(name, realModule):
             proxy = pythonclient.ModuleProxy(submodule, self.trafficHandler, sys.modules.get)
             sys.modules[submodule] = proxy
             self.interceptedNames.add(submodule)
             parts = submodule.rsplit(".", 1)
-            setattr(sys.modules.get(parts[0]), parts[1], proxy)
+            parentModule = sys.modules.get(parts[0])
+            if parentModule is not None:
+                setattr(parentModule, parts[1], proxy)
         
-    def getImportedPackageSubmodules(self, name):
+    def getImportedPackageSubmodules(self, name, realModule):
         submodules = []
         for other in self.interceptedNames:
-            if other != name and not name.startswith(other):
-                for subModName in self.findSubModules(other, sys.modules.get(other)):
+            if other == name or not name.startswith(other):
+                otherModule = realModule if other == name else sys.modules.get(other)
+                for subModName in self.findSubModules(other, otherModule):
                     if not isinstance(sys.modules.get(subModName), pythonclient.ModuleProxy):
                         submodules.append(subModName)
         return submodules
