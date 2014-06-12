@@ -197,13 +197,22 @@ class ServerDispatcher:
 
     def makeServer(self):
         protocol = self.rcHandler.get("server_protocol", [ "general" ], "classic")
+        ipAddress = self.getIpAddress()
         if protocol == "classic":
             TrafficRequestHandler.dispatcher = self
-            return ClassicTrafficServer(("localhost", 0), TrafficRequestHandler)
+            return ClassicTrafficServer((ipAddress, 0), TrafficRequestHandler)
         elif protocol == "xmlrpc":
-            server = XmlRpcTrafficServer(("localhost", 0), logRequests=False)
+            server = XmlRpcTrafficServer((ipAddress, 0), logRequests=False)
             server.register_instance(XmlRpcDispatchInstance(self))
             return server
+        
+    def getIpAddress(self):
+        try:
+            # Doesn't always work, sometimes not available
+            return socket.gethostbyname(socket.gethostname())
+        except socket.error:
+            # Most of the time we only need to be able to talk locally, fall back to that
+            return socket.gethostbyname("localhost")
             
     def run(self):
         self.diag.debug("Starting capturemock server")
