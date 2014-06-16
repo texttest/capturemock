@@ -104,17 +104,21 @@ class CommandLineTraffic(traffic.Traffic):
         changedCwd = self.hasChangedWorkingDirectory()
         if changedCwd:
             edits.append(self.cmdCwd)
+            self.diag.debug("Adding cwd " + repr(self.cmdCwd))
         for _, value in self.envVarsSet:
             for word in value.split():
                 if os.pathsep not in word and os.path.isabs(word):
+                    self.diag.debug("Adding environment path " + repr(word))
                     edits.append(word)
         for arg in self.cmdArgs[1:]:
             for word in self.getFileWordsFromArg(arg):
                 if os.path.isabs(word):
+                    self.diag.debug("Adding absolute path argument " + repr(word))
                     edits.append(word)
                 elif not changedCwd:
                     fullPath = os.path.join(self.cmdCwd, word)
                     if os.path.exists(fullPath):
+                        self.diag.debug("Adding relative path argument " + repr(word))
                         edits.append(fullPath)
         self.removeSubPaths(edits) # don't want to in effect mark the same file twice
         self.diag.debug("Might edit in " + repr(edits))
