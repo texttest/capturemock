@@ -113,7 +113,6 @@ def setUpPython(mode, recordFile, replayFile=None,
 def process_startup():
     rcFileStr = os.getenv("CAPTUREMOCK_PROCESS_START")
     if rcFileStr:
-        from . import config
         rcFiles = rcFileStr.split(",")
         replayFile = os.getenv("CAPTUREMOCK_REPLAY_FILE")
         recordFile = os.getenv("CAPTUREMOCK_RECORD_FILE")
