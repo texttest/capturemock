@@ -29,10 +29,10 @@ class BaseTraffic(object):
 
     def _applyAlterations(self, text, alterations):
         class AlterationReplacer:
-            def __init__(rself, repl):
+            def __init__(rself, repl): #@NoSelf
                 rself.repl = repl
 
-            def __call__(rself, match):
+            def __call__(rself, match): #@NoSelf
                 if rself.repl.startswith("$"):
                     return self.storeAlterationVariable(rself.repl, match.group(0))
                 else:
