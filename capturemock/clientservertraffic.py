@@ -58,7 +58,7 @@ class XmlRpcClientTraffic(ClientSocketTraffic):
     def forwardToServer(self):
         try:
             responseObject = getattr(self.destination, self.method)(*self.params)
-        except xmlrpclib.Fault, e:
+        except xmlrpclib.Fault as e:
             responseObject = e
 
         text = self.applyAlterations(self.fixMultilineStrings(responseObject))
