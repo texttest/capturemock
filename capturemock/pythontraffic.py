@@ -619,9 +619,7 @@ class PythonTrafficHandler:
     def callFunction(self, captureMockProxyName, captureMockProxy, captureMockFunction, *args, **kw):
         with self.lock:
             isCallback = captureMockProxy.captureMockCallback
-            if self.callStackChecker.callerExcluded(stackDistance=3, callback=isCallback):
-                return captureMockFunction(*args, **kw)
-            else:
+            if not self.callStackChecker.callerExcluded(stackDistance=3, callback=isCallback):
                 traffic = PythonFunctionCallTraffic(captureMockProxyName, self.rcHandler,
                                                     self.interceptModules, captureMockProxy, 
                                                     self.callStackChecker.inCallback, *args, **kw)
@@ -633,6 +631,8 @@ class PythonTrafficHandler:
                 else:
                     traffic.tryRenameInstance(captureMockProxy, self.recordFileHandler)
                     return self.callRealFunction(traffic, captureMockFunction, captureMockProxy)
+        # Excluded. Important not to hold the lock while this goes on, it might be time.sleep for example
+        return captureMockFunction(*args, **kw)
 
     def callRealFunction(self, captureMockTraffic, captureMockFunction, captureMockProxy):
         realRet = self.callStackChecker.callNoInterception(captureMockProxy.captureMockCallback, 
