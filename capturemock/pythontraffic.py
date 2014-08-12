@@ -2,6 +2,7 @@
 """ Traffic classes for all kinds of Python calls """
 
 import sys, types, inspect, re
+from pprint import pformat
 from threading import RLock
 from . import traffic
 from .recordfilehandler import RecordFileHandler
@@ -166,7 +167,23 @@ class ReprObject:
         self.arg = arg
         
     def __repr__(self):
-        return self.arg    
+        return self.arg
+    
+class DictForRepr(object):
+    def __init__(self, thedict):
+        self.thedict = thedict
+
+    def __getattr__(self, name):  
+        return getattr(self.thedict, name)
+    
+    def __getitem__(self, *args):
+        return self.thedict.__getitem__(*args)
+
+    def __setitem__(self, *args):
+        return self.thedict.__setitem__(*args)
+    
+    def __repr__(self):
+        return pformat(self.thedict, width=130)
 
 def extendDirection(direction):
     extra = "----"
@@ -194,6 +211,8 @@ class PythonModuleTraffic(PythonTraffic):
         elif isinstance(arg, float):
             # Stick to 2 dp for recording floating point values
             return ReprObject(str(round(arg, 2)))
+        elif isinstance(arg, dict):
+            return DictForRepr(arg)
         else:
             return ReprObject(self.fixMultilineStrings(arg))
 
@@ -241,7 +260,7 @@ class PythonModuleTraffic(PythonTraffic):
             newResult = {}
             for key, value in result.items():
                 newResult[key] = self.transformStructure(value, transformMethod, *args, **kw)
-            return newResult
+            return transformMethod(newResult, *args, **kw)
         else:
             return transformMethod(result, *args, **kw)
         
