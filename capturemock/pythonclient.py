@@ -252,7 +252,7 @@ class InstanceProxy(PythonProxy):
     # Used by mixins of this class and new-style classes
     def __getattribute__(self, attrname):
         if attrname.startswith("captureMock") or \
-               attrname in [ "__file__", "__dict__", "__class__", "__getattr__", "__members__", "__methods__" ] or \
+               attrname in [ "__file__", "__dict__", "__class__", "__getattr__", "__members__", "__methods__", "__loader__", "__package__" ] or \
                self.captureMockDefinedInNonInterceptedSubclass(attrname):
             return object.__getattribute__(self, attrname)
         else:
