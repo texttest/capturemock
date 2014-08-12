@@ -182,7 +182,7 @@ class ImportHandler:
             exec(cmd, d)
             _realModule = d["_realModule"]
         finally:
-            sys.meta_path.append(self)
+            sys.meta_path.insert(0, self)
             if name in sys.modules:
                 if oldMod is not None:
                     sys.modules[name] = oldMod
@@ -283,7 +283,7 @@ class InterceptHandler:
         if len(fullIntercepts):
             import_handler = ImportHandler(fullIntercepts, callStackChecker, trafficHandler)
             if import_handler not in sys.meta_path:
-                sys.meta_path.append(import_handler)
+                sys.meta_path.insert(0, import_handler)
         for moduleName, attributes in partialIntercepts.items():
             self.interceptAttributes(moduleName, attributes, trafficHandler)
 
