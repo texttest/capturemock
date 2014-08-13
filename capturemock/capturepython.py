@@ -157,13 +157,8 @@ class ImportHandler:
             return self
 
     def load_module(self, name):
-        if self.callStackChecker.callerExcluded(stackDistance=2):
-            # return the real module, but don't put it in sys.modules so we trigger
-            # a new import next time around
-            return self.loadRealModule(name)
-        else:
-            self.interceptedNames.add(name)
-            return sys.modules.setdefault(name, self.createProxy(name))
+        self.interceptedNames.add(name)
+        return sys.modules.setdefault(name, self.createProxy(name))
 
     def createProxy(self, name):
         return pythonclient.ModuleProxy(name, self.trafficHandler, self.loadRealModule)
