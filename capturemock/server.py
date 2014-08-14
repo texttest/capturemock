@@ -312,7 +312,9 @@ class ServerDispatcher:
         self.hasAsynchronousEdits |= traffic.makesAsynchronousEdits()
         if self.hasAsynchronousEdits:
             # Unless we've marked it as asynchronous we start again for the next traffic.
-            self.topLevelForEdit += topLevelForEdit
+            for f in topLevelForEdit:
+                if f not in self.topLevelForEdit:
+                    self.topLevelForEdit.append(f)
             self.fileEditData.update(fileEditData)
         return responses
 
@@ -404,6 +406,7 @@ class ServerDispatcher:
     def getLatestFileEdits(self, topLevelForEdit, fileEditData):
         traffic = []
         removedPaths = []
+        self.diag.debug("Getting latest file edits " + repr(topLevelForEdit))
         for file in topLevelForEdit:
             self.diag.debug("Looking for file edits under " + file)
             changedPaths = []
@@ -430,6 +433,7 @@ class ServerDispatcher:
             if path in fileEditData:
                 del fileEditData[path]
 
+        self.diag.debug("Done getting latest file edits.")
         return traffic
 
 
