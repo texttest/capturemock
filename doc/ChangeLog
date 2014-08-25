@@ -92,3 +92,19 @@ Version 1.0.1
 
 Bugfix:
     - Don't use machine name for starting server, DNS not always working. Use localhost instead.
+
+Version 1.1
+
+Enhancements:
+    - Supports Python 3.3
+    - Now supports intercepting classes, not just modules and functions
+
+Bugfixes:
+    - Dictionary output does not vary between Python versions
+    - Removed functionality that tried to import real modules and then intercept them later (may require some migration)
+    - improved thread-safety
+    - Use non-local IP address for server where available. Can be useful.
+    - Fixed issue with reimporting submodules of intercepted modules
+    - More Python 3 fixes
+    - Don't fail if attributes can't be found (Thanks to Marc Abramowitz)
+    - Various fixes around class interception, metaclasses etc
