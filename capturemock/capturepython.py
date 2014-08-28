@@ -33,7 +33,7 @@ class CallStackChecker:
         dirs = [ get_python_lib(standard_lib=True, prefix=sys.prefix) ]
         if hasattr(sys, "real_prefix"): # virtualenv
             dirs.append(get_python_lib(standard_lib=True, prefix=sys.real_prefix))
-        return [ os.path.normcase(d) for d in dirs ]
+        return [ os.path.normcase(os.path.realpath(d)) for d in dirs ]
         
     def callerExcluded(self, stackDistance=1, callback=False):
         if (callback and self.excludeLevel < 0) or (not callback and self.excludeLevel > 0):
