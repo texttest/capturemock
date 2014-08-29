@@ -108,3 +108,9 @@ Bugfixes:
     - More Python 3 fixes
     - Don't fail if attributes can't be found (Thanks to Marc Abramowitz)
     - Various fixes around class interception, metaclasses etc
+
+Version 1.1.1
+
+Bugfix:
+    - Dereference standard path name, it might be a symlink also
+
