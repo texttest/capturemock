@@ -57,7 +57,7 @@ class RcFileHandler:
         logConfigFile = self.get("log_config_file", [ "general" ],
                                  self.getPersonalPath("logging.conf"))
         if os.path.isfile(logConfigFile):
-            defaults = { "LOCAL_DIR" : os.path.dirname(logConfigFile) }
+            defaults = { "LOCAL_DIR" : os.path.dirname(os.path.abspath(logConfigFile)) }
             logging.config.fileConfig(logConfigFile, defaults)
         self.diag = logging.getLogger(mainLogName)
         return self.diag
