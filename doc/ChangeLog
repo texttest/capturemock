@@ -114,3 +114,8 @@ Version 1.1.1
 Bugfix:
     - Dereference standard path name, it might be a symlink also
 
+Version 1.1.2
+
+Bugfix:
+    - Fix bug with importing script on Windows, allow non-canonical paths in sys.path
+    - Fix bug allowing relative path names for log config file
