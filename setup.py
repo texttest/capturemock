@@ -19,6 +19,10 @@ if os.name == "nt":
 else:
     scripts=["bin/capturemock"]
 
+py_modules = []
+if "FROM_RPM" not in os.environ:
+    py_modules.append("ordereddict")
+
 setup(name='CaptureMock',
       version="trunk",
       author="Geoff Bache",
@@ -27,7 +31,7 @@ setup(name='CaptureMock',
       description="A tool for creating mocks via a capture-replay style approach",
       long_description="CaptureMock's approach is a so-called capture-replay approach. This means that when you 'record' your mock, CaptureMock will observe the interaction between your code and the subsystem you are mocking out, and record it in a text file in its own format. When you then run your test in 'replay mode', CaptureMock can play the role of the subsystem in question and the real subsystem does not need to even be installed.\n\nYou can then choose, each time you run your tests, whether you wish to have the real subsystems present and verify/recreate the captured mocks, or to rely on the mocks captured by a previous run. If you are running in 'replay mode' and CaptureMock does not receive the same calls as previously, it will fail the test, and suggest that you may want to recreate the mocks in record mode.",
       packages=["capturemock"],
-      py_modules=["ordereddict"],
+      py_modules=py_modules,
       package_data=package_data,
       classifiers=[ "Programming Language :: Python",
                     "License :: OSI Approved :: GNU Library or Lesser General Public License (LGPL)",
