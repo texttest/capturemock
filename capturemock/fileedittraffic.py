@@ -1,7 +1,7 @@
-
 """ Capturing edits for files, currently only from command line traffic """
 
-import traffic, os, logging, shutil
+from capturemock import traffic
+import os, logging, shutil
 
 class FileEditTraffic(traffic.ResponseTraffic):
     typeId = "FIL"
@@ -16,7 +16,7 @@ class FileEditTraffic(traffic.ResponseTraffic):
         cls.diag = logging.getLogger("Server")
         cls.replayFileEditDir = options.replay_file_edits
         cls.recordFileEditDir = options.record_file_edits
-        
+
     def __init__(self, fileName, activeFile, storedFile, changedPaths, reproduce):
         self.activeFile = activeFile
         self.storedFile = storedFile
@@ -103,7 +103,7 @@ class FileEditTraffic(traffic.ResponseTraffic):
         if self.reproduce:
             self.copy(self.storedFile, self.activeFile)
         return []
-        
+
     def record(self, *args):
         # Copy the file, as well as the fact it has been stored
         traffic.ResponseTraffic.record(self, *args)

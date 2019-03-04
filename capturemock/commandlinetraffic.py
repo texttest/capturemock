@@ -1,7 +1,9 @@
-
 """ Traffic classes to do with captured command lines """
 
-import traffic, fileedittraffic, os, logging, subprocess
+import os, logging, subprocess
+import sys
+from capturemock import traffic, fileedittraffic
+
 
 class CommandLineTraffic(traffic.Traffic):
     typeId = "CMD"
@@ -23,7 +25,7 @@ class CommandLineTraffic(traffic.Traffic):
         cmdString = " ".join(map(self.quoteArg, self.cmdArgs))
         text = self.getEnvString(self.envVarsSet, envVarsUnset) + cmdString
         super(CommandLineTraffic, self).__init__(text, responseFile, rcHandler)
-        
+
     def filterEnvironment(self, cmdEnviron, rcHandler):
         envVarsSet, envVarsUnset = [], []
         for var in self.getEnvironmentVariables(rcHandler):
@@ -69,18 +71,18 @@ class CommandLineTraffic(traffic.Traffic):
         for var, value in envVarsSet:
             recStr += "'" + var + "=" + value + "' "
         return recStr
-    
+
     def getNewElements(self, pathStr, oldVal):
-        return filter(lambda p: p not in oldVal, pathStr.split(os.pathsep))
+        return [p for p in pathStr.split(os.pathsep) if p not in oldVal]
 
     def getEnvValueString(self, var, value):
         oldVal = os.getenv(var)
-        if oldVal and oldVal != value:            
+        if oldVal and oldVal != value:
             compactValue = value.replace(oldVal, "$" + var)
             if "PATH" not in var:
                 self.diag.debug("Compacted value to " + repr(compactValue))
                 return compactValue
-            
+
             pre, post = compactValue.split("$" + var)
             newPre = self.getNewElements(pre, oldVal)
             newPost = self.getNewElements(post, oldVal)
@@ -98,7 +100,7 @@ class CommandLineTraffic(traffic.Traffic):
             # GTK+ on Windows adds a new copy of itself for every Python process started
         else:
             return value
-        
+
     def findPossibleFileEdits(self):
         edits = []
         changedCwd = self.hasChangedWorkingDirectory()
@@ -126,11 +128,11 @@ class CommandLineTraffic(traffic.Traffic):
 
     def makesAsynchronousEdits(self):
         return self.asynchronousEdits
-    
+
     @staticmethod
     def removeSubPaths(paths):
         subPaths = []
-        realPaths = map(os.path.realpath, paths)
+        realPaths = [ os.path.realpath(path) for path in paths ]
         for index, path1 in enumerate(realPaths):
             for path2 in realPaths:
                 if path1 != path2 and path1.startswith(path2):
@@ -148,7 +150,7 @@ class CommandLineTraffic(traffic.Traffic):
         else:
             # otherwise assume we could have multiple words in quotes
             return arg.split()
-        
+
     def forwardToDestination(self):
         try:
             self.diag.debug("Running real command with args : " + repr(self.cmdArgs))
@@ -165,12 +167,12 @@ class CommandLineTraffic(traffic.Traffic):
     def makeResponse(self, output, errors, exitCode):
         return [ StdoutTraffic(output, self.responseFile), StderrTraffic(errors, self.responseFile), \
                  SysExitTraffic(exitCode, self.responseFile) ]
-    
+
     def filterReplay(self, trafficList):
         insertIndex = 0
         while len(trafficList) > insertIndex and isinstance(trafficList[insertIndex], fileedittraffic.FileEditTraffic):
             insertIndex += 1
-        
+
         if len(trafficList) == insertIndex or not isinstance(trafficList[insertIndex], StdoutTraffic):
             trafficList.insert(insertIndex, StdoutTraffic("", self.responseFile))
 
@@ -183,7 +185,7 @@ class CommandLineTraffic(traffic.Traffic):
             trafficList.insert(insertIndex, SysExitTraffic("0", self.responseFile))
 
         return trafficList
-    
+
 
 class StdoutTraffic(traffic.ResponseTraffic):
     typeId = "OUT"
@@ -204,7 +206,7 @@ class SysExitTraffic(traffic.ResponseTraffic):
         self.exitStatus = int(status)
     def hasInfo(self):
         return self.exitStatus != 0
-            
+
 
 # Only works on UNIX
 class CommandLineKillTraffic(traffic.Traffic):
@@ -215,7 +217,7 @@ class CommandLineKillTraffic(traffic.Traffic):
         self.killSignal = int(killStr)
         self.proc = self.pidMap.get(proxyPid)
         traffic.Traffic.__init__(self, killStr, responseFile, *args)
-            
+
     def forwardToDestination(self):
         if self.proc:
             self.proc.send_signal(self.killSignal)

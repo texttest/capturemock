@@ -1,4 +1,3 @@
-
 """ Actual interception objects used by Python interception mechanism """
 import sys, types, inspect
 
@@ -48,7 +47,7 @@ class NameFinder(dict):
 
     def makeInstance(self, className, instanceName):
         return self.moduleProxy.captureMockCreateInstanceProxy(instanceName, classDesc=className)
-    
+
     def rename(self, oldName, newName):
         proxy = dict.__getitem__(self, oldName)
         proxy.captureMockProxyName = newName
@@ -67,7 +66,7 @@ class NameFinder(dict):
                 self.defineClassLocally(classDefStr.replace("InstanceProxy, ", ""))
             else:
                 raise
-        
+
     def __getitem__(self, name):
         if name not in self:
             if self.makeNewClasses:
@@ -112,14 +111,14 @@ class PythonProxy(object):
                         captureMockTarget=proxyTarget,
                         captureMockNameFinder=self.captureMockNameFinder,
                         captureMockCallback=captureMockCallback)
-       
+
     def getMetaClass(self, cls):
         metaClass = type(cls)
         classTypes = [ type ]
         if sys.version_info[0] == 2:
             classTypes.append(types.ClassType)
         return metaClass if metaClass not in classTypes else None
-       
+
     def captureMockMakeClass(self, classDesc, proxyTargetClass):
         metaClassName = "ProxyMetaClass"
         if proxyTargetClass is not None:
@@ -140,7 +139,7 @@ class PythonProxy(object):
                         metaClassName = self.captureMockNameFinder.makeMetaClass(metaClass)
                         return self.captureMockNameFinder.makeClass(classDesc, metaClassName)
             raise
-            
+
     def captureMockCreateClassProxy(self, proxyName, proxyTarget, classDesc):
         classProxy = self.captureMockMakeClass(classDesc, proxyTarget)
         classProxy.captureMockNameFinder = self.captureMockNameFinder
@@ -189,7 +188,7 @@ class ModuleProxy(PythonProxy):
     def captureMockLoadRealModule(self):
         self.captureMockTarget = self.captureMockModuleLoader(self.captureMockProxyName)
         return self.captureMockTarget
-    
+
 
 class InstanceProxy(PythonProxy):
     moduleProxy = None
@@ -207,7 +206,7 @@ class InstanceProxy(PythonProxy):
                         pass
             elif superCls is PythonProxy:
                 passedPythonProxy = True
-            
+
     def __init__(self, *args, **kw):
         if "captureMockProxyName" in kw:
             # 'Internal' constructor, from above
@@ -233,7 +232,7 @@ class InstanceProxy(PythonProxy):
                                  realObj, self.captureMockNameFinder)
             for method in self.captureMockFindMissingMethods():
                 self.captureMockAddInterceptionForDerivedOnly(method)
-            
+
     def captureMockFindMissingMethods(self):
         if self.captureMockTarget is None:
             return []
@@ -243,18 +242,24 @@ class InstanceProxy(PythonProxy):
         allToRemove = targetMethods + proxyMethods + proxyClassMethods
         allToRemove.append("__metaclass__") # seems to be an exception...
         selfMethods = dir(self.__class__)
-        return filter(lambda m: m not in allToRemove, selfMethods)
+        return [m for m in selfMethods if m not in allToRemove]
 
     def captureMockAddInterceptionForDerivedOnly(self, methodName):
         newProxyName = self.captureMockProxyName + "." + methodName
         newTarget = object.__getattribute__(self, methodName)
         newProxy = self.captureMockCreateInstanceProxy(newProxyName, newTarget, captureMockCallback=True)
         setattr(self.captureMockTarget, methodName, newProxy)
-                        
+
     # Used by mixins of this class and new-style classes
     def __getattribute__(self, attrname):
         if attrname.startswith("captureMock") or \
-               attrname in [ "__file__", "__dict__", "__class__", "__getattr__", "__members__", "__methods__", "__name__" ] or \
+               attrname in ["__file__",
+                            "__dict__",
+                            "__class__",
+                            "__getattr__",
+                            "__members__",
+                            "__methods__",
+                            "__name__"] or \
                self.captureMockDefinedInNonInterceptedSubclass(attrname):
             return object.__getattribute__(self, attrname)
         else:
@@ -271,7 +276,7 @@ class InstanceProxy(PythonProxy):
         allbases = inspect.getmro(self.__class__)
         proxyPos = allbases.index(PythonProxy) # should always exist
         return allbases[proxyPos + 1] # at least "object" should be there failing anything else
-        
+
     def captureMockConvertToBoolean(self, methodName):
         try:
             return self.__getattr__(methodName)()
@@ -280,7 +285,7 @@ class InstanceProxy(PythonProxy):
                 return bool(self.__getattr__("__len__")())
             except AttributeError:
                 return True
-            
+
     # In case of new-style objects. Special methods have no means of being intercepted. See
     # http://docs.python.org/reference/datamodel.html#new-style-special-lookup
     def __str__(self):
@@ -302,7 +307,7 @@ class InstanceProxy(PythonProxy):
         return self.__getattr__("__getitem__")(*args)
 
     # For iterators. Doesn't do any harm being here in general, and otherwise an intercepted
-    # iterator will not be recognised. At worst this might replace one exception with another 
+    # iterator will not be recognised. At worst this might replace one exception with another
     def __next__(self):
         return self.__getattr__("__next__")()
 

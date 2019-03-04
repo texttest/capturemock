@@ -1,17 +1,24 @@
-
 import os, stat, sys, socket, threading, time, subprocess
 from copy import copy
-import config, recordfilehandler, cmdlineutils
-import commandlinetraffic, fileedittraffic, clientservertraffic, customtraffic
-from SocketServer import TCPServer, StreamRequestHandler
+
+from capturemock import config
+from capturemock.replayinfo import ReplayInfo
+from capturemock import recordfilehandler, cmdlineutils
+from capturemock import commandlinetraffic, fileedittraffic, clientservertraffic, customtraffic
+
 try:
+    from collections import OrderedDict
+except ImportError:
+    from ordereddict import OrderedDict
+
+if sys.version_info[0] < 3:
+    from SocketServer import TCPServer, StreamRequestHandler
     from xmlrpclib import Fault, ServerProxy
     from SimpleXMLRPCServer import SimpleXMLRPCServer
-except ImportError: # Python 3
+else:
+    from socketserver import TCPServer, StreamRequestHandler
     from xmlrpc.client import Fault, ServerProxy
     from xmlrpc.server import SimpleXMLRPCServer
-from ordereddict import OrderedDict
-from replayinfo import ReplayInfo
 
 def getPython():
     if os.name == "nt":
@@ -24,9 +31,15 @@ def getPython():
                 if os.path.exists(full):
                     return full
     return sys.executable
-            
-def startServer(rcFiles, mode, replayFile, replayEditDir,
-                recordFile, recordEditDir, sutDirectory, environment):
+
+def startServer(rcFiles,
+                mode,
+                replayFile,
+                replayEditDir,
+                recordFile,
+                recordEditDir,
+                sutDirectory,
+                environment):
     cmdArgs = [ getPython(), __file__, "-m", str(mode) ]
     if rcFiles:
         cmdArgs += [ "--rcfiles", ",".join(rcFiles) ]
@@ -34,14 +47,18 @@ def startServer(rcFiles, mode, replayFile, replayEditDir,
         cmdArgs += [ "-r", recordFile ]
     if recordEditDir:
         cmdArgs += [ "-F", recordEditDir ]
-                                
+
     if replayFile and mode != config.RECORD:
         cmdArgs += [ "-p", replayFile ]
         if replayEditDir:
             cmdArgs += [ "-f", replayEditDir ]
 
-    return subprocess.Popen(cmdArgs, env=environment.copy(), universal_newlines=True,
-                            cwd=sutDirectory, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return subprocess.Popen(cmdArgs,
+                            env=environment.copy(),
+                            universal_newlines=True,
+                            cwd=sutDirectory,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE)
 
 def stopServer(servAddr):
     if servAddr.startswith("http"):
@@ -61,7 +78,7 @@ class ClassicTrafficServer(TCPServer):
         self.useThreads = useThreads
         self.terminate = False
         self.requestCount = 0
-        
+
     def run(self):
         while not self.terminate:
             self.handle_request()
@@ -74,18 +91,18 @@ class ClassicTrafficServer(TCPServer):
     @classmethod
     def sendTerminateMessage(cls, serverAddressStr):
         host, port = serverAddressStr.split(":")
-        cls._sendTerminateMessage((host, int(port)))    
+        cls._sendTerminateMessage((host, int(port)))
 
     @staticmethod
     def _sendTerminateMessage(serverAddress):
         sendSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sendSocket.connect(serverAddress)
-        sendSocket.sendall("TERMINATE_SERVER\n")
+        sendSocket.sendall("TERMINATE_SERVER\n".encode())
         sendSocket.shutdown(2)
-        
+
     @staticmethod
     def getTrafficClasses(incoming):
-        if incoming:    
+        if incoming:
             return [ clientservertraffic.ServerStateTraffic, clientservertraffic.ClientSocketTraffic ]
         else:
             return [ clientservertraffic.ServerTraffic, clientservertraffic.ClientSocketTraffic ]
@@ -99,7 +116,7 @@ class ClassicTrafficServer(TCPServer):
             self._sendTerminateMessage(self.socket.getsockname())
         else:
             self.terminate = True
-        
+
     def process_request_thread(self, request, client_address, requestCount):
         # Copied from ThreadingMixin, more or less
         # We store the order things appear in so we know what order they should go in the file
@@ -132,7 +149,7 @@ class XmlRpcTrafficServer(SimpleXMLRPCServer):
         host, port = self.socket.getsockname()
         # hardcode http? Seems to be what you get...
         return "http://" + host + ":" + str(port)
-    
+
     def setShutdownFlag(self):
         # Not supposed to know about this variable, implementation detail of SocketServer
         # But seems like the only way to shutdown the server from within a request
@@ -141,7 +158,7 @@ class XmlRpcTrafficServer(SimpleXMLRPCServer):
 
     @staticmethod
     def getTrafficClasses(incoming):
-        if incoming:    
+        if incoming:
             return [ clientservertraffic.XmlRpcServerStateTraffic, clientservertraffic.XmlRpcClientTraffic ]
         else:
             return [ clientservertraffic.XmlRpcServerTraffic, clientservertraffic.XmlRpcClientTraffic ]
@@ -174,7 +191,7 @@ class XmlRpcDispatchInstance:
             exceptionString = "".join(format_exception(type, value, traceback))
             sys.stderr.write(exceptionString)
             return ""
-        
+
 class ServerDispatcher:
     def __init__(self, options):
         rcFiles = options.rcfiles.split(",") if options.rcfiles else []
@@ -205,7 +222,7 @@ class ServerDispatcher:
             server = XmlRpcTrafficServer((ipAddress, 0), logRequests=False)
             server.register_instance(XmlRpcDispatchInstance(self))
             return server
-        
+
     def getIpAddress(self):
         try:
             # Doesn't always work, sometimes not available
@@ -213,7 +230,7 @@ class ServerDispatcher:
         except socket.error:
             # Most of the time we only need to be able to talk locally, fall back to that
             return socket.gethostbyname("localhost")
-            
+
     def run(self):
         self.diag.debug("Starting capturemock server")
         self.server.run()
@@ -222,7 +239,7 @@ class ServerDispatcher:
     def shutdown(self):
         self.diag.debug("Told to shut down!")
         self.server.shutdown()
-        
+
     def findFilesAndLinks(self, path):
         if not os.path.exists(path):
             return []
@@ -251,9 +268,9 @@ class ServerDispatcher:
             return statObj[stat.ST_MTIME], statObj[stat.ST_SIZE]
         else:
             return None, 0
-        
+
     def addPossibleFileEdits(self, traffic):
-        allEdits = traffic.findPossibleFileEdits() 
+        allEdits = traffic.findPossibleFileEdits()
         topLevelForEdit = copy(self.topLevelForEdit)
         fileEditData = copy(self.fileEditData)
         for file in allEdits:
@@ -264,7 +281,7 @@ class ServerDispatcher:
 
             # edit times aren't interesting when doing pure replay
             if not self.replayInfo.isActiveForAll():
-                for subPath in self.findFilesAndLinks(file):                
+                for subPath in self.findFilesAndLinks(file):
                     modTime, modSize = self.getLatestModification(subPath)
                     fileEditData[subPath] = modTime, modSize
                     self.diag.debug("Adding possible sub-path edit for " + subPath + " with mod time " +
@@ -297,7 +314,7 @@ class ServerDispatcher:
         responses = self._process(traffic, reqNo)
         self.recordFileHandler.requestComplete(reqNo)
         return responses
-        
+
     def _process(self, traffic, reqNo):
         self.diag.debug("Processing traffic " + traffic.__class__.__name__)
         topLevelForEdit, fileEditData = self.addPossibleFileEdits(traffic)
@@ -372,7 +389,7 @@ class ServerDispatcher:
 
         return self._getFileMatchScore(givenName, actualName, lambda x: x) + \
                self._getFileMatchScore(givenName, actualName, lambda x: -1 -x)
-    
+
     def _getFileMatchScore(self, givenName, actualName, indexFunction):
         score = 0
         while len(givenName) > score and len(actualName) > score and givenName[indexFunction(score)] == actualName[indexFunction(score)]:
@@ -425,7 +442,7 @@ class ServerDispatcher:
                     removedPaths.append(oldPath)
                     if removedPath not in changedPaths:
                         changedPaths.append(removedPath)
-                    
+
             if len(changedPaths) > 0:
                 traffic.append(fileedittraffic.FileEditTraffic.makeRecordedTraffic(file, changedPaths))
 
@@ -442,15 +459,15 @@ class TrafficRequestHandler(StreamRequestHandler):
     def __init__(self, requestNumber, *args):
         self.requestNumber = requestNumber
         StreamRequestHandler.__init__(self, *args)
-        
+
     def handle(self):
         self.dispatcher.diag.debug("Received incoming request...")
-        text = self.rfile.read()
+        text = self.rfile.read().decode()
         try:
             self.dispatcher.processText(text, self.wfile, self.requestNumber)
         except config.CaptureMockReplayError as e:
-            self.wfile.write("CAPTUREMOCK MISMATCH: " + str(e))
-        
+            self.wfile.write(("CAPTUREMOCK MISMATCH: " + str(e)).encode())
+
 # The basic point here is to make sure that traffic appears in the record
 # file in the order in which it comes in, not in the order in which it completes (which is indeterministic and
 # may be wrong next time around)
@@ -475,7 +492,7 @@ class RecordFileHandler(recordfilehandler.RecordFileHandler):
         if text:
             super(RecordFileHandler, self).record(text)
             del self.cache[self.recordingRequest]
-            
+
     def recordingRequestComplete(self):
         self.writeFromCache()
         self.recordingRequest += 1
@@ -492,12 +509,11 @@ class RecordFileHandler(recordfilehandler.RecordFileHandler):
             self.cache[requestNumber] += text
         self.lock.release()
 
-        
-        
+
 if __name__ == "__main__":
     parser = cmdlineutils.create_option_parser()
     options = parser.parse_args()[0] # no positional arguments
-    
+
     fileedittraffic.FileEditTraffic.configure(options)
 
     server = ServerDispatcher(options)

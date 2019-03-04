@@ -1,4 +1,3 @@
-
 import signal, os
 
 gotSignal, sentInfo = 0, False
@@ -10,20 +9,21 @@ def makeSocket():
     except AttributeError: # in case we get interrupted partway through
         reload(socket)
         return socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    
+
 def createSocket():
-    servAddr = os.getenv("CAPTUREMOCK_SERVER")
-    if servAddr:
-        host, port = servAddr.split(":")
-        serverAddress = (host, int(port))
-        sock = makeSocket()
-        sock.connect(serverAddress)
-        return sock
+    servAddr = os.environ["CAPTUREMOCK_SERVER"]
+    if not servAddr:
+        raise RuntimeError("CAPTUREMOCK_SERVER empty.")
+    host, port = servAddr.split(":")
+    serverAddress = (host, int(port))
+    sock = makeSocket()
+    sock.connect(serverAddress)
+    return sock
 
 def sendKill():
     sock = createSocket()
     text = "SUT_COMMAND_KILL:" + str(gotSignal) + ":SUT_SEP:" + str(os.getpid())
-    sock.sendall(text)
+    sock.sendall(text.encode())
     sock.close()
 
 def handleKill(sigNum, *args):
@@ -46,20 +46,21 @@ def getCommandLine(argv):
         base = os.path.splitext(argv[0])[0]
         return [ base ] + argv[1:]
 
-def getEnvironment(argv):
+def getEnvironmentDict(argv):
     # Don't send the path element that caught us
     myDir = os.path.dirname(argv[0])
     pathElems = os.getenv("PATH").split(os.pathsep)
-    filteredPathElems = filter(lambda p: myDir != os.path.normpath(p), pathElems)
+    filteredPathElems = [p for p in pathElems if myDir != os.path.normpath(p)]
     os.environ["PATH"] = os.pathsep.join(filteredPathElems)
-    return os.environ
-    
+    return dict(os.environ)
+
 def createAndSend():
     from sys import argv
     sock = createSocket()
-    text = "SUT_COMMAND_LINE:" + repr(getCommandLine(argv)) + ":SUT_SEP:" + repr(getEnvironment(argv)) + \
+    text = "SUT_COMMAND_LINE:" + repr(getCommandLine(argv)) + ":SUT_SEP:" + \
+        repr(getEnvironmentDict(argv)) + \
            ":SUT_SEP:" + os.getcwd() + ":SUT_SEP:" + str(os.getpid())
-    sock.sendall(text)
+    sock.sendall(text.encode())
     return sock
 
 def infoSent():
@@ -67,7 +68,7 @@ def infoSent():
     if gotSignal:
         sendKill()
     sentInfo = True
-        
+
 def interceptCommand():
     if os.name == "posix":
         signal.signal(signal.SIGINT, handleKill)
@@ -105,11 +106,10 @@ def interceptCommand():
     except ValueError:
         import sys
         if response.startswith("CAPTUREMOCK MISMATCH"):
-            sys.stderr.write("Replayed calls do not match those recorded.\n" + 
-                             response.split(":", 1)[-1].strip() + "\n" + 
+            sys.stderr.write("Replayed calls do not match those recorded.\n" +
+                             response.split(":", 1)[-1].strip() + "\n" +
                              "Either rerun with capturemock in record mode " +
                              "or update the stored mock file by hand.\n")
             sys.exit(1)
         else:
-            sys.stderr.write("Received unexpected communication from MIM server:\n " + response + "\n\n")
-
+            sys.stderr.write("Received unexpected communication from MIM server:\n '" + response + "'\n\n")

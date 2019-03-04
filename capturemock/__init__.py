@@ -1,4 +1,3 @@
-
 from .capturepython import interceptPython
 from .capturecommand import interceptCommand
 from .config import CaptureMockReplayError, RECORD, REPLAY, REPLAY_OLD_RECORD_NEW
@@ -11,10 +10,17 @@ class CaptureMockManager:
     def __init__(self):
         self.serverProcess = None
         self.serverAddress = None
-        
-    def startServer(self, mode, recordFile, replayFile=None,
-                    recordEditDir=None, replayEditDir=None, rcFiles=[], interceptDir=None,
-                    sutDirectory=os.getcwd(), environment=os.environ):
+
+    def startServer(self,
+                    mode,
+                    recordFile,
+                    replayFile=None,
+                    recordEditDir=None,
+                    replayEditDir=None,
+                    rcFiles=[],
+                    interceptDir=None,
+                    sutDirectory=os.getcwd(),
+                    environment=os.environ):
         if config.isActive(mode, replayFile):
             # Environment which the server should get
             environment["CAPTUREMOCK_MODE"] = str(mode)
@@ -25,10 +31,16 @@ class CaptureMockManager:
                     del environment[var]
 
             from . import server
-            self.serverProcess = server.startServer(rcFiles, mode, replayFile, replayEditDir,
-                                                    recordFile, recordEditDir, sutDirectory,
+            self.serverProcess = server.startServer(rcFiles,
+                                                    mode,
+                                                    replayFile,
+                                                    replayEditDir,
+                                                    recordFile,
+                                                    recordEditDir,
+                                                    sutDirectory,
                                                     environment)
             self.serverAddress = self.serverProcess.stdout.readline().strip()
+
             # And environment it shouldn't get...
             environment["CAPTUREMOCK_SERVER"] = self.serverAddress
             if self.makePathIntercepts(commands, interceptDir, replayFile, mode):
@@ -36,9 +48,9 @@ class CaptureMockManager:
             return True
         else:
             return False
-        
+
     def makeWindowsIntercept(self, interceptName):
-        file = open(interceptName + ".py", "w")    
+        file = open(interceptName + ".py", "w")
         file.write("#!python.exe\nimport site\n")
         file.write(self.fileContents)
         file.close()
@@ -51,7 +63,7 @@ class CaptureMockManager:
         file.write("#!" + sys.executable + "\n")
         file.write(self.fileContents)
         file.close()
-        os.chmod(interceptName, 0o775) # make executable 
+        os.chmod(interceptName, 0o775) # make executable
 
     def makePathIntercept(self, cmd, interceptDir):
         if not os.path.isdir(interceptDir):
@@ -88,7 +100,7 @@ class CaptureMockManager:
                 stopServer(self.serverAddress)
             self.writeServerErrors()
             self.serverProcess = None
-        
+
     def writeServerErrors(self):
         err = self.serverProcess.communicate()[1]
         if err:
@@ -107,9 +119,9 @@ def setUpPython(mode, recordFile, replayFile=None,
         environment["CAPTUREMOCK_PYTHON"] = ",".join(pythonAttrs)
         return True
     else:
-        return False            
+        return False
 
-                            
+
 def process_startup():
     rcFileStr = os.getenv("CAPTUREMOCK_PROCESS_START")
     if rcFileStr:
@@ -152,8 +164,8 @@ def commandline():
     # Start with a fresh file
     if options.record and os.path.isfile(options.record):
         os.remove(options.record)
-        
-    setUpServer(mode, options.record, options.replay,  
+
+    setUpServer(mode, options.record, options.replay,
                 recordEditDir=options.record_file_edits, replayEditDir=options.replay_file_edits,
                 rcFiles=rcFiles, interceptDir=interceptDir)
     subprocess.call(args)
@@ -167,8 +179,8 @@ def capturemock(pythonAttrsOrFunc=[], *args, **kw):
         return CaptureMockDecorator(stackDistance=2)(pythonAttrsOrFunc)
     else:
         return CaptureMockDecorator(pythonAttrsOrFunc, *args, **kw)
-    
-    
+
+
 # For use as a decorator in coded tests
 class CaptureMockDecorator(object):
     defaultMode = int(os.getenv("CAPTUREMOCK_MODE", "0"))
@@ -181,7 +193,7 @@ class CaptureMockDecorator(object):
         cls.defaultPythonAttrs = pythonAttrs
         if mode is not None:
             cls.defaultMode = mode
-        
+
     def __init__(self, pythonAttrs=[], mode=None, rcFiles=[], stackDistance=1):
         if mode is not None:
             self.mode = mode
@@ -192,7 +204,7 @@ class CaptureMockDecorator(object):
             self.pythonAttrs = [ self.pythonAttrs ]
         self.rcFiles = rcFiles or self.defaultRcFiles
         self.stackDistance = stackDistance
-                
+
     def __call__(self, func):
         from inspect import stack
         callingFile = stack()[self.stackDistance][1]
@@ -250,5 +262,5 @@ class CaptureMockDecorator(object):
         if not os.path.isdir(dirName):
             os.makedirs(dirName)
         return os.path.join(dirName, funcName.replace("test_", "") + ".mock")
-    
+
 set_defaults = CaptureMockDecorator.set_defaults

@@ -1,7 +1,8 @@
-
 """ Traffic classes for capturing client-server interaction """
 
-import traffic, socket, sys
+import socket, sys
+from capturemock import traffic
+
 try:
     import xmlrpclib
 except ImportError:
@@ -26,7 +27,7 @@ class ClientSocketTraffic(traffic.Traffic):
     def forwardToServer(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect(self.destination)
-        sock.sendall(self.text)
+        sock.sendall(self.text.encode())
         try:
             sock.shutdown(socket.SHUT_WR)
             response = sock.makefile().read()
@@ -54,7 +55,7 @@ class XmlRpcClientTraffic(ClientSocketTraffic):
             if "," not in paramText and paramText != "()":
                 paramText = paramText[:-1] + ",)" # make proper tuple output
             self.params = eval(paramText)
-                
+
     def forwardToServer(self):
         try:
             responseObject = getattr(self.destination, self.method)(*self.params)

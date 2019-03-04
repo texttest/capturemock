@@ -1,4 +1,3 @@
-
 """ Defining the base traffic class which the useful traffic classes inherit """
 
 import re, os
@@ -51,14 +50,14 @@ class BaseTraffic(object):
             return "_".join(parts)
         else:
             return name + "_2"
-        
+
     def storeAlterationVariable(self, repl, matched):
         replText = repl
         regex = re.compile(replText.replace("$", "\\$"))
         while regex in self.alterationVariables and self.alterationVariables[regex] != matched:
             replText = self.findNextNameCandidate(replText)
             regex = re.compile(replText.replace("$", "\\$"))
-            
+
         self.diag.info("Adding alteration variable for " + replText + " = " + matched)
         self.alterationVariables[regex] = matched
         return replText
@@ -68,7 +67,7 @@ class BaseTraffic(object):
 
     def findPossibleFileEdits(self):
         return []
-    
+
     def hasInfo(self):
         return len(self.text) > 0
 
@@ -80,7 +79,7 @@ class BaseTraffic(object):
 
     def makesAsynchronousEdits(self):
         return False
-    
+
     def record(self, recordFileHandler, *args, **kw):
         if not self.hasInfo():
             return
@@ -113,22 +112,22 @@ class BaseTraffic(object):
         endPos = out.rfind(quoteChar, -3, -1)
         return out[:pos] + quoteChar * 2 + out[pos:endPos].replace("\\n", "\n").replace("\\t", "\t") + quoteChar * 2 + out[endPos:]
 
-    
+
 class Traffic(BaseTraffic):
     def __init__(self, text, responseFile, *args):
         super(Traffic, self).__init__(text, *args)
         self.responseFile = responseFile
-    
+
     def write(self, message):
         from socket import error
         if self.responseFile:
             try:
-                self.responseFile.write(message)
+                self.responseFile.write(message.encode())
             except error:
                 # The system under test has died or is otherwise unresponsive
                 # Should handle this, probably. For now, ignoring it is better than stack dumps
                 pass
-                
+
     def forwardToDestination(self):
         self.write(self.text)
         if self.responseFile:
@@ -138,7 +137,6 @@ class Traffic(BaseTraffic):
     def filterReplay(self, trafficList):
         return trafficList
 
-    
+
 class ResponseTraffic(Traffic):
     direction = "->"
-

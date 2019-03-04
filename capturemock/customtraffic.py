@@ -1,7 +1,7 @@
 
 """ Traffic whose format and real behaviour is defined in a custom client """
 
-import traffic
+from capturemock import traffic
 
 class CustomTraffic(traffic.Traffic):
     direction = "<-"

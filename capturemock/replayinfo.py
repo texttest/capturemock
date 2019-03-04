@@ -1,4 +1,3 @@
-
 """ Module to manage the information in the file and return appropriate matches """
 
 import logging, difflib, re, os
@@ -6,10 +5,9 @@ try: # Python 2.7, Python 3.x
     from collections import OrderedDict
 except ImportError: # Python 2.6 and earlier
     from ordereddict import OrderedDict
-try: # Python 2.x
-    import config
-except ImportError: # Python 3.x
-    from . import config
+
+from capturemock import config
+
 
 class ReplayInfo:
     def __init__(self, mode, replayFile, rcHandler):
@@ -41,23 +39,23 @@ class ReplayInfo:
     @staticmethod
     def makePythonItems(pythonAttrs):
         return [ (attr, re.compile("<-PYT:(import )?" + attr)) for attr in pythonAttrs ]
-            
+
     def isActiveForAll(self):
         return len(self.responseMap) > 0 and self.replayAll
-            
+
     def isActiveFor(self, traffic):
         if len(self.responseMap) == 0:
             return False
         elif self.replayAll:
             return True
         else:
-            return traffic.isMarkedForReplay(self.replayItems, self.responseMap.keys())
+            return traffic.isMarkedForReplay(self.replayItems, list(self.responseMap.keys()))
 
     def getTrafficLookupKey(self, trafficStr):
         # If we're matching server communications it means we're 'playing client'
         # In this case we should just send all our stuff in order and not worry about matching things.
         return "<-SRV" if trafficStr.startswith("<-SRV") else trafficStr
-    
+
     def responseCompleted(self, currResponseHandlers, indentLevel, fromSUT):
         prevIndentLevel = len(currResponseHandlers) - 1
         if indentLevel < prevIndentLevel:
@@ -76,7 +74,7 @@ class ReplayInfo:
             fromSUT = prefix.startswith("<-")
             while self.responseCompleted(currResponseHandlers, indentLevel, fromSUT):
                 currResponseHandlers.pop()
-                
+
             if currResponseHandlers and (not fromSUT or indentLevel % 2 == 1):
                 responseHandler, _ = currResponseHandlers[-1]
                 responseHandler.addResponse(trafficStr)
@@ -119,7 +117,7 @@ class ReplayInfo:
         if currTraffic:
             trafficList.append(currTraffic)
         return trafficList
-    
+
     def readReplayResponses(self, traffic, allClasses, exact=False):
         # We return the response matching the traffic in if we can, otherwise
         # the one that is most similar to it
@@ -158,7 +156,7 @@ class ReplayInfo:
         bestMatchInfo = set(), 100000
         for currDesc, responseHandler in self.responseMap.items():
             if self.sameType(desc, currDesc):
-                descToCompare = currDesc                    
+                descToCompare = currDesc
                 self.diag.debug("Comparing with '" + descToCompare + "'")
                 matchInfo = self.getWords(descToCompare), responseHandler.getUnmatchedResponseCount()
                 if self.isBetterMatch(matchInfo, bestMatchInfo, descWords):
@@ -180,7 +178,7 @@ class ReplayInfo:
     def _getWords(self, desc, separators):
         if len(separators) == 0:
             return [ desc ]
-        
+
         words = []
         for part in desc.split(separators[0]):
             words += self._getWords(part, separators[1:])
@@ -202,7 +200,7 @@ class ReplayInfo:
     def lastBlockReachesEnd(self, blocks):
         return blocks[-2].a + blocks[-2].size == blocks[-1].a and \
                blocks[-2].b + blocks[-2].size == blocks[-1].b
-            
+
     def isBetterMatch(self, info1, info2, targetWords):
         words1, unmatchedCount1 = info1
         words2, unmatchedCount2 = info2
@@ -226,7 +224,7 @@ class ReplayInfo:
 
         self.diag.debug("Unmatched count difference " + repr(unmatchedCount1) + " vs " + repr(unmatchedCount2))
         return unmatchedCount1 > unmatchedCount2
-    
+
 
 # Need to handle multiple replies to the same question
 class ReplayedResponseHandler:
@@ -242,7 +240,7 @@ class ReplayedResponseHandler:
         self.intermediateHandlers.append(handlers)
 
     def newResponse(self):
-        self.responses.append([])        
+        self.responses.append([])
 
     def addResponse(self, trafficStr):
         self.responses[-1].append(trafficStr)
@@ -267,7 +265,7 @@ class ReplayedResponseHandler:
 
     def getUnmatchedResponseCount(self):
         return len(self.responses) - self.timesChosen
-    
+
     def makeResponses(self, allClasses):
         trafficStrings, increment = self.getCurrentStrings()
         responses = []
