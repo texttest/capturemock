@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 from distutils.core import setup
+from distutils.command.install_scripts import install_scripts
 import os, shutil
 
 def make_windows_script(src):
@@ -13,15 +14,26 @@ else:
     package_data = {}
 
 if os.name == "nt":
-    make_windows_script("bin/capturemock")
-    shutil.copyfile("capturemock/python_script.exe", "capturemock.exe")
-    scripts=["bin/capturemock.py", "capturemock.exe"]
+    make_windows_script("bin/capturemock")    
+    scripts=["bin/capturemock.py"]
 else:
     scripts=["bin/capturemock"]
+
+class windows_install_scripts(install_scripts):
+    """ Customized install_scripts distutils action.
+    """
+
+    def run(self):
+        install_scripts.run(self)   # standard action
+        shutil.copyfile("capturemock/python_script.exe", os.path.join(self.install_dir, "capturemock.exe"))
 
 py_modules = []
 if "FROM_RPM" not in os.environ:
     py_modules.append("ordereddict")
+
+command_classes = {}
+if os.name == "nt":
+    command_classes['install_scripts'] = windows_install_scripts
 
 setup(name='CaptureMock',
       version="trunk",
@@ -42,5 +54,6 @@ setup(name='CaptureMock',
                     "Intended Audience :: Information Technology",
                     "Topic :: Software Development :: Testing",
                     "Topic :: Software Development :: Libraries :: Python Modules" ],
-      scripts=scripts
+      scripts=scripts,
+      cmdclass=command_classes
       )
