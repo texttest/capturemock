@@ -4,3 +4,4 @@ MANIFEST
 dist
 capturemock.exe
 capturemock.py
+*.pyc
