@@ -5,3 +5,5 @@ dist
 capturemock.exe
 capturemock.py
 *.pyc
+.project
+.pydevproject

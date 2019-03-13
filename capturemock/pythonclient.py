@@ -94,7 +94,7 @@ class PythonProxy(object):
             self.captureMockNameFinder[captureMockProxyName] = self
 
     def __getattr__(self, attrname):
-        if attrname in [ "__loader__", "__package__", "__name__", "__initializing__" ]:
+        if attrname in [ "__loader__", "__package__", "__name__", "__initializing__", "__spec__" ]:
             raise AttributeError("'module' object has no attribute '" + attrname + "'")
         return self.captureMockTrafficHandler.getAttribute(self.captureMockProxyName,
                                                            attrname,
@@ -164,7 +164,7 @@ class PythonProxy(object):
 
     def __setattr__(self, attrname, value):
         self.__dict__[attrname] = value
-        if not attrname.startswith("captureMock") and attrname not in [ "__file__", "__loader__", "__package__" ]:
+        if not attrname.startswith("captureMock") and attrname not in [ "__file__", "__loader__", "__package__", "__spec__" ]:
             if self.captureMockTarget is not None:
                 setattr(self.captureMockTarget, attrname, value)
             # Don't record internally-set module setup when importing modules from packages
