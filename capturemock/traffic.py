@@ -1,6 +1,9 @@
 """ Defining the base traffic class which the useful traffic classes inherit """
 
-import re, os
+import re
+import os
+import sys
+
 from pprint import pformat
 try:
     from collections import OrderedDict
@@ -98,20 +101,24 @@ class BaseTraffic(object):
         return bestPos, bestQuoteChar
 
     def fixMultilineStrings(self, arg):
-        out = pformat(arg, width=130)
+        formatted_string = pformat(arg, width=130)
+        if sys.version_info[0] == 2:
+            return self.__fixMultilineStringsPython2(formatted_string)
+        return formatted_string
+
+    def __fixMultilineStringsPython2(self, formatted_string):
         # Replace linebreaks but don't mangle e.g. Windows paths
         # This won't work if both exist in the same string - fixing that requires
         # using a regex and I couldn't make it work [gjb 100922]
-        if "\\n" in out and "\\\\n" not in out:
-            pos, quoteChar = self.findQuote(out)
+        if "\\n" in formatted_string and "\\\\n" not in formatted_string:
+            pos, quoteChar = self.findQuote(formatted_string)
             if pos is not None:
-                return self.makeMultiline(out, pos, quoteChar)
-        return out
+                endPos = formatted_string.rfind(quoteChar, -3, -1)
+                return formatted_string[:pos] + quoteChar * 2 \
+                    + formatted_string[pos:endPos].replace("\\n", "\n").replace("\\t", "\t") \
+                    + quoteChar * 2 + formatted_string[endPos:]
 
-    def makeMultiline(self, out, pos, quoteChar):
-        endPos = out.rfind(quoteChar, -3, -1)
-        return out[:pos] + quoteChar * 2 + out[pos:endPos].replace("\\n", "\n").replace("\\t", "\t") + quoteChar * 2 + out[endPos:]
-
+        return formatted_string
 
 class Traffic(BaseTraffic):
     def __init__(self, text, responseFile, *args):
