@@ -7,7 +7,11 @@ def makeSocket():
     try:
         return socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     except AttributeError: # in case we get interrupted partway through
-        reload(socket)
+        try:
+            import importlib
+            importlib.reload(socket)
+        except:
+            reload(socket)
         return socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 def createSocket():
@@ -48,7 +52,9 @@ def getCommandLine(argv):
 
 def getEnvironmentDict(argv):
     # Don't send the path element that caught us
-    myDir = os.path.dirname(argv[0])
+    import sys
+    myExe = sys.executable if os.name == "nt" else argv[0]
+    myDir = os.path.dirname(myExe)
     pathElems = os.getenv("PATH").split(os.pathsep)
     filteredPathElems = [p for p in pathElems if myDir != os.path.normpath(p)]
     os.environ["PATH"] = os.pathsep.join(filteredPathElems)

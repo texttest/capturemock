@@ -7,3 +7,4 @@ capturemock.py
 *.pyc
 .project
 .pydevproject
+*.spec

@@ -1,0 +1,2 @@
+import capturemock
+capturemock.interceptCommand()

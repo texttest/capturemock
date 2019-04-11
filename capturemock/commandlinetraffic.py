@@ -72,20 +72,28 @@ class CommandLineTraffic(traffic.Traffic):
             recStr += "'" + var + "=" + value + "' "
         return recStr
 
-    def getNewElements(self, pathStr, oldVal):
-        return [p for p in pathStr.split(os.pathsep) if p not in oldVal]
-
+    def getNewElements(self, value, oldVal):
+        parts = value.split(os.pathsep)
+        oldParts = oldVal.split(os.pathsep)
+        newParts = set(parts).difference(set(oldParts))
+        newPre, newPost = [], []
+        midPoint = len(parts) / 2
+        for part in newParts:
+            if parts.index(part) < midPoint:
+                newPre.append(part)
+            else:
+                newPost.append(part)
+        return newPre, newPost
+    
     def getEnvValueString(self, var, value):
         oldVal = os.getenv(var)
         if oldVal and oldVal != value:
-            compactValue = value.replace(oldVal, "$" + var)
             if "PATH" not in var:
+                compactValue = value.replace(oldVal, "$" + var)
                 self.diag.debug("Compacted value to " + repr(compactValue))
                 return compactValue
-
-            pre, post = compactValue.split("$" + var)
-            newPre = self.getNewElements(pre, oldVal)
-            newPost = self.getNewElements(post, oldVal)
+        
+            newPre, newPost = self.getNewElements(value, oldVal)
             if newPre or newPost:
                 newValue = "$" + var
                 if newPre:
@@ -94,7 +102,7 @@ class CommandLineTraffic(traffic.Traffic):
                     newValue += ":" + ":".join(newPost)
                 return newValue
             else:
-                self.diag.debug("Added text " + repr(compactValue) + " already present, assuming not changed in essence")
+                self.diag.debug("Added text " + repr(value) + " already present, assuming not changed in essence")
             
             # Don't react if something is adding the same element to a path multiple times, for example
             # GTK+ on Windows adds a new copy of itself for every Python process started

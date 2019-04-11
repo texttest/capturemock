@@ -50,12 +50,15 @@ class CaptureMockManager:
             return False
 
     def makeWindowsIntercept(self, interceptName):
-        file = open(interceptName + ".py", "w")
-        file.write("#!python.exe\nimport site\n")
-        file.write(self.fileContents)
-        file.close()
-        sourceFile = os.path.join(os.path.dirname(__file__), "python_script.exe")
         destFile = interceptName + ".exe"
+        if sys.version_info.major == 3: # python 3, uses pyinstaller
+            sourceFile = os.path.join(os.path.dirname(__file__), "capturemock_intercept.exe")
+        else: # python2, uses old exemaker executable
+            file = open(interceptName + ".py", "w")
+            file.write("#!python.exe\nimport site\n")
+            file.write(self.fileContents)
+            file.close()
+            sourceFile = os.path.join(os.path.dirname(__file__), "python_script.exe")
         shutil.copy(sourceFile, destFile)
 
     def makePosixIntercept(self, interceptName):
