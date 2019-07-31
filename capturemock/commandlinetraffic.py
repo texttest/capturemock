@@ -143,7 +143,7 @@ class CommandLineTraffic(traffic.Traffic):
         realPaths = [ os.path.realpath(path) for path in paths ]
         for index, path1 in enumerate(realPaths):
             for path2 in realPaths:
-                if path1 != path2 and path1.startswith(path2):
+                if path1 != path2 and path1.startswith(path2) and path2 != os.path.expanduser("~"):
                     subPaths.append(paths[index])
                     break
 

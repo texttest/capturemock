@@ -376,6 +376,7 @@ class ServerDispatcher:
                 break
             else:
                 matchScore = self.getFileMatchScore(fileName, editedName)
+                self.diag.debug("Trying " + editedName + " vs " + fileName + " got score " + str(matchScore))
                 if matchScore > bestScore:
                     bestMatch, bestScore = editedFile, matchScore
 
