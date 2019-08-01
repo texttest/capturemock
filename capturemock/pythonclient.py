@@ -259,7 +259,9 @@ class InstanceProxy(PythonProxy):
                             "__getattr__",
                             "__members__",
                             "__methods__",
-                            "__name__"] or \
+                            "__name__",
+                            "__cause__", 
+                            "__context__"] or \
                self.captureMockDefinedInNonInterceptedSubclass(attrname):
             return object.__getattribute__(self, attrname)
         else:
