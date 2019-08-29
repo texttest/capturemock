@@ -5,6 +5,7 @@ from capturemock import config
 from capturemock.replayinfo import ReplayInfo
 from capturemock import recordfilehandler, cmdlineutils
 from capturemock import commandlinetraffic, fileedittraffic, clientservertraffic, customtraffic
+from locale import getpreferredencoding
 
 try:
     from collections import OrderedDict
@@ -169,7 +170,11 @@ class XmlRpcDispatchInstance:
     def __init__(self, dispatcher):
         self.dispatcher = dispatcher
 
-    def _dispatch(self, method, params):
+    def convertBytes(self, param):
+        return str(param, getpreferredencoding()) if isinstance(param, bytes) else param
+
+    def _dispatch(self, method, binparams):
+        params = tuple([ self.convertBytes(param) for param in binparams ])
         try:
             self.dispatcher.diag.info("Received XMLRPC traffic " + method + repr(params))
             XmlRpcDispatchInstance.requestCount += 1
@@ -219,7 +224,7 @@ class ServerDispatcher:
             TrafficRequestHandler.dispatcher = self
             return ClassicTrafficServer((ipAddress, 0), TrafficRequestHandler)
         elif protocol == "xmlrpc":
-            server = XmlRpcTrafficServer((ipAddress, 0), logRequests=False)
+            server = XmlRpcTrafficServer((ipAddress, 0), logRequests=False, use_builtin_types=True)
             server.register_instance(XmlRpcDispatchInstance(self))
             return server
 
