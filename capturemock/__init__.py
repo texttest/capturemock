@@ -4,6 +4,7 @@ from .config import CaptureMockReplayError, RECORD, REPLAY, REPLAY_OLD_RECORD_NE
 from . import config, cmdlineutils
 import os, sys, shutil, filecmp, subprocess, tempfile, types
 from functools import wraps
+from glob import glob
 
 class CaptureMockManager:
     fileContents = "import capturemock; capturemock.interceptCommand()\n"
@@ -53,6 +54,8 @@ class CaptureMockManager:
         destFile = interceptName + ".exe"
         if sys.version_info.major == 3: # python 3, uses pyinstaller
             sourceFile = os.path.join(os.path.dirname(__file__), "capturemock_intercept.exe")
+            if not os.path.isfile(sourceFile) and getattr(sys, 'frozen', False): # from exe file, likely TextTest
+                sourceFile = glob(os.path.join(os.path.dirname(sys.executable), "lib", "python*", "site-packages", "capturemock", "capturemock_intercept.exe"))[0]
         else: # python2, uses old exemaker executable
             file = open(interceptName + ".py", "w")
             file.write("#!python.exe\nimport site\n")
