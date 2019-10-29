@@ -6,6 +6,7 @@ from capturemock.replayinfo import ReplayInfo
 from capturemock import recordfilehandler, cmdlineutils
 from capturemock import commandlinetraffic, fileedittraffic, clientservertraffic, customtraffic
 from locale import getpreferredencoding
+from glob import glob
 
 try:
     from collections import OrderedDict
@@ -31,7 +32,14 @@ def getPython():
                 full = os.path.join(path, "python.exe")
                 if os.path.exists(full):
                     return full
+            return "python.exe" # hope it's on the PATH, and that it's the right one. Native launcher is never right!
     return sys.executable
+
+def getServer():
+    if getattr(sys, 'frozen', False): # from exe file, likely TextTest
+        return glob(os.path.join(os.path.dirname(sys.executable), "lib", "python*", "site-packages", "capturemock", "server.py"))[0]
+    else:
+        return __file__
 
 def startServer(rcFiles,
                 mode,
@@ -41,7 +49,7 @@ def startServer(rcFiles,
                 recordEditDir,
                 sutDirectory,
                 environment):
-    cmdArgs = [ getPython(), __file__, "-m", str(mode) ]
+    cmdArgs = [ getPython(), getServer(), "-m", str(mode) ]
     if rcFiles:
         cmdArgs += [ "--rcfiles", ",".join(rcFiles) ]
     if recordFile:
