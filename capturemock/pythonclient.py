@@ -94,7 +94,7 @@ class PythonProxy(object):
             self.captureMockNameFinder[captureMockProxyName] = self
 
     def __getattr__(self, attrname):
-        if attrname in [ "__loader__", "__package__", "__name__", "__initializing__", "__spec__" ]:
+        if attrname in [ "__loader__", "__package__", "__initializing__", "__spec__" ]:
             raise AttributeError("'module' object has no attribute '" + attrname + "'")
         return self.captureMockTrafficHandler.getAttribute(self.captureMockProxyName,
                                                            attrname,
