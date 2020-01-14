@@ -8,11 +8,7 @@ CaptureMock:
 
 System requirements:
 
-    At least Python 2.6
-
-Other Open Source Software packaged with it/used by it:
-
-    ordereddict.py  : sequential dictionaries. (Raymond Hettinger, v1.1)
+    At least Python 2.6. Tested mainly on Python 3.7 currently.
 
 Installation:
 
@@ -25,10 +21,9 @@ Documentation:
 
 Test suite:
 
-    The complete test suite (which uses Texttest) is provided in this download under "tests". It has a wealth of little example programs contained in it. It should be possible to run it via texttest.py -d <path to tests>
-    (if you install TextTest, of course)
+    The complete test suite (which uses Texttest) can be downloaded from Github at https://github.com/texttest/capturemock-selftest. It has a wealth of little example programs contained in it. 
 
 Bugs/Support:
     
     Write to the mailing list at texttest-users@lists.sourceforge.net
-    Report bugs in the Launchpad bugtracker at https://bugs.launchpad.net/capturemock
+    Report bugs in the Github bugtracker at https://github.com/texttest/capturemock

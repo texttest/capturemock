@@ -119,3 +119,10 @@ Version 1.1.2
 Bugfix:
     - Fix bug with importing script on Windows, allow non-canonical paths in sys.path
     - Fix bug allowing relative path names for log config file
+
+Version 2.0.0
+
+Enhancements:
+    - Full support for Python 3.7
+    - Support for Python 3 on Windows
+    - various bugfixes
