@@ -466,7 +466,7 @@ class PythonFunctionCallTraffic(PythonModuleTraffic):
             if isSuitable(arg):
                 return self.makePythonName(arg)
             
-        for arg in sorted(self.kw.values()):
+        for _, arg in sorted(self.kw.items()):
             if isSuitable(arg):
                 return self.makePythonName(arg)
     
