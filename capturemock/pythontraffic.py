@@ -372,6 +372,7 @@ class PythonFunctionCallTraffic(PythonModuleTraffic):
             argsForRecord.append(recordArg)
         text = functionName + "(" + repr(argsForRecord)[1:-1] + ")"
         super(PythonFunctionCallTraffic, self).__init__(text, rcHandler, interceptModules, inCallback)
+        self.text = self.applyAlterations(self.text)
         checkRepeats = rcHandler.getboolean("check_repeated_calls", [ self.getIntercept(self.functionName), "python" ], True)
         if checkRepeats:
             self.shouldRecord = True
