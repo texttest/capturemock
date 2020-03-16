@@ -1,12 +1,12 @@
 import os, stat, sys, socket, threading, time, subprocess
 from copy import copy
+
+from capturemock import config
+from capturemock.replayinfo import ReplayInfo
+from capturemock import recordfilehandler, cmdlineutils
+from capturemock import commandlinetraffic, fileedittraffic, clientservertraffic, customtraffic
 from locale import getpreferredencoding
 from glob import glob
-
-from . import config
-from .replayinfo import ReplayInfo
-from . import recordfilehandler, cmdlineutils
-from . import commandlinetraffic, fileedittraffic, clientservertraffic, customtraffic
 
 try:
     from collections import OrderedDict
