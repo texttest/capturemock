@@ -237,6 +237,9 @@ class ServerDispatcher:
             return server
 
     def getIpAddress(self):
+        # Code below can cause complications with VPNs etc. Default is local access only, sufficient in 99.9% of cases
+        if not self.rcHandler.getboolean("server_remote_access", [ "general" ], False):
+            return "127.0.0.1"
         try:
             # Doesn't always work, sometimes not available
             return socket.gethostbyname(socket.gethostname())
