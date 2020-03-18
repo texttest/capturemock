@@ -37,9 +37,9 @@ def getPython():
 
 def getServer():
     if getattr(sys, 'frozen', False): # from exe file, likely TextTest
-        return glob(os.path.join(os.path.dirname(sys.executable), "lib", "python*", "site-packages", "capturemock", "server.py"))[0]
+        return [os.path.join(os.path.dirname(sys.executable), "capturemock_server.exe")]
     else:
-        return __file__
+        return [getPython(), __file__]
 
 def startServer(rcFiles,
                 mode,
@@ -49,7 +49,7 @@ def startServer(rcFiles,
                 recordEditDir,
                 sutDirectory,
                 environment):
-    cmdArgs = [ getPython(), getServer(), "-m", str(mode) ]
+    cmdArgs = getServer() + [ "-m", str(mode) ]
     if rcFiles:
         cmdArgs += [ "--rcfiles", ",".join(rcFiles) ]
     if recordFile:
@@ -527,7 +527,7 @@ class RecordFileHandler(recordfilehandler.RecordFileHandler):
         self.lock.release()
 
 
-if __name__ == "__main__":
+def main():
     parser = cmdlineutils.create_option_parser()
     options = parser.parse_args()[0] # no positional arguments
 
@@ -535,3 +535,7 @@ if __name__ == "__main__":
 
     server = ServerDispatcher(options)
     server.run()
+
+
+if __name__ == "__main__":
+    main()
