@@ -242,15 +242,14 @@ class CaptureMockDecorator(object):
     def fileContentsEqual(self, fn1, fn2):
         bufsize = 8*1024
         # copied from filecmp.py, adding universal line ending support
-        fp1 = open(fn1, "rU")
-        fp2 = open(fn2, "rU")
-        while True:
-            b1 = fp1.read(bufsize)
-            b2 = fp2.read(bufsize)
-            if b1 != b2:
-                return False
-            if not b1:
-                return True
+        with open(fn1, newline=None) as fp1, open(fn2, newline=None) as fp2:
+            while True:
+                b1 = fp1.read(bufsize)
+                b2 = fp2.read(bufsize)
+                if b1 != b2:
+                    return False
+                if not b1:
+                    return True
 
     def checkMatching(self, recordFile, replayFile):
         if os.path.isfile(recordFile):

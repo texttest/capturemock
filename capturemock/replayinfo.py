@@ -107,13 +107,14 @@ class ReplayInfo:
     def readIntoList(self, replayFile):
         trafficList = []
         currTraffic = ""
-        for line in open(replayFile, "rU"):
-            prefix = line.split(":")[0]
-            if len(prefix) < 10 and (prefix.startswith("<-") or prefix[-5:-3] == "->"):
-                if currTraffic:
-                    trafficList.append(currTraffic)
-                currTraffic = ""
-            currTraffic += line
+        with open(replayFile, newline=None) as f:
+            for line in f:
+                prefix = line.split(":")[0]
+                if len(prefix) < 10 and (prefix.startswith("<-") or prefix[-5:-3] == "->"):
+                    if currTraffic:
+                        trafficList.append(currTraffic)
+                    currTraffic = ""
+                currTraffic += line
         if currTraffic:
             trafficList.append(currTraffic)
         return trafficList
@@ -280,7 +281,7 @@ class ReplayedResponseHandler:
 
 
 def filterFileForReplay(itemInfo, replayFile):
-    with open(replayFile, "rU") as f:
+    with open(replayFile, newline=None) as f:
         return ReplayInfo.filterForReplay(itemInfo, f)
 
 def filterCommands(commands, replayFile):
