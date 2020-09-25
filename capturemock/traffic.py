@@ -119,7 +119,7 @@ class BaseTraffic(object):
                     + quoteChar * 2 + formatted_string[endPos:]
 
         return formatted_string
-
+    
 class Traffic(BaseTraffic):
     def __init__(self, text, responseFile, *args):
         super(Traffic, self).__init__(text, *args)
@@ -143,6 +143,10 @@ class Traffic(BaseTraffic):
 
     def filterReplay(self, trafficList):
         return trafficList
+    
+    def makeResponseTraffic(self, text, responseClass, rcHandler):
+        return responseClass(text, self.responseFile, rcHandler)
+
 
 
 class ResponseTraffic(Traffic):

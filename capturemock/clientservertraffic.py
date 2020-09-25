@@ -2,6 +2,9 @@
 
 import socket, sys
 from capturemock import traffic
+from urllib.request import urlopen
+from locale import getpreferredencoding
+from urllib.error import HTTPError
 
 try:
     import xmlrpclib
@@ -67,6 +70,45 @@ class XmlRpcClientTraffic(ClientSocketTraffic):
 
     def getXmlRpcResponse(self):
         return "" # not a response in the xmlrpc sense...
+    
+class HTTPClientTraffic(ClientSocketTraffic):
+    def __init__(self, text=None, responseFile=None, rcHandler=None, method="GET", path="/", headers={}, handler=None):
+        if responseFile is None:
+            parts = text.split(" ", 2)
+            method = parts[0]
+            self.path = parts[1]
+            if len(parts) > 2:
+                textStr = parts[2]
+                self.payload = textStr.encode(getpreferredencoding())
+            else:
+                textStr = ""
+                self.payload = None
+        else:
+            self.path = path
+            self.payload = text
+            textStr = text.decode(getpreferredencoding()) if text else ""
+        self.headers = headers
+        self.handler = handler
+        mainText = method + " " + self.path
+        if self.payload is not None:
+            text = mainText + " " + textStr
+        else:
+            text = mainText
+        ClientSocketTraffic.__init__(self, text, responseFile, rcHandler)
+        self.text = self.applyAlterations(self.text)
+
+    def forwardToServer(self):
+        try:
+            response = urlopen(self.destination + self.path, data=self.payload)
+            text = str(response.read(), getpreferredencoding())
+            return [ HTTPServerTraffic(response.status, text, response.getheaders(), self.responseFile, handler=self.handler) ]
+        except HTTPError as e:
+            return [ HTTPServerTraffic(e.code, e.reason, {}, self.responseFile, handler=self.handler) ]
+        
+    def makeResponseTraffic(self, text, responseClass, rcHandler):
+        status, body = text.split(" ", 1)
+        return responseClass(int(status), body, {}, self.responseFile, self.handler)
+
 
 
 class ServerTraffic(traffic.Traffic):
@@ -92,6 +134,23 @@ class XmlRpcServerTraffic(ServerTraffic):
             raise self.responseObject
         else:
             return self.responseObject
+        
+class HTTPServerTraffic(ServerTraffic):
+    def __init__(self, status, text, headers, responseFile, handler):
+        self.body = text
+        ServerTraffic.__init__(self, str(status) + " " + text, responseFile)
+        self.status = status
+        self.headers = headers
+        self.handler = handler
+    
+    def forwardToDestination(self):
+        self.handler.send_response(self.status)
+        for hdr, value in self.headers:
+            self.handler.send_header(hdr, value)
+        self.handler.end_headers()
+        self.write(self.body)
+        # Don't close the file, the HTTP server mechanism does that for us
+        return []
 
 
 class ServerStateTraffic(ServerTraffic):
@@ -103,6 +162,14 @@ class ServerStateTraffic(ServerTraffic):
             host, port = lastWord.split(":")
             if port.isdigit():
                 ClientSocketTraffic.setServerLocation((host, int(port)))
+
+    def forwardToDestination(self):
+        return []
+    
+class HTTPServerStateTraffic(ServerTraffic):
+    def __init__(self, dest):
+        ServerTraffic.__init__(self, "POST /capturemock/setServerLocation <address>", None)
+        ClientSocketTraffic.setServerLocation(dest)
 
     def forwardToDestination(self):
         return []

@@ -41,6 +41,7 @@ class CaptureMockManager:
                                                     sutDirectory,
                                                     environment)
             self.serverAddress = self.serverProcess.stdout.readline().strip()
+            self.serverProtocol = rcHandler.get("server_protocol", [ "general" ], "classic")
 
             # And environment it shouldn't get...
             environment["CAPTUREMOCK_SERVER"] = self.serverAddress
@@ -103,7 +104,7 @@ class CaptureMockManager:
         if self.serverProcess:
             if self.serverAddress:
                 from .server import stopServer
-                stopServer(self.serverAddress)
+                stopServer(self.serverAddress, self.serverProtocol)
             self.writeServerErrors()
             self.serverProcess = None
 

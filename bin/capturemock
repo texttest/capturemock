@@ -5,9 +5,9 @@ import os, sys
 def removeSelfFromPath():
    # On Windows, this file is capturemock.py, which means it can get imported!
    # Remove ourselves and cause a reimport in this case
-   binDir = os.path.normpath(os.path.dirname(os.path.abspath(__file__))).replace("/", "\\")
+   binDir = os.path.normpath(os.path.dirname(os.path.abspath(__file__))).replace("/", "\\").lower()
    for path in sys.path:
-      if binDir == os.path.normpath(path).replace("/", "\\"):
+      if binDir == os.path.normpath(path).replace("/", "\\").lower():
          sys.path.remove(path)
          break
 

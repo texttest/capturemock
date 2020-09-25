@@ -18,6 +18,8 @@ if sys.version_info[0] < 3:
     from xmlrpclib import Fault, ServerProxy
     from SimpleXMLRPCServer import SimpleXMLRPCServer
 else:
+    from urllib.request import urlopen
+    from http.server import HTTPServer, BaseHTTPRequestHandler
     from socketserver import TCPServer, StreamRequestHandler
     from xmlrpc.client import Fault, ServerProxy
     from xmlrpc.server import SimpleXMLRPCServer
@@ -69,8 +71,10 @@ def startServer(rcFiles,
                             stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE)
 
-def stopServer(servAddr):
-    if servAddr.startswith("http"):
+def stopServer(servAddr, protocol):
+    if protocol == "http":
+        urlopen(servAddr + "/capturemock/shutdownServer")
+    elif protocol == "xmlrpc":
         s = ServerProxy(servAddr)
         s.shutdownCaptureMockServer()
     else:
@@ -149,6 +153,68 @@ class ClassicTrafficServer(TCPServer):
     def getAddress(self):
         host, port = self.socket.getsockname()
         return host + ":" + str(port)
+    
+
+class HTTPTrafficHandler(BaseHTTPRequestHandler):
+    dispatcher = None
+    requestCount = 0
+    def read_data(self):
+        content_length = int(self.headers['Content-Length']) # <--- Gets the size of data
+        return self.rfile.read(content_length)
+    
+    def log_message(self, format, *args):
+        self.dispatcher.diag.debug(format % args)
+
+    def do_GET(self):
+        HTTPTrafficHandler.requestCount += 1
+        if self.path == "/capturemock/shutdownServer":
+            self.send_response(200)
+            self.end_headers()
+            self.dispatcher.server.setShutdownFlag()
+        else:
+            traffic = clientservertraffic.HTTPClientTraffic(responseFile=self.wfile, method="GET", path=self.path, headers=self.headers, 
+                                                            rcHandler=self.dispatcher.rcHandler, handler=self)
+            self.dispatcher.process(traffic, self.requestCount)
+
+    def do_POST(self):
+        HTTPTrafficHandler.requestCount += 1
+        rawbytes = self.read_data()
+        text = rawbytes.decode(getpreferredencoding())
+        if self.path == "/capturemock/setServerLocation":
+            traffic = clientservertraffic.HTTPServerStateTraffic(text)
+            self.send_response(200)
+            self.end_headers()
+        else:
+            traffic = clientservertraffic.HTTPClientTraffic(rawbytes, self.wfile, method="POST", path=self.path, headers=self.headers, 
+                                                            rcHandler=self.dispatcher.rcHandler, handler=self)
+        self.dispatcher.process(traffic, self.requestCount)
+        
+
+class HTTPTrafficServer(HTTPServer):
+    def __init__(self, address):
+        HTTPServer.__init__(self, address, HTTPTrafficHandler)
+    
+    def run(self):
+        self.serve_forever()
+
+    def getAddress(self):
+        host, port = self.socket.getsockname()
+        # hardcode http? Seems to be what you get...
+        return "http://" + host + ":" + str(port)
+
+    def setShutdownFlag(self):
+        # Not supposed to know about this variable, implementation detail of SocketServer
+        # But seems like the only way to shutdown the server from within a request
+        # Otherwise we have to start using ForkingMixin, ThreadingMixin etc which seems like overkill just to access a variable
+        self._BaseServer__shutdown_request = True
+
+    @staticmethod
+    def getTrafficClasses(incoming):
+        if incoming:
+            return [ clientservertraffic.HTTPServerStateTraffic, clientservertraffic.HTTPClientTraffic ]
+        else:
+            return [ clientservertraffic.HTTPServerTraffic, clientservertraffic.HTTPClientTraffic ]
+
 
 class XmlRpcTrafficServer(SimpleXMLRPCServer):
     def run(self):
@@ -231,6 +297,9 @@ class ServerDispatcher:
         if protocol == "classic":
             TrafficRequestHandler.dispatcher = self
             return ClassicTrafficServer((ipAddress, 0), TrafficRequestHandler)
+        elif protocol == "http":
+            HTTPTrafficHandler.dispatcher = self
+            return HTTPTrafficServer((ipAddress, 0))
         elif protocol == "xmlrpc":
             server = XmlRpcTrafficServer((ipAddress, 0), logRequests=False, use_builtin_types=True)
             server.register_instance(XmlRpcDispatchInstance(self))
@@ -426,7 +495,7 @@ class ServerDispatcher:
                     changedPaths = self.findFilesAndLinks(storedFile)
                     return fileedittraffic.FileEditTraffic(fileName, editedFile, storedFile, changedPaths, reproduce=True)
         else:
-            return responseClass(text, traffic.responseFile, self.rcHandler)
+            return traffic.makeResponseTraffic(text, responseClass, self.rcHandler)
 
     def findRemovedPath(self, removedPath):
         # We know this path is removed, what about its parents?
@@ -478,8 +547,8 @@ class TrafficRequestHandler(StreamRequestHandler):
         StreamRequestHandler.__init__(self, *args)
 
     def handle(self):
-        self.dispatcher.diag.debug("Received incoming request...")
         text = self.rfile.read().decode()
+        self.dispatcher.diag.debug("Received incoming request...\n" + text)
         try:
             self.dispatcher.processText(text, self.wfile, self.requestNumber)
         except config.CaptureMockReplayError as e:
