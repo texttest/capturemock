@@ -2,7 +2,7 @@
 
 import socket, sys
 from capturemock import traffic
-from urllib.request import urlopen
+from urllib.request import urlopen, Request
 from locale import getpreferredencoding
 from urllib.error import HTTPError
 
@@ -73,7 +73,7 @@ class XmlRpcClientTraffic(ClientSocketTraffic):
     
 class HTTPClientTraffic(ClientSocketTraffic):
     def __init__(self, text=None, responseFile=None, rcHandler=None, method="GET", path="/", headers={}, handler=None):
-        if responseFile is None:
+        if responseFile is None: # replay
             parts = text.split(" ", 2)
             method = parts[0]
             self.path = parts[1]
@@ -99,7 +99,8 @@ class HTTPClientTraffic(ClientSocketTraffic):
 
     def forwardToServer(self):
         try:
-            response = urlopen(self.destination + self.path, data=self.payload)
+            request = Request(self.destination + self.path, data=self.payload, headers=self.headers)
+            response = urlopen(request)
             text = str(response.read(), getpreferredencoding())
             return [ HTTPServerTraffic(response.status, text, response.getheaders(), self.responseFile, handler=self.handler) ]
         except HTTPError as e:
