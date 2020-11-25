@@ -1,10 +1,11 @@
 """ Traffic classes for capturing client-server interaction """
 
-import socket, sys
+import socket, sys, base64
 from capturemock import traffic
 from urllib.request import urlopen, Request
 from locale import getpreferredencoding
 from urllib.error import HTTPError
+from pprint import pformat
 
 try:
     import xmlrpclib
@@ -72,6 +73,7 @@ class XmlRpcClientTraffic(ClientSocketTraffic):
         return "" # not a response in the xmlrpc sense...
     
 class HTTPClientTraffic(ClientSocketTraffic):
+    jwtStr = "\n--JWT:"
     def __init__(self, text=None, responseFile=None, rcHandler=None, method="GET", path="/", headers={}, handler=None):
         if responseFile is None: # replay
             parts = text.split(" ", 2)
@@ -79,6 +81,8 @@ class HTTPClientTraffic(ClientSocketTraffic):
             self.path = parts[1]
             if len(parts) > 2:
                 textStr = parts[2]
+                if HTTPClientTraffic.jwtStr in textStr:
+                    textStr = textStr.split(HTTPClientTraffic.jwtStr, 1)[0]
                 self.payload = textStr.encode(getpreferredencoding())
             else:
                 textStr = ""
@@ -94,8 +98,25 @@ class HTTPClientTraffic(ClientSocketTraffic):
             text = mainText + " " + textStr
         else:
             text = mainText
+        auth = self.headers.get("Authorization")
+        if auth:
+            jwt = self.decodeJwt(auth)
+            if jwt:
+                text += HTTPClientTraffic.jwtStr + jwt
         ClientSocketTraffic.__init__(self, text, responseFile, rcHandler)
         self.text = self.applyAlterations(self.text)
+        
+    def decodeJwt(self, authStr):
+        if authStr.count(".") != 2:
+            return 
+        
+        payloadPart = authStr.split(".")[1]
+        while len(payloadPart) % 4 != 0:
+            payloadPart += '='
+        
+        payload = base64.urlsafe_b64decode(payloadPart)
+        payloadStr = str(payload, "utf-8")
+        return pformat(eval(payloadStr))
 
     def forwardToServer(self):
         try:
