@@ -118,7 +118,7 @@ class ClassicTrafficServer(TCPServer):
     @staticmethod
     def getTrafficClasses(incoming):
         if incoming:
-            return [ clientservertraffic.ServerStateTraffic, clientservertraffic.ClientSocketTraffic ]
+            return [ clientservertraffic.ClassicServerStateTraffic, clientservertraffic.ClientSocketTraffic ]
         else:
             return [ clientservertraffic.ServerTraffic, clientservertraffic.ClientSocketTraffic ]
 
@@ -183,7 +183,7 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
         rawbytes = self.read_data()
         text = rawbytes.decode(getpreferredencoding())
         if self.path == "/capturemock/setServerLocation":
-            traffic = clientservertraffic.HTTPServerStateTraffic(text)
+            traffic = clientservertraffic.HTTPServerStateTraffic(text, rcHandler=self.dispatcher.rcHandler)
             self.send_response(200)
             self.end_headers()
         else:
@@ -258,7 +258,7 @@ class XmlRpcDispatchInstance:
                 self.dispatcher.server.setShutdownFlag()
                 return ""
             elif method == "setServerLocation":
-                traffic = clientservertraffic.XmlRpcServerStateTraffic(params[0])
+                traffic = clientservertraffic.XmlRpcServerStateTraffic(params[0], rcHandler=self.dispatcher.rcHandler)
             else:
                 traffic = clientservertraffic.XmlRpcClientTraffic(method=method, params=params, rcHandler=self.dispatcher.rcHandler)
             responses = self.dispatcher.process(traffic, self.requestCount)

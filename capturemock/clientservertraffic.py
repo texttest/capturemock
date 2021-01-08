@@ -21,12 +21,13 @@ class ClientSocketTraffic(traffic.Traffic):
         return self.forwardToServer() if self.destination is not None else []
 
     @classmethod
-    def setServerLocation(cls, location):
+    def setServerLocation(cls, location, clientRecord=False):
         if cls.destination is None:
             cls.destination = location
-            # If we get a server state message, switch the order around
-            cls.direction = "->"
-            ServerTraffic.direction = "<-"
+            if not clientRecord:
+                # If we get a server state message, switch the order around
+                cls.direction = "->"
+                ServerTraffic.direction = "<-"
 
     def forwardToServer(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -176,30 +177,35 @@ class HTTPServerTraffic(ServerTraffic):
 
 
 class ServerStateTraffic(ServerTraffic):
-    socketId = "SUT_SERVER"
-    def __init__(self, inText, *args):
-        ServerTraffic.__init__(self, inText, *args)
-        lastWord = inText.strip().split()[-1]
-        if ":" in lastWord:
-            host, port = lastWord.split(":")
-            if port.isdigit():
-                ClientSocketTraffic.setServerLocation((host, int(port)))
+    def __init__(self, inText, dest, responseFile, rcHandler):
+        ServerTraffic.__init__(self, inText, responseFile, rcHandler)
+        self.clientRecord = rcHandler.getboolean("record_for_client", [ "general" ], False)
+        if dest:
+            ClientSocketTraffic.setServerLocation(dest, self.clientRecord)
 
     def forwardToDestination(self):
         return []
     
-class HTTPServerStateTraffic(ServerTraffic):
-    def __init__(self, dest):
-        ServerTraffic.__init__(self, "POST /capturemock/setServerLocation <address>", None)
-        ClientSocketTraffic.setServerLocation(dest)
+    def record(self, *args):
+        if not self.clientRecord:
+            ServerTraffic.record(self, *args)
+    
+class ClassicServerStateTraffic(ServerStateTraffic):
+    socketId = "SUT_SERVER"
+    def __init__(self, inText, *args):
+        dest = None
+        lastWord = inText.strip().split()[-1]
+        if ":" in lastWord:
+            host, port = lastWord.split(":")
+            if port.isdigit():
+                dest = host, int(port)
+        ServerStateTraffic.__init__(self, inText, dest, *args)
+    
+class HTTPServerStateTraffic(ServerStateTraffic):
+    def __init__(self, dest, rcHandler):
+        ServerStateTraffic.__init__(self, "POST /capturemock/setServerLocation <address>", dest, None, rcHandler)            
 
-    def forwardToDestination(self):
-        return []
 
-class XmlRpcServerStateTraffic(ServerTraffic):
-    def __init__(self, dest, *args):
-        ServerTraffic.__init__(self, "setServerLocation(<address>)", None)
-        ClientSocketTraffic.setServerLocation(xmlrpclib.ServerProxy(dest))
-
-    def forwardToDestination(self):
-        return []
+class XmlRpcServerStateTraffic(ServerStateTraffic):
+    def __init__(self, dest, rcHandler):
+        ServerStateTraffic.__init__(self, "setServerLocation(<address>)", xmlrpclib.ServerProxy(dest), None, rcHandler)
