@@ -290,7 +290,7 @@ class PythonModuleTraffic(PythonTraffic):
     def getWrapper(self, instance, namingHint=None, **kw):
         # hasattr fails if the intercepted instance defines __getattr__, when it always returns True
         if self.instanceHasAttribute(instance, "captureMockTarget"):
-            return self.getWrapper(instance.captureMockTarget, namingHint)
+            return self.getWrapper(instance.captureMockTarget, namingHint=namingHint)
         classDesc = self.getClassDescription(self.getClass(instance))
         return PythonInstanceWrapper.getWrapperFor(instance, classDesc, namingHint)
 
@@ -342,7 +342,7 @@ class PythonAttributeTraffic(PythonModuleTraffic):
         return not self.isCallableType(obj)
 
     def getWrapper(self, instance, namingHint=None, responseIsBasic=True):
-        wrapper = PythonModuleTraffic.getWrapper(self, instance, namingHint)
+        wrapper = PythonModuleTraffic.getWrapper(self, instance, namingHint=namingHint)
         return wrapper if responseIsBasic else self.cachedInstances.setdefault(self.text, wrapper)
 
         
@@ -472,7 +472,7 @@ class PythonFunctionCallTraffic(PythonModuleTraffic):
                 return self.makePythonName(arg)
     
     def getWrapper(self, instance, **kw):
-        return PythonModuleTraffic.getWrapper(self, instance, self.getNamingHint())
+        return PythonModuleTraffic.getWrapper(self, instance, namingHint=self.getNamingHint())
                 
 
 class PythonResponseTraffic(traffic.BaseTraffic):

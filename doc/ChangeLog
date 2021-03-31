@@ -126,3 +126,9 @@ Enhancements:
     - Full support for Python 3.7
     - Support for Python 3 on Windows
     - various bugfixes
+
+Version 2.0.4
+
+Bugfixes:
+    - Handle exceptions in Python 3.9 with stricter keyword requirements
+  
