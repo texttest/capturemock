@@ -19,6 +19,7 @@ if sys.version_info[0] < 3:
     from SimpleXMLRPCServer import SimpleXMLRPCServer
 else:
     from urllib.request import urlopen
+    from urllib.parse import urlparse, urlunparse
     from http.server import HTTPServer, BaseHTTPRequestHandler
     from socketserver import TCPServer, StreamRequestHandler
     from xmlrpc.client import Fault, ServerProxy
@@ -166,6 +167,11 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
     
     def log_message(self, format, *args):
         self.dispatcher.diag.debug(format % args)
+        
+    def get_local_path(self):
+        urldata = urlparse(self.path)
+        urldata = urldata._replace(scheme="", netloc="")
+        return urlunparse(urldata)
 
     def do_GET(self):
         HTTPTrafficHandler.requestCount += 1
@@ -174,7 +180,7 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.dispatcher.server.setShutdownFlag()
         else:
-            traffic = clientservertraffic.HTTPClientTraffic(responseFile=self.wfile, method="GET", path=self.path, headers=self.headers, 
+            traffic = clientservertraffic.HTTPClientTraffic(responseFile=self.wfile, method="GET", path=self.get_local_path(), headers=self.headers, 
                                                             rcHandler=self.dispatcher.rcHandler, handler=self)
             self.dispatcher.process(traffic, self.requestCount)
 
@@ -187,7 +193,7 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.end_headers()
         else:
-            traffic = clientservertraffic.HTTPClientTraffic(rawbytes, self.wfile, method="POST", path=self.path, headers=self.headers, 
+            traffic = clientservertraffic.HTTPClientTraffic(rawbytes, self.wfile, method="POST", path=self.get_local_path(), headers=self.headers, 
                                                             rcHandler=self.dispatcher.rcHandler, handler=self)
         self.dispatcher.process(traffic, self.requestCount)
         
