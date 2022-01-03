@@ -73,7 +73,22 @@ class XmlRpcClientTraffic(ClientSocketTraffic):
 
     def getXmlRpcResponse(self):
         return "" # not a response in the xmlrpc sense...
-    
+
+def decodeBytes(rawBytes):
+    textStr = rawBytes.decode(getpreferredencoding()) if rawBytes else ""
+    if os.name == "nt":
+        return textStr.replace("\r\n", "\n")
+    else:
+        return textStr
+
+def encodeString(textStr):
+    rawBytes = textStr.encode(getpreferredencoding())
+    if os.name == "nt":
+        return rawBytes.replace(b"\n", b"\r\n")
+    else:
+        return rawBytes
+
+
 class HTTPClientTraffic(ClientSocketTraffic):
     headerStr = "\n--HEA:"
     ignoreHeaders = [ "Content-Length", "Host", "traceparent"] # provided automatically, or not usable when recorded
@@ -85,9 +100,7 @@ class HTTPClientTraffic(ClientSocketTraffic):
             if len(parts) > 2:
                 self.path = parts[1]
                 textStr = self.extractHeaders(parts[2])
-                self.payload = textStr.encode(getpreferredencoding())
-                if os.name == "nt":
-                    self.payload = self.payload.replace(b"\n", b"\r\n")
+                self.payload = encodeString(textStr)
             else:
                 self.path = self.extractHeaders(parts[1])
                 textStr = ""
@@ -96,9 +109,7 @@ class HTTPClientTraffic(ClientSocketTraffic):
             self.method = method
             self.path = path
             self.payload = text
-            textStr = text.decode(getpreferredencoding()) if text else ""
-            if os.name == "nt":
-                textStr = textStr.replace("\r\n", "\n")
+            textStr = decodeBytes(text)
             self.headers = headers
         self.handler = handler
         mainText = self.method + " " + self.path
@@ -126,7 +137,7 @@ class HTTPClientTraffic(ClientSocketTraffic):
         try:
             request = Request(self.destination + self.path, data=self.payload, headers=self.headers, method=self.method)
             response = urlopen(request)
-            text = str(response.read(), getpreferredencoding())
+            text = decodeBytes(response.read())
             return [ HTTPServerTraffic(response.status, text, response.getheaders(), self.responseFile, handler=self.handler) ]
         except HTTPError as e:
             return [ HTTPServerTraffic(e.code, e.reason, {}, self.responseFile, handler=self.handler) ]
@@ -172,12 +183,17 @@ class HTTPServerTraffic(ServerTraffic):
     def forwardToDestination(self):
         self.handler.send_response(self.status)
         for hdr, value in self.headers:
-            self.handler.send_header(hdr, value)
+            # Might need to handle chunked transfer, for now, just ignore it and return it as one
+            if hdr.lower() != "transfer-encoding" or value.lower() != "chunked":
+                self.handler.send_header(hdr, value)
         self.handler.end_headers()
         self.write(self.body)
         # Don't close the file, the HTTP server mechanism does that for us
         return []
-
+    
+    def write(self, message):
+        if self.responseFile:
+            self.responseFile.write(encodeString(message))
 
 class ServerStateTraffic(ServerTraffic):
     def __init__(self, inText, dest, responseFile, rcHandler):
