@@ -6,6 +6,7 @@ from urllib.request import urlopen, Request
 from locale import getpreferredencoding
 from urllib.error import HTTPError
 from pprint import pformat
+import os
 
 try:
     import xmlrpclib
@@ -74,54 +75,56 @@ class XmlRpcClientTraffic(ClientSocketTraffic):
         return "" # not a response in the xmlrpc sense...
     
 class HTTPClientTraffic(ClientSocketTraffic):
-    jwtStr = "\n--JWT:"
+    headerStr = "\n--HEA:"
+    ignoreHeaders = [ "Content-Length", "Host", "traceparent"] # provided automatically, or not usable when recorded
     def __init__(self, text=None, responseFile=None, rcHandler=None, method="GET", path="/", headers={}, handler=None):
         if responseFile is None: # replay
             parts = text.split(" ", 2)
-            method = parts[0]
-            self.path = parts[1]
+            self.headers ={}
+            self.method = parts[0]
             if len(parts) > 2:
-                textStr = parts[2]
-                if HTTPClientTraffic.jwtStr in textStr:
-                    textStr = textStr.split(HTTPClientTraffic.jwtStr, 1)[0]
+                self.path = parts[1]
+                textStr = self.extractHeaders(parts[2])
                 self.payload = textStr.encode(getpreferredencoding())
+                if os.name == "nt":
+                    self.payload = self.payload.replace(b"\n", b"\r\n")
             else:
+                self.path = self.extractHeaders(parts[1])
                 textStr = ""
                 self.payload = None
         else:
+            self.method = method
             self.path = path
             self.payload = text
             textStr = text.decode(getpreferredencoding()) if text else ""
-        self.headers = headers
+            if os.name == "nt":
+                textStr = textStr.replace("\r\n", "\n")
+            self.headers = headers
         self.handler = handler
-        mainText = method + " " + self.path
+        mainText = self.method + " " + self.path
         if self.payload is not None:
             text = mainText + " " + textStr
         else:
             text = mainText
-        auth = self.headers.get("Authorization")
-        if auth:
-            jwt = self.decodeJwt(auth)
-            if jwt:
-                text += HTTPClientTraffic.jwtStr + jwt
+        for header, value in self.headers.items():
+            if header not in self.ignoreHeaders:
+                text += self.headerStr + header + "=" + value
         ClientSocketTraffic.__init__(self, text, responseFile, rcHandler)
         self.text = self.applyAlterations(self.text)
-        
-    def decodeJwt(self, authStr):
-        if authStr.count(".") != 2:
-            return 
-        
-        payloadPart = authStr.split(".")[1]
-        while len(payloadPart) % 4 != 0:
-            payloadPart += '='
-        
-        payload = base64.urlsafe_b64decode(payloadPart)
-        payloadStr = str(payload, "utf-8")
-        return pformat(eval(payloadStr))
+
+    def extractHeaders(self, textStr):
+        if HTTPClientTraffic.headerStr in textStr:
+            parts = textStr.split(HTTPClientTraffic.headerStr)
+            for headerStr in parts[1:]:
+                header, value = headerStr.strip().split("=", 1)
+                self.headers[header] = value
+            return parts[0]
+        else:
+            return textStr
 
     def forwardToServer(self):
         try:
-            request = Request(self.destination + self.path, data=self.payload, headers=self.headers)
+            request = Request(self.destination + self.path, data=self.payload, headers=self.headers, method=self.method)
             response = urlopen(request)
             text = str(response.read(), getpreferredencoding())
             return [ HTTPServerTraffic(response.status, text, response.getheaders(), self.responseFile, handler=self.handler) ]

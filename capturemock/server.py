@@ -197,6 +197,27 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
                                                             rcHandler=self.dispatcher.rcHandler, handler=self)
         self.dispatcher.process(traffic, self.requestCount)
         
+    def do_method_with_payload(self, method):
+        HTTPTrafficHandler.requestCount += 1
+        rawbytes = self.read_data()
+        traffic = clientservertraffic.HTTPClientTraffic(rawbytes, self.wfile, method=method, path=self.get_local_path(), headers=self.headers, 
+                                                        rcHandler=self.dispatcher.rcHandler, handler=self)
+        self.dispatcher.process(traffic, self.requestCount)
+
+    def do_PATCH(self):
+        self.do_method_with_payload("PATCH")
+
+    def do_PUT(self):
+        self.do_method_with_payload("PUT")
+        
+    def do_DELETE(self):
+        HTTPTrafficHandler.requestCount += 1
+        traffic = clientservertraffic.HTTPClientTraffic(responseFile=self.wfile, method="DELETE", path=self.get_local_path(), headers=self.headers, 
+                                                        rcHandler=self.dispatcher.rcHandler, handler=self)
+        self.dispatcher.process(traffic, self.requestCount)
+        
+        
+        
 
 class HTTPTrafficServer(HTTPServer):
     def __init__(self, address):

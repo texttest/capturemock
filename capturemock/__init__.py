@@ -25,6 +25,7 @@ class CaptureMockManager:
         if config.isActive(mode, replayFile):
             # Environment which the server should get
             environment["CAPTUREMOCK_MODE"] = str(mode)
+            environment["PYTHONPATH"] = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             rcHandler = config.RcFileHandler(rcFiles)
             commands = rcHandler.getIntercepts("command line")
             for var in [ "CAPTUREMOCK_PROCESS_START", "CAPTUREMOCK_SERVER" ]:
@@ -109,7 +110,9 @@ class CaptureMockManager:
             self.serverProcess = None
 
     def writeServerErrors(self):
-        err = self.serverProcess.communicate()[1]
+        out, err = self.serverProcess.communicate()
+        if out:
+            sys.stdout.write("Output from CaptureMock Server :\n" + out)
         if err:
             sys.stderr.write("Error from CaptureMock Server :\n" + err)
 
