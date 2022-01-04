@@ -67,7 +67,7 @@ class CallStackChecker:
             return dirName
 
     def moduleExcluded(self, modName, mod):
-        if not hasattr(mod, "__file__"):
+        if not hasattr(mod, "__file__") or mod.__file__ is None:
             return False
         
         modFile = os.path.normcase(os.path.realpath(mod.__file__))

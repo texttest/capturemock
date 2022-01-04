@@ -101,7 +101,7 @@ class ClassicTrafficServer(TCPServer):
         # Join all remaining request threads so they don't
         # execute after Python interpreter has started to shut itself down.
         for t in threading.enumerate():
-            if t.getName() == "request":
+            if t.name == "request":
                 t.join()
 
     @classmethod

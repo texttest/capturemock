@@ -91,7 +91,8 @@ def encodeString(textStr):
 
 class HTTPClientTraffic(ClientSocketTraffic):
     headerStr = "\n--HEA:"
-    ignoreHeaders = [ "Content-Length", "Host", "traceparent"] # provided automatically, or not usable when recorded
+    ignoreHeaders = [ "Content-Length", "Host", "traceparent", "User-Agent"] # provided automatically, or not usable when recorded
+    defaultValues = {"Connection": "close", "Content-Type": "application/x-www-form-urlencoded", "Accept-Encoding": "identity"}
     def __init__(self, text=None, responseFile=None, rcHandler=None, method="GET", path="/", headers={}, handler=None):
         if responseFile is None: # replay
             parts = text.split(" ", 2)
@@ -118,7 +119,7 @@ class HTTPClientTraffic(ClientSocketTraffic):
         else:
             text = mainText
         for header, value in self.headers.items():
-            if header not in self.ignoreHeaders:
+            if header not in self.ignoreHeaders and self.defaultValues.get(header) != value:
                 text += self.headerStr + header + "=" + value
         ClientSocketTraffic.__init__(self, text, responseFile, rcHandler)
         self.text = self.applyAlterations(self.text)

@@ -194,18 +194,22 @@ class CommandLineTraffic(traffic.Traffic):
 
         return trafficList
 
+class CommandLineResponseTraffic(traffic.ResponseTraffic):
+    def __init__(self, text, *args):
+        if text and not text.endswith("\n"):
+            text += "\n"
+        super(CommandLineResponseTraffic, self).__init__(text, *args)
 
-class StdoutTraffic(traffic.ResponseTraffic):
+    def forwardToDestination(self):
+        self.write(self.text + "|TT_CMD_SEP|")
+        return []
+
+
+class StdoutTraffic(CommandLineResponseTraffic):
     typeId = "OUT"
-    def forwardToDestination(self):
-        self.write(self.text + "|TT_CMD_SEP|")
-        return []
 
-class StderrTraffic(traffic.ResponseTraffic):
+class StderrTraffic(CommandLineResponseTraffic):
     typeId = "ERR"
-    def forwardToDestination(self):
-        self.write(self.text + "|TT_CMD_SEP|")
-        return []
 
 class SysExitTraffic(traffic.ResponseTraffic):
     typeId = "EXC"

@@ -112,11 +112,11 @@ class ReplayInfo:
                 prefix = line.split(":")[0]
                 if len(prefix) < 10 and (prefix.startswith("<-") or prefix[-5:-3] == "->"):
                     if currTraffic:
-                        trafficList.append(currTraffic)
+                        trafficList.append(currTraffic.rstrip("\n"))
                     currTraffic = ""
                 currTraffic += line
         if currTraffic:
-            trafficList.append(currTraffic)
+            trafficList.append(currTraffic.rstrip("\n"))
         return trafficList
 
     def readReplayResponses(self, traffic, allClasses, exact=False):
