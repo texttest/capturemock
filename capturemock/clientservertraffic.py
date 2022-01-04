@@ -182,12 +182,13 @@ class HTTPServerTraffic(ServerTraffic):
         self.handler = handler
     
     def forwardToDestination(self):
-        self.handler.send_response(self.status)
-        for hdr, value in self.headers:
-            # Might need to handle chunked transfer, for now, just ignore it and return it as one
-            if hdr.lower() != "transfer-encoding" or value.lower() != "chunked":
-                self.handler.send_header(hdr, value)
-        self.handler.end_headers()
+        if self.handler:
+            self.handler.send_response(self.status)
+            for hdr, value in self.headers:
+                # Might need to handle chunked transfer, for now, just ignore it and return it as one
+                if hdr.lower() != "transfer-encoding" or value.lower() != "chunked":
+                    self.handler.send_header(hdr, value)
+            self.handler.end_headers()
         self.write(self.body)
         # Don't close the file, the HTTP server mechanism does that for us
         return []

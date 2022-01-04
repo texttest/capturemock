@@ -89,6 +89,11 @@ def stopServer(servAddr, protocol):
 
 
 class ClassicTrafficServer(TCPServer):
+    @classmethod
+    def createServer(cls, address, dispatcher):
+        TrafficRequestHandler.dispatcher = dispatcher
+        return cls((address, 0), TrafficRequestHandler)
+    
     def __init__(self, addrinfo, useThreads):
         TCPServer.__init__(self, addrinfo, TrafficRequestHandler)
         self.useThreads = useThreads
@@ -220,6 +225,11 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
         
 
 class HTTPTrafficServer(HTTPServer):
+    @classmethod
+    def createServer(cls, address, dispatcher):
+        HTTPTrafficHandler.dispatcher = dispatcher
+        return cls((address, 0))
+    
     def __init__(self, address):
         HTTPServer.__init__(self, address, HTTPTrafficHandler)
     
@@ -246,6 +256,12 @@ class HTTPTrafficServer(HTTPServer):
 
 
 class XmlRpcTrafficServer(SimpleXMLRPCServer):
+    @classmethod
+    def createServer(cls, address, dispatcher):
+        server = cls((address, 0), logRequests=False, use_builtin_types=True)
+        server.register_instance(XmlRpcDispatchInstance(dispatcher))
+        return server
+
     def run(self):
         self.serve_forever()
 
@@ -299,8 +315,8 @@ class XmlRpcDispatchInstance:
             exceptionString = "".join(format_exception(type, value, traceback))
             sys.stderr.write(exceptionString)
             return ""
-
-class ServerDispatcher:
+        
+class ServerDispatcherBase:
     def __init__(self, options):
         rcFiles = options.rcfiles.split(",") if options.rcfiles else []
         self.rcHandler = config.RcFileHandler(rcFiles)
@@ -311,49 +327,21 @@ class ServerDispatcher:
         self.recordFileHandler = RecordFileHandler(options.record)
         self.topLevelForEdit = [] # contains only paths explicitly given. Always present.
         self.fileEditData = OrderedDict() # contains all paths, including subpaths of the above. Empty when replaying.
-        self.terminate = False
         self.hasAsynchronousEdits = False
-        # Default value of 5 isn't very much...
-        # There doesn't seem to be any disadvantage of allowing a longer queue, so we will increase it by a lot...
-        self.request_queue_size = 500
-        self.server = self.makeServer()
-        sys.stdout.write(self.server.getAddress() + "\n") # Tell our caller, so they can tell the program being handled
-        sys.stdout.flush()
-
-    def makeServer(self):
+        self.serverClass = self.getServerClass()
+        
+    def getServerClass(self):
         protocol = self.rcHandler.get("server_protocol", [ "general" ], "classic")
-        ipAddress = self.getIpAddress()
         if protocol == "classic":
-            TrafficRequestHandler.dispatcher = self
-            return ClassicTrafficServer((ipAddress, 0), TrafficRequestHandler)
+            return ClassicTrafficServer
         elif protocol == "http":
-            HTTPTrafficHandler.dispatcher = self
-            return HTTPTrafficServer((ipAddress, 0))
+            return HTTPTrafficServer
         elif protocol == "xmlrpc":
-            server = XmlRpcTrafficServer((ipAddress, 0), logRequests=False, use_builtin_types=True)
-            server.register_instance(XmlRpcDispatchInstance(self))
-            return server
-
-    def getIpAddress(self):
-        # Code below can cause complications with VPNs etc. Default is local access only, sufficient in 99.9% of cases
-        if not self.rcHandler.getboolean("server_remote_access", [ "general" ], False):
-            return "127.0.0.1"
-        try:
-            # Doesn't always work, sometimes not available
-            return socket.gethostbyname(socket.gethostname())
-        except socket.error:
-            # Most of the time we only need to be able to talk locally, fall back to that
-            return socket.gethostbyname("localhost")
-
-    def run(self):
-        self.diag.debug("Starting capturemock server")
-        self.server.run()
-        self.diag.debug("Shut down capturemock server")
+            return XmlRpcTrafficServer
         
     def shutdown(self):
-        self.diag.debug("Told to shut down!")
-        self.server.shutdown()
-
+        pass
+        
     def findFilesAndLinks(self, path):
         if not os.path.exists(path):
             return []
@@ -402,6 +390,12 @@ class ServerDispatcher:
                                    time.strftime("%d%b%H:%M:%S", time.localtime(modTime)) + " and size " + str(modSize))
         return topLevelForEdit, fileEditData
 
+    def replay_all(self):
+        # Pulls everything out of replay info - then we go to "record" mode
+        for i, text in enumerate(self.replayInfo.extractAllTraffic()):
+            traffic = self.parseClientTraffic(text)
+            self.process(traffic, i + 1)
+
     def processText(self, text, wfile, reqNo):
         self.diag.debug("Request text : " + text)
         if text.startswith("TERMINATE_SERVER"):
@@ -410,6 +404,11 @@ class ServerDispatcher:
             traffic = self.parseTraffic(text, wfile)
             self.process(traffic, reqNo)
             self.diag.debug("Finished processing incoming request")
+
+    def parseClientTraffic(self, text):
+        for cls in self.serverClass.getTrafficClasses(incoming=True):
+            if cls.typeId == "CLI":
+                return cls(text[6:], None, self.rcHandler)
 
     def parseTraffic(self, text, wfile):
         for cls in self.getTrafficClasses(incoming=True):
@@ -452,7 +451,7 @@ class ServerDispatcher:
     def getTrafficClasses(self, incoming):
         classes = []
         # clientservertraffic must be last, it's the fallback option
-        for mod in [ commandlinetraffic, fileedittraffic, customtraffic, self.server ]:
+        for mod in [ commandlinetraffic, fileedittraffic, customtraffic, self.serverClass ]:
             classes += mod.getTrafficClasses(incoming)
         return classes
 
@@ -568,6 +567,44 @@ class ServerDispatcher:
         self.diag.debug("Done getting latest file edits.")
         return traffic
 
+        
+
+class ServerDispatcher(ServerDispatcherBase):
+    def __init__(self, options):
+        ServerDispatcherBase.__init__(self, options)
+        self.terminate = False
+        # Default value of 5 isn't very much...
+        # There doesn't seem to be any disadvantage of allowing a longer queue, so we will increase it by a lot...
+        self.request_queue_size = 500
+        self.server = self.makeServer()
+        sys.stdout.write(self.server.getAddress() + "\n") # Tell our caller, so they can tell the program being handled
+        sys.stdout.flush()
+        
+    def makeServer(self):
+        ipAddress = self.getIpAddress()
+        return self.serverClass.createServer(ipAddress, self)
+
+    def getIpAddress(self):
+        # Code below can cause complications with VPNs etc. Default is local access only, sufficient in 99.9% of cases
+        if not self.rcHandler.getboolean("server_remote_access", [ "general" ], False):
+            return "127.0.0.1"
+        try:
+            # Doesn't always work, sometimes not available
+            return socket.gethostbyname(socket.gethostname())
+        except socket.error:
+            # Most of the time we only need to be able to talk locally, fall back to that
+            return socket.gethostbyname("localhost")
+
+    def run(self):
+        self.diag.debug("Starting capturemock server")
+        self.server.run()
+        self.diag.debug("Shut down capturemock server")
+        
+    def shutdown(self):
+        self.diag.debug("Told to shut down!")
+        self.server.shutdown()
+
+    
 
 class TrafficRequestHandler(StreamRequestHandler):
     dispatcher = None

@@ -39,6 +39,11 @@ class ReplayInfo:
     @staticmethod
     def makePythonItems(pythonAttrs):
         return [ (attr, re.compile("<-PYT:(import )?" + attr)) for attr in pythonAttrs ]
+    
+    def extractAllTraffic(self):
+        allTraffic = list(self.responseMap.keys())
+        self.responseMap.clear()
+        return allTraffic
 
     def isActiveForAll(self):
         return len(self.responseMap) > 0 and self.replayAll
