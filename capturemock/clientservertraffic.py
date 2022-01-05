@@ -88,11 +88,10 @@ def encodeString(textStr):
     else:
         return rawBytes
 
-
 class HTTPClientTraffic(ClientSocketTraffic):
     headerStr = "\n--HEA:"
-    ignoreHeaders = [ "Content-Length", "Host", "traceparent", "User-Agent"] # provided automatically, or not usable when recorded
-    defaultValues = {"Connection": "close", "Content-Type": "application/x-www-form-urlencoded", "Accept-Encoding": "identity"}
+    ignoreHeaders = [ "Content-Length", "Host", "traceparent", "User-Agent", "Connection", "Origin", "Referer"] # provided automatically, or not usable when recorded
+    defaultValues = {"Content-Type": "application/x-www-form-urlencoded", "Accept-Encoding": "identity"}
     def __init__(self, text=None, responseFile=None, rcHandler=None, method="GET", path="/", headers={}, handler=None):
         if responseFile is None: # replay
             parts = text.split(" ", 2)
@@ -119,7 +118,7 @@ class HTTPClientTraffic(ClientSocketTraffic):
         else:
             text = mainText
         for header, value in self.headers.items():
-            if header not in self.ignoreHeaders and self.defaultValues.get(header) != value:
+            if header not in self.ignoreHeaders and self.defaultValues.get(header) != value and not header.lower().startswith("sec-"):
                 text += self.headerStr + header + "=" + value
         ClientSocketTraffic.__init__(self, text, responseFile, rcHandler)
         self.text = self.applyAlterations(self.text)
@@ -188,6 +187,7 @@ class HTTPServerTraffic(ServerTraffic):
                 # Might need to handle chunked transfer, for now, just ignore it and return it as one
                 if hdr.lower() != "transfer-encoding" or value.lower() != "chunked":
                     self.handler.send_header(hdr, value)
+            self.handler.send_header('Access-Control-Allow-Origin', '*')
             self.handler.end_headers()
         self.write(self.body)
         # Don't close the file, the HTTP server mechanism does that for us

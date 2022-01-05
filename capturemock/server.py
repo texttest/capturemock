@@ -220,6 +220,13 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
         traffic = clientservertraffic.HTTPClientTraffic(responseFile=self.wfile, method="DELETE", path=self.get_local_path(), headers=self.headers, 
                                                         rcHandler=self.dispatcher.rcHandler, handler=self)
         self.dispatcher.process(traffic, self.requestCount)
+    
+    def do_OPTIONS(self):
+        self.send_response(200, "ok")
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header("Access-Control-Allow-Headers", '*')
+        self.send_header('Access-Control-Allow-Methods', '*')
+        self.end_headers()
         
         
         
