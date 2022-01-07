@@ -195,10 +195,17 @@ def replay_for_server(rcFile, replayFile, recordFile=None, serverAddress=None, *
         ClientSocketTraffic.setServerLocation(serverAddress, True)
     dispatcher.replay_all(**kw)
 
+def add_timestamp_data(data_by_timestamp, ts, fn, currText):
+    tsdict = data_by_timestamp.setdefault(ts, {})
+    if fn in tsdict:
+        tsdict[fn] += currText
+    else:
+        tsdict[fn] = currText
+
 # utility for sorting multiple Capturemock recordings so they can be replayed in the right order
 # writes to current working directory
 # Anything without timestamps is assumed to come first
-def add_prefix_by_timestamp(recorded_files, ignoredIndicesIn=None, sep="-"):
+def add_prefix_by_timestamp(recorded_files, ignoredIndicesIn=None, sep="-", ext=None):
     ignoredIndices = ignoredIndicesIn or set()
     timestampPrefix = "--TIM:"
     data_by_timestamp = {}
@@ -214,24 +221,30 @@ def add_prefix_by_timestamp(recorded_files, ignoredIndicesIn=None, sep="-"):
                         if ts is None:
                             ts = datetime.fromordinal(default_timestamp_index).isoformat()
                             default_timestamp_index += 1
-                        data_by_timestamp.setdefault(ts, []).append((fn, currText))
+                        add_timestamp_data(data_by_timestamp, ts, fn, currText)
                     currText = line
                     curr_timestamp = None
                 elif line.startswith(timestampPrefix):
                     curr_timestamp = line[len(timestampPrefix):].strip()
                 else:
                     currText += line
-        data_by_timestamp.setdefault(curr_timestamp, []).append((fn, currText))
+        add_timestamp_data(data_by_timestamp, curr_timestamp, fn, currText)
     currIndex = 0
     currFn = None
     currFile = None
     new_files = []
     for timestamp in sorted(data_by_timestamp.keys()):
         timestamp_data = data_by_timestamp.get(timestamp)
-        if should_reverse(timestamp_data, currFn, currIndex):
-            timestamp_data.reverse()
+        timestamp_filenames = list(timestamp_data.keys())
+        if len(timestamp_data) > 1:
+            print("same timestamp")
+            from pprint import pprint
+            pprint(timestamp_data)
+        if should_reverse(timestamp_filenames, currFn, currIndex):
+            timestamp_filenames.reverse()
         # Multiple data for the same microsecond! Try to decide what order is most likely based on existing prefixes
-        for fn, currText in timestamp_data:
+        for fn in timestamp_filenames:
+            currText = timestamp_data.get(fn)
             if fn != currFn:
                 currIndex += 1
                 while currIndex in ignoredIndices:
@@ -240,10 +253,13 @@ def add_prefix_by_timestamp(recorded_files, ignoredIndicesIn=None, sep="-"):
                 newPrefix = str(currIndex).zfill(2) + sep
                 if fn[2] == "-" and fn[1].isdigit():
                     newFn = newPrefix + fn[3:]
-                    if newFn == fn:
-                        os.rename(fn, fn + ".orig")
                 else:
                     newFn = newPrefix + fn
+                if ext:
+                    stem = newFn.rsplit(".", 1)[0]
+                    newFn = stem + "." + ext
+                if newFn == fn:
+                    os.rename(fn, fn + ".orig")
                 new_files.append(newFn)
                 currFn = fn
                 if currFile:
@@ -258,12 +274,14 @@ def matching_indices(timestamp_data, givenFn, index):
     currIndex = index
     currFn = givenFn
     count = 0
-    for fn, _ in timestamp_data:
+    print("match", givenFn, index, timestamp_data)
+    for fn in timestamp_data:
         if fn != currFn:
             currIndex += 1
             currFn = fn
         if fn[2] == "-" and fn[1].isdigit():
             origIndex = int(fn[:2])
+            print(fn, "orig", origIndex, "now", currIndex)
             if origIndex == currIndex:
                 count += 1
     return count

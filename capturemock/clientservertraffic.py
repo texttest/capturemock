@@ -106,11 +106,11 @@ class HTTPClientTraffic(ClientSocketTraffic):
             text = mainText + " " + textStr
         else:
             text = mainText
+        if rcHandler and rcHandler.getboolean("record_timestamps", [ "general" ], False):
+            text += "\n--TIM:" + datetime.now().isoformat()
         for header, value in self.headers.items():
             if header not in self.ignoreHeaders and self.defaultValues.get(header) != value and not header.lower().startswith("sec-"):
                 text += "\n" + self.headerStr + header + "=" + value
-        if rcHandler and rcHandler.getboolean("record_timestamps", [ "general" ], False):
-            text += "\n--TIM:" + datetime.now().isoformat()
         ClientSocketTraffic.__init__(self, text, responseFile, rcHandler)
         self.text = self.applyAlterations(self.text)
 

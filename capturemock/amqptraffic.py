@@ -24,10 +24,7 @@ class AMQPConnector:
             self.channel.stop_consuming()
         self.connection.close()
         
-    def replay(self, routing_key, body, msgType, origin_server):
-        headers = {}
-        if origin_server:
-            headers["traceparent"] = origin_server
+    def replay(self, routing_key, body, msgType, headers):
         properties = pika.BasicProperties(headers=headers, type=msgType)
         self.channel.basic_publish(self.exchange, routing_key, body, properties=properties)
 
@@ -83,10 +80,12 @@ class AMQPTraffic(traffic.Traffic):
             self.msgType = props.type
             text = routing_key + sep + self.msgType +"\n"
             text += encodingutils.decodeBytes(body)
+            if rcHandler and rcHandler.getboolean("record_timestamps", [ "general" ], False):
+                timestamp = props.headers.get("timestamp") or datetime.now().isoformat()
+                text += "\n--TIM:" + timestamp
             for header, value in props.headers.items():
-                text += self.headerStr + header + "=" + value
-        if rcHandler and rcHandler.getboolean("record_timestamps", [ "general" ], False):
-            text += "\n--TIM:" + datetime.now().isoformat()
+                if header != "timestamp":
+                    text += self.headerStr + header + "=" + value
         traffic.Traffic.__init__(self, text, responseFile, rcHandler)
         
     def forwardToDestination(self):
@@ -94,7 +93,13 @@ class AMQPTraffic(traffic.Traffic):
         if self.replay:
             if AMQPTraffic.connector is None:
                 AMQPTraffic.connector = AMQPConnector(self.rcHandler)
-            self.connector.replay(self.routing_key, self.body, self.msgType, self.origin_server)
+                
+            headers = {}
+            if self.origin_server:
+                headers["traceparent"] = self.origin_server
+            if self.rcHandler.getboolean("record_timestamps", [ "general" ], False):
+                headers["timestamp"] = datetime.now().isoformat()
+            self.connector.replay(self.routing_key, self.body, self.msgType, headers)
         return []
             
 
