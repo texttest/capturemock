@@ -22,6 +22,10 @@ class BaseTraffic(object):
                 toReplace = rcHandler.get("replacement", [ alterStr ])
                 if toFind and toReplace is not None:
                     self.alterations[re.compile(toFind)] = toReplace
+                    
+    @classmethod
+    def isClientClass(cls):
+        return False
 
     def applyAlterations(self, text):
         return self._applyAlterations(text, self.alterations)

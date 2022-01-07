@@ -1,12 +1,9 @@
 """ Traffic classes for capturing client-server interaction """
 
-import socket, sys, base64
-from capturemock import traffic
+import socket, sys
+from capturemock import traffic, encodingutils
 from urllib.request import urlopen, Request
-from locale import getpreferredencoding
 from urllib.error import HTTPError
-from pprint import pformat
-import os
 
 try:
     import xmlrpclib
@@ -18,6 +15,10 @@ class ClientSocketTraffic(traffic.Traffic):
     direction = "<-"
     socketId = ""
     typeId = "CLI"
+    @classmethod
+    def isClientClass(cls):
+        return True
+
     def forwardToDestination(self):
         return self.forwardToServer() if self.destination is not None else []
 
@@ -43,7 +44,7 @@ class ClientSocketTraffic(traffic.Traffic):
             sys.stderr.write("WARNING: Server process reset the connection while TextTest's 'fake client' was trying to read a response from it!\n")
             sock.close()
             return []
-
+        
 
 class XmlRpcClientTraffic(ClientSocketTraffic):
     def __init__(self, text="", responseFile=None, rcHandler=None, method=None, params=None):
@@ -74,19 +75,6 @@ class XmlRpcClientTraffic(ClientSocketTraffic):
     def getXmlRpcResponse(self):
         return "" # not a response in the xmlrpc sense...
 
-def decodeBytes(rawBytes):
-    textStr = rawBytes.decode(getpreferredencoding()) if rawBytes else ""
-    if os.name == "nt":
-        return textStr.replace("\r\n", "\n")
-    else:
-        return textStr
-
-def encodeString(textStr):
-    rawBytes = textStr.encode(getpreferredencoding())
-    if os.name == "nt":
-        return rawBytes.replace(b"\n", b"\r\n")
-    else:
-        return rawBytes
 
 class HTTPClientTraffic(ClientSocketTraffic):
     headerStr = "\n--HEA:"
@@ -100,7 +88,7 @@ class HTTPClientTraffic(ClientSocketTraffic):
             if len(parts) > 2:
                 self.path = parts[1]
                 textStr = self.extractHeaders(parts[2])
-                self.payload = encodeString(textStr)
+                self.payload = encodingutils.encodeString(textStr)
             else:
                 self.path = self.extractHeaders(parts[1])
                 textStr = ""
@@ -109,7 +97,7 @@ class HTTPClientTraffic(ClientSocketTraffic):
             self.method = method
             self.path = path
             self.payload = text
-            textStr = decodeBytes(text)
+            textStr = encodingutils.decodeBytes(text)
             self.headers = headers
         self.handler = handler
         mainText = self.method + " " + self.path
@@ -137,7 +125,7 @@ class HTTPClientTraffic(ClientSocketTraffic):
         try:
             request = Request(self.destination + self.path, data=self.payload, headers=self.headers, method=self.method)
             response = urlopen(request)
-            text = decodeBytes(response.read())
+            text = encodingutils.decodeBytes(response.read())
             return [ HTTPServerTraffic(response.status, text, response.getheaders(), self.responseFile, handler=self.handler) ]
         except HTTPError as e:
             return [ HTTPServerTraffic(e.code, e.reason, {}, self.responseFile, handler=self.handler) ]
@@ -195,7 +183,7 @@ class HTTPServerTraffic(ServerTraffic):
     
     def write(self, message):
         if self.responseFile:
-            self.responseFile.write(encodeString(message))
+            self.responseFile.write(encodingutils.encodeString(message))
 
 class ServerStateTraffic(ServerTraffic):
     def __init__(self, inText, dest, responseFile, rcHandler):

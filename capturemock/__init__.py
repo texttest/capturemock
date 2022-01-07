@@ -184,14 +184,15 @@ def commandline():
         shutil.rmtree(interceptDir)
     terminate()
 
-def replay_for_server(serverAddress, replayFile, recordFile, rcFile):
+def replay_for_server(rcFile, replayFile, recordFile=None, serverAddress=None, **kw):
     ReplayOptions = namedtuple("ReplayOptions", "mode replay record rcfiles")
     options = ReplayOptions(mode=RECORD, replay=replayFile, record=recordFile, rcfiles=rcFile)
     from .server import ServerDispatcherBase
     dispatcher = ServerDispatcherBase(options)
-    from .clientservertraffic import ClientSocketTraffic
-    ClientSocketTraffic.setServerLocation(serverAddress, True)
-    dispatcher.replay_all()
+    if serverAddress:
+        from .clientservertraffic import ClientSocketTraffic
+        ClientSocketTraffic.setServerLocation(serverAddress, True)
+    dispatcher.replay_all(**kw)
 
 def capturemock(pythonAttrsOrFunc=[], *args, **kw):
     if isinstance(pythonAttrsOrFunc, types.FunctionType):

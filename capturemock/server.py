@@ -402,10 +402,10 @@ class ServerDispatcherBase:
                                    time.strftime("%d%b%H:%M:%S", time.localtime(modTime)) + " and size " + str(modSize))
         return topLevelForEdit, fileEditData
 
-    def replay_all(self):
+    def replay_all(self, **kw):
         # Pulls everything out of replay info - then we go to "record" mode
         for i, text in enumerate(self.replayInfo.extractAllTraffic()):
-            traffic = self.parseClientTraffic(text)
+            traffic = self.parseClientTraffic(text, **kw)
             self.process(traffic, i + 1)
 
     def processText(self, text, wfile, reqNo):
@@ -417,10 +417,10 @@ class ServerDispatcherBase:
             self.process(traffic, reqNo)
             self.diag.debug("Finished processing incoming request")
 
-    def parseClientTraffic(self, text):
+    def parseClientTraffic(self, text, **kw):
         for cls in self.serverClass.getTrafficClasses(incoming=True):
-            if cls.typeId == "CLI":
-                return cls(text[6:], None, self.rcHandler)
+            if cls.isClientClass():
+                return cls(text[6:], None, self.rcHandler, **kw)
 
     def parseTraffic(self, text, wfile):
         for cls in self.getTrafficClasses(incoming=True):
