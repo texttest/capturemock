@@ -6,6 +6,7 @@ import os, sys, shutil, filecmp, subprocess, tempfile, types
 from functools import wraps
 from glob import glob
 from collections import namedtuple
+from datetime import datetime
 
 class CaptureMockManager:
     fileContents = "import capturemock; capturemock.interceptCommand()\n"
@@ -193,6 +194,86 @@ def replay_for_server(rcFile, replayFile, recordFile=None, serverAddress=None, *
         from .clientservertraffic import ClientSocketTraffic
         ClientSocketTraffic.setServerLocation(serverAddress, True)
     dispatcher.replay_all(**kw)
+
+# utility for sorting multiple Capturemock recordings so they can be replayed in the right order
+# writes to current working directory
+# Anything without timestamps is assumed to come first
+def add_prefix_by_timestamp(recorded_files, ignoredIndicesIn=None, sep="-"):
+    ignoredIndices = ignoredIndicesIn or set()
+    timestampPrefix = "--TIM:"
+    data_by_timestamp = {}
+    default_timestamp_index = 1
+    for fn in recorded_files:
+        currText = ""
+        curr_timestamp = None
+        with open(fn) as f:
+            for line in f:
+                if line.startswith("<-"):
+                    if currText:
+                        ts = curr_timestamp
+                        if ts is None:
+                            ts = datetime.fromordinal(default_timestamp_index).isoformat()
+                            default_timestamp_index += 1
+                        data_by_timestamp.setdefault(ts, []).append((fn, currText))
+                    currText = line
+                    curr_timestamp = None
+                elif line.startswith(timestampPrefix):
+                    curr_timestamp = line[len(timestampPrefix):].strip()
+                else:
+                    currText += line
+        data_by_timestamp.setdefault(curr_timestamp, []).append((fn, currText))
+    currIndex = 0
+    currFn = None
+    currFile = None
+    new_files = []
+    for timestamp in sorted(data_by_timestamp.keys()):
+        timestamp_data = data_by_timestamp.get(timestamp)
+        if should_reverse(timestamp_data, currFn, currIndex):
+            timestamp_data.reverse()
+        # Multiple data for the same microsecond! Try to decide what order is most likely based on existing prefixes
+        for fn, currText in timestamp_data:
+            if fn != currFn:
+                currIndex += 1
+                while currIndex in ignoredIndices:
+                    currIndex += 1
+                # original file might already have a prefix, drop it if so
+                newPrefix = str(currIndex).zfill(2) + sep
+                if fn[2] == "-" and fn[1].isdigit():
+                    newFn = newPrefix + fn[3:]
+                    if newFn == fn:
+                        os.rename(fn, fn + ".orig")
+                else:
+                    newFn = newPrefix + fn
+                new_files.append(newFn)
+                currFn = fn
+                if currFile:
+                    currFile.close()
+                currFile = open(newFn, "a")
+            currFile.write(currText)
+    if currFile:
+        currFile.close()
+    return new_files
+
+def matching_indices(timestamp_data, givenFn, index):
+    currIndex = index
+    currFn = givenFn
+    count = 0
+    for fn, _ in timestamp_data:
+        if fn != currFn:
+            currIndex += 1
+            currFn = fn
+        if fn[2] == "-" and fn[1].isdigit():
+            origIndex = int(fn[:2])
+            if origIndex == currIndex:
+                count += 1
+    return count
+
+
+def should_reverse(timestamp_data, *args):
+    if len(timestamp_data) < 2:
+        return False
+    return matching_indices(reversed(timestamp_data), *args) > matching_indices(timestamp_data, *args)
+
 
 def capturemock(pythonAttrsOrFunc=[], *args, **kw):
     if isinstance(pythonAttrsOrFunc, types.FunctionType):

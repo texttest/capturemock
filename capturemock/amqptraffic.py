@@ -1,6 +1,7 @@
 
 import pika
 from capturemock import traffic, encodingutils
+from datetime import datetime
 
 class AMQPConnector:
     def __init__(self, rcHandler):
@@ -44,7 +45,7 @@ class AMQPTrafficServer:
         
     def on_message(self, channel, method_frame, header_frame, body):
         self.count += 1
-        traffic = AMQPTraffic(routing_key=method_frame.routing_key, body=body, props=header_frame)
+        traffic = AMQPTraffic(rcHandler=self.dispatcher.rcHandler, routing_key=method_frame.routing_key, body=body, props=header_frame)
         self.dispatcher.process(traffic, self.count)
         channel.basic_ack(delivery_tag=method_frame.delivery_tag)
     
@@ -84,6 +85,8 @@ class AMQPTraffic(traffic.Traffic):
             text += encodingutils.decodeBytes(body)
             for header, value in props.headers.items():
                 text += self.headerStr + header + "=" + value
+        if rcHandler and rcHandler.getboolean("record_timestamps", [ "general" ], False):
+            text += "\n--TIM:" + datetime.now().isoformat()
         traffic.Traffic.__init__(self, text, responseFile, rcHandler)
         
     def forwardToDestination(self):

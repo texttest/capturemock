@@ -4,6 +4,7 @@ import socket, sys
 from capturemock import traffic, encodingutils
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError
+from datetime import datetime
 
 try:
     import xmlrpclib
@@ -77,18 +78,18 @@ class XmlRpcClientTraffic(ClientSocketTraffic):
 
 
 class HTTPClientTraffic(ClientSocketTraffic):
-    headerStr = "\n--HEA:"
-    ignoreHeaders = [ "Content-Length", "Host", "traceparent", "User-Agent", "Connection", "Origin", "Referer"] # provided automatically, or not usable when recorded
+    headerStr = "--HEA:"
+    ignoreHeaders = [ "Content-Length", "Host", "User-Agent", "traceparent", "Connection", "Origin", "Referer"] # provided automatically, or not usable when recorded
     defaultValues = {"Content-Type": "application/x-www-form-urlencoded", "Accept-Encoding": "identity"}
     def __init__(self, text=None, responseFile=None, rcHandler=None, method="GET", path="/", headers={}, handler=None):
         if responseFile is None: # replay
-            parts = text.split(" ", 2)
-            self.headers ={}
+            parts = text.split(None, 2)
+            self.headers = {}
             self.method = parts[0]
             if len(parts) > 2:
                 self.path = parts[1]
                 textStr = self.extractHeaders(parts[2])
-                self.payload = encodingutils.encodeString(textStr)
+                self.payload = encodingutils.encodeString(textStr) if textStr else None
             else:
                 self.path = self.extractHeaders(parts[1])
                 textStr = ""
@@ -107,7 +108,9 @@ class HTTPClientTraffic(ClientSocketTraffic):
             text = mainText
         for header, value in self.headers.items():
             if header not in self.ignoreHeaders and self.defaultValues.get(header) != value and not header.lower().startswith("sec-"):
-                text += self.headerStr + header + "=" + value
+                text += "\n" + self.headerStr + header + "=" + value
+        if rcHandler and rcHandler.getboolean("record_timestamps", [ "general" ], False):
+            text += "\n--TIM:" + datetime.now().isoformat()
         ClientSocketTraffic.__init__(self, text, responseFile, rcHandler)
         self.text = self.applyAlterations(self.text)
 
@@ -117,10 +120,13 @@ class HTTPClientTraffic(ClientSocketTraffic):
             for headerStr in parts[1:]:
                 header, value = headerStr.strip().split("=", 1)
                 self.headers[header] = value
-            return parts[0]
+            return self.stripNewline(parts[0])
         else:
-            return textStr
-
+            return self.stripNewline(textStr)
+        
+    def stripNewline(self, text):
+        return text[:-1] if text.endswith("\n") else text
+        
     def forwardToServer(self):
         try:
             request = Request(self.destination + self.path, data=self.payload, headers=self.headers, method=self.method)
