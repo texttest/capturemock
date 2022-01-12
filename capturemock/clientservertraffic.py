@@ -132,12 +132,14 @@ class HTTPClientTraffic(ClientSocketTraffic):
             request = Request(self.destination + self.path, data=self.payload, headers=self.headers, method=self.method)
             response = urlopen(request)
             text = encodingutils.decodeBytes(response.read())
+            text = self.applyAlterations(text)
             return [ HTTPServerTraffic(response.status, text, response.getheaders(), self.responseFile, handler=self.handler) ]
         except HTTPError as e:
             return [ HTTPServerTraffic(e.code, e.reason, {}, self.responseFile, handler=self.handler) ]
         
     def makeResponseTraffic(self, text, responseClass, rcHandler):
         status, body = text.split(" ", 1)
+        body = self.applyAlterations(body)
         return responseClass(int(status), body, {}, self.responseFile, self.handler)
 
 
