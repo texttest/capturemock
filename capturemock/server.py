@@ -74,14 +74,15 @@ def startServer(rcFiles,
                             stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE)
 
-def stopServer(servAddr, protocol, proc):
+def stopServer(servAddr, protocol):
     if protocol == "http":
         urlopen(servAddr + "/capturemock/shutdownServer")
     elif protocol == "xmlrpc":
         s = ServerProxy(servAddr)
         s.shutdownCaptureMockServer()
     elif protocol == "amqp":
-        proc.terminate()
+        from .amqptraffic import AMQPTrafficServer
+        AMQPTrafficServer.sendTerminateMessage(servAddr)
     else:
         try:
             ClassicTrafficServer.sendTerminateMessage(servAddr)
