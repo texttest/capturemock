@@ -79,7 +79,7 @@ class XmlRpcClientTraffic(ClientSocketTraffic):
 
 class HTTPClientTraffic(ClientSocketTraffic):
     headerStr = "--HEA:"
-    ignoreHeaders = [ "Content-Length", "Host", "User-Agent", "traceparent", "Connection", "Origin", "Referer"] # provided automatically, or not usable when recorded
+    ignoreHeaders = [ "Content-Length", "Host", "User-Agent", "traceparent", "tracestate", "Connection", "Origin", "Referer"] # provided automatically, or not usable when recorded
     defaultValues = {"Content-Type": "application/x-www-form-urlencoded", "Accept-Encoding": "identity"}
     def __init__(self, text=None, responseFile=None, rcHandler=None, method="GET", path="/", headers={}, handler=None):
         if responseFile is None: # replay
