@@ -135,7 +135,9 @@ class HTTPClientTraffic(ClientSocketTraffic):
             text = self.applyAlterations(text)
             return [ HTTPServerTraffic(response.status, text, response.getheaders(), self.responseFile, handler=self.handler) ]
         except HTTPError as e:
-            return [ HTTPServerTraffic(e.code, e.reason, {}, self.responseFile, handler=self.handler) ]
+            text = encodingutils.decodeBytes(e.read())
+            text = self.applyAlterations(text)
+            return [ HTTPServerTraffic(e.code, text, {}, self.responseFile, handler=self.handler) ]
         
     def makeResponseTraffic(self, text, responseClass, rcHandler):
         status, body = text.split(" ", 1)
