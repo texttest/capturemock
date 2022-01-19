@@ -25,12 +25,11 @@ class ClientSocketTraffic(traffic.Traffic):
 
     @classmethod
     def setServerLocation(cls, location, clientRecord=False):
-        if cls.destination is None:
-            cls.destination = location
-            if not clientRecord:
-                # If we get a server state message, switch the order around
-                cls.direction = "->"
-                ServerTraffic.direction = "<-"
+        cls.destination = location
+        if not clientRecord:
+            # If we get a server state message, switch the order around
+            cls.direction = "->"
+            ServerTraffic.direction = "<-"
 
     def forwardToServer(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
