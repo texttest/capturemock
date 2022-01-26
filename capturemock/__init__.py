@@ -23,7 +23,8 @@ class CaptureMockManager:
                     rcFiles=[],
                     interceptDir=None,
                     sutDirectory=os.getcwd(),
-                    environment=os.environ):
+                    environment=os.environ,
+                    stderrFn=None):
         if config.isActive(mode, replayFile):
             # Environment which the server should get
             environment["CAPTUREMOCK_MODE"] = str(mode)
@@ -42,7 +43,8 @@ class CaptureMockManager:
                                                     recordFile,
                                                     recordEditDir,
                                                     sutDirectory,
-                                                    environment)
+                                                    environment, 
+                                                    stderrFn)
             self.serverAddress = self.serverProcess.stdout.readline().strip()
             self.serverProtocol = rcHandler.get("server_protocol", [ "general" ], "classic")
 
@@ -202,10 +204,45 @@ def add_timestamp_data(data_by_timestamp, ts, fn, currText):
     else:
         tsdict[fn] = currText
 
+class PrefixContext:
+    def __init__(self, parseFn=None):
+        self.parseFn = parseFn
+        self.fns = {}
+        self.clients = set()
+        self.servers = set()
+
+    def sort_clients(self):
+        newFns = list(self.fns.values())
+        baseIndex = int(newFns[0][:2])
+        without_prefix = [ fn[2:] for fn in newFns ]
+        without_prefix.sort()
+        for fn in newFns:
+            tail = fn[2:]
+            index = without_prefix.index(tail) + baseIndex
+            newName = str(index).zfill(2) + tail
+            os.rename(fn, newName)
+
+    def add(self, fn, newFn):
+        if self.parseFn:
+            client, server, _ = self.parseFn(fn)
+            if client not in self.clients and server not in self.servers:
+                if len(self.clients) > 1 and len(self.servers) == 1:
+                    self.sort_clients()
+                self.fns.clear()
+                self.clients.clear()
+                self.servers.clear()
+            self.clients.add(client)
+            self.servers.add(server)   
+        self.fns[fn] = newFn
+        
+    def get(self, fn):
+        return self.fns.get(fn)
+
+
 # utility for sorting multiple Capturemock recordings so they can be replayed in the right order
 # writes to current working directory
 # Anything without timestamps is assumed to come first
-def add_prefix_by_timestamp(recorded_files, ignoredIndicesIn=None, sep="-", ext=None):
+def add_prefix_by_timestamp(recorded_files, ignoredIndicesIn=None, sep="-", ext=None, parseFn=None):
     ignoredIndices = ignoredIndicesIn or set()
     timestampPrefix = "--TIM:"
     data_by_timestamp = {}
@@ -230,8 +267,7 @@ def add_prefix_by_timestamp(recorded_files, ignoredIndicesIn=None, sep="-", ext=
                     currText += line
         add_timestamp_data(data_by_timestamp, curr_timestamp, fn, currText)
     currIndex = 0
-    currFn = None
-    currFile = None
+    currContext = PrefixContext(parseFn)
     new_files = []
     for timestamp in sorted(data_by_timestamp.keys()):
         timestamp_data = data_by_timestamp.get(timestamp)
@@ -240,12 +276,11 @@ def add_prefix_by_timestamp(recorded_files, ignoredIndicesIn=None, sep="-", ext=
             print("same timestamp")
             from pprint import pprint
             pprint(timestamp_data)
-        if should_reverse(timestamp_filenames, currFn, currIndex):
-            timestamp_filenames.reverse()
         # Multiple data for the same microsecond! Try to decide what order is most likely based on existing prefixes
         for fn in timestamp_filenames:
             currText = timestamp_data.get(fn)
-            if fn != currFn:
+            newFn = currContext.get(fn)
+            if newFn is None:
                 currIndex += 1
                 while currIndex in ignoredIndices:
                     currIndex += 1
@@ -261,36 +296,12 @@ def add_prefix_by_timestamp(recorded_files, ignoredIndicesIn=None, sep="-", ext=
                 if newFn == fn:
                     os.rename(fn, fn + ".orig")
                 new_files.append(newFn)
-                currFn = fn
-                if currFile:
-                    currFile.close()
-                currFile = open(newFn, "a")
-            currFile.write(currText)
+                currContext.add(fn, newFn)
+            with open(newFn, "a") as currFile:
+                currFile.write(currText)
     if currFile:
         currFile.close()
     return new_files
-
-def matching_indices(timestamp_data, givenFn, index):
-    currIndex = index
-    currFn = givenFn
-    count = 0
-    print("match", givenFn, index, timestamp_data)
-    for fn in timestamp_data:
-        if fn != currFn:
-            currIndex += 1
-            currFn = fn
-        if fn[2] == "-" and fn[1].isdigit():
-            origIndex = int(fn[:2])
-            print(fn, "orig", origIndex, "now", currIndex)
-            if origIndex == currIndex:
-                count += 1
-    return count
-
-
-def should_reverse(timestamp_data, *args):
-    if len(timestamp_data) < 2:
-        return False
-    return matching_indices(reversed(timestamp_data), *args) > matching_indices(timestamp_data, *args)
 
 
 def capturemock(pythonAttrsOrFunc=[], *args, **kw):

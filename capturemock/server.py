@@ -6,24 +6,14 @@ from capturemock.replayinfo import ReplayInfo
 from capturemock import recordfilehandler, cmdlineutils
 from capturemock import commandlinetraffic, fileedittraffic, clientservertraffic, customtraffic
 from locale import getpreferredencoding
-from glob import glob
+from collections import OrderedDict
 
-try:
-    from collections import OrderedDict
-except ImportError:
-    from ordereddict import OrderedDict
-
-if sys.version_info[0] < 3:
-    from SocketServer import TCPServer, StreamRequestHandler
-    from xmlrpclib import Fault, ServerProxy
-    from SimpleXMLRPCServer import SimpleXMLRPCServer
-else:
-    from urllib.request import urlopen
-    from urllib.parse import urlparse, urlunparse
-    from http.server import HTTPServer, BaseHTTPRequestHandler
-    from socketserver import TCPServer, StreamRequestHandler
-    from xmlrpc.client import Fault, ServerProxy
-    from xmlrpc.server import SimpleXMLRPCServer
+from urllib.request import urlopen
+from urllib.parse import urlparse, urlunparse
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import TCPServer, StreamRequestHandler
+from xmlrpc.client import Fault, ServerProxy
+from xmlrpc.server import SimpleXMLRPCServer
 
 def getPython():
     if os.name == "nt":
@@ -53,7 +43,8 @@ def startServer(rcFiles,
                 recordFile,
                 recordEditDir,
                 sutDirectory,
-                environment):
+                environment,
+                stderrFn):
     cmdArgs = getServer() + [ "-m", str(mode) ]
     if rcFiles:
         cmdArgs += [ "--rcfiles", ",".join(rcFiles) ]
@@ -67,12 +58,13 @@ def startServer(rcFiles,
         if replayEditDir:
             cmdArgs += [ "-f", replayEditDir ]
 
+    stderr = open(stderrFn, "w") if stderrFn else subprocess.PIPE
     return subprocess.Popen(cmdArgs,
                             env=environment.copy(),
                             universal_newlines=True,
                             cwd=sutDirectory,
                             stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE)
+                            stderr=stderr)
 
 def stopServer(servAddr, protocol):
     if protocol == "http":
@@ -94,11 +86,11 @@ def stopServer(servAddr, protocol):
 class ClassicTrafficServer(TCPServer):
     @classmethod
     def createServer(cls, address, dispatcher):
-        TrafficRequestHandler.dispatcher = dispatcher
-        return cls((address, 0), TrafficRequestHandler)
+        ClassicTrafficRequestHandler.dispatcher = dispatcher
+        return cls((address, 0), ClassicTrafficRequestHandler, dispatcher.useThreads)
     
-    def __init__(self, addrinfo, useThreads):
-        TCPServer.__init__(self, addrinfo, TrafficRequestHandler)
+    def __init__(self, addrinfo, handlerClass, useThreads):
+        TCPServer.__init__(self, addrinfo, handlerClass)
         self.useThreads = useThreads
         self.terminate = False
         self.requestCount = 0
@@ -114,16 +106,8 @@ class ClassicTrafficServer(TCPServer):
 
     @classmethod
     def sendTerminateMessage(cls, serverAddressStr):
-        host, port = serverAddressStr.split(":")
-        cls._sendTerminateMessage((host, int(port)))
-
-    @staticmethod
-    def _sendTerminateMessage(serverAddress):
-        sendSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sendSocket.connect(serverAddress)
-        sendSocket.sendall("TERMINATE_SERVER\n".encode())
-        sendSocket.shutdown(2)
-
+        clientservertraffic.ClientSocketTraffic.sendTerminateMessage(serverAddressStr)
+        
     @staticmethod
     def getTrafficClasses(incoming):
         if incoming:
@@ -137,7 +121,7 @@ class ClassicTrafficServer(TCPServer):
             # otherwise the main thread might be in a blocking call at the time
             # So we reset the thread flag and send a new message
             self.useThreads = False
-            self._sendTerminateMessage(self.socket.getsockname())
+            clientservertraffic.ClientSocketTraffic._sendTerminateMessage(self.socket.getsockname())
         else:
             self.terminate = True
 
@@ -145,7 +129,7 @@ class ClassicTrafficServer(TCPServer):
         # Copied from ThreadingMixin, more or less
         # We store the order things appear in so we know what order they should go in the file
         try:
-            TrafficRequestHandler(requestCount, request, client_address, self)
+            self.RequestHandlerClass(requestCount, request, client_address, self)
             self.close_request(request)
         except: # pragma : no cover - interpreter code in theory...
             self.handle_error(request, client_address)
@@ -163,7 +147,25 @@ class ClassicTrafficServer(TCPServer):
 
     def getAddress(self):
         host, port = self.socket.getsockname()
-        return host + ":" + str(port)
+        return host + ":" + str(port)            
+    
+
+class ClassicTrafficRequestHandler(StreamRequestHandler):
+    dispatcher = None
+    def __init__(self, requestNumber, *args):
+        self.requestNumber = requestNumber
+        StreamRequestHandler.__init__(self, *args)
+
+    def handle(self):
+        text = self.rfile.read().decode()
+        self.handleText(text)
+        
+    def handleText(self, text):
+        self.dispatcher.diag.debug("Received incoming request...\n" + text)
+        try:
+            self.dispatcher.processText(text, self.wfile, self.requestNumber)
+        except config.CaptureMockReplayError as e:
+            self.wfile.write(("CAPTUREMOCK MISMATCH: " + str(e)).encode())
     
 
 class HTTPTrafficHandler(BaseHTTPRequestHandler):
@@ -344,6 +346,9 @@ class ServerDispatcherBase:
         protocol = self.rcHandler.get("server_protocol", [ "general" ], "classic")
         if protocol == "classic":
             return ClassicTrafficServer
+        elif protocol == "tcp_header":
+            from capturemock.binarytcptraffic import TcpHeaderTrafficServer
+            return TcpHeaderTrafficServer
         elif protocol == "http":
             return HTTPTrafficServer
         elif protocol == "xmlrpc":
@@ -616,22 +621,6 @@ class ServerDispatcher(ServerDispatcherBase):
     def shutdown(self):
         self.diag.debug("Told to shut down!")
         self.server.shutdown()
-
-    
-
-class TrafficRequestHandler(StreamRequestHandler):
-    dispatcher = None
-    def __init__(self, requestNumber, *args):
-        self.requestNumber = requestNumber
-        StreamRequestHandler.__init__(self, *args)
-
-    def handle(self):
-        text = self.rfile.read().decode()
-        self.dispatcher.diag.debug("Received incoming request...\n" + text)
-        try:
-            self.dispatcher.processText(text, self.wfile, self.requestNumber)
-        except config.CaptureMockReplayError as e:
-            self.wfile.write(("CAPTUREMOCK MISMATCH: " + str(e)).encode())
 
 # The basic point here is to make sure that traffic appears in the record
 # file in the order in which it comes in, not in the order in which it completes (which is indeterministic and

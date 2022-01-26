@@ -57,7 +57,11 @@ class RcFileHandler:
         logConfigFile = self.get("log_config_file", [ "general" ],
                                  self.getPersonalPath("logging.conf"))
         if os.path.isfile(logConfigFile):
-            defaults = { "LOCAL_DIR" : os.path.dirname(os.path.abspath(logConfigFile)) }
+            local_dir = os.path.dirname(os.path.abspath(logConfigFile))
+            if os.name == "nt": 
+                # Gets passed through eval. Windows path separators get confused with escape character...
+                local_dir = local_dir.replace("\\", "\\\\")
+            defaults = { "LOCAL_DIR" : local_dir }
             logging.config.fileConfig(logConfigFile, defaults)
         self.diag = logging.getLogger(mainLogName)
         return self.diag

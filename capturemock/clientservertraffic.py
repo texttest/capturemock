@@ -3,8 +3,7 @@
 import socket, sys
 from capturemock import traffic, encodingutils
 from urllib.request import urlopen, Request
-from urllib.error import HTTPError
-from datetime import datetime
+from urllib.error import HTTPError, URLError
 
 try:
     import xmlrpclib
@@ -19,7 +18,11 @@ class ClientSocketTraffic(traffic.Traffic):
     @classmethod
     def isClientClass(cls):
         return True
-
+    
+    def __init__(self, text, responseFile, rcHandler=None):
+        ts = self.get_timestamp(rcHandler)
+        super(ClientSocketTraffic, self).__init__(text, responseFile, rcHandler=rcHandler, timestamp=ts)
+        
     def forwardToDestination(self):
         return self.forwardToServer() if self.destination is not None else []
 
@@ -30,6 +33,18 @@ class ClientSocketTraffic(traffic.Traffic):
             # If we get a server state message, switch the order around
             cls.direction = "->"
             ServerTraffic.direction = "<-"
+            
+    @classmethod
+    def sendTerminateMessage(cls, serverAddressStr):
+        host, port = serverAddressStr.split(":")
+        cls._sendTerminateMessage((host, int(port)))
+
+    @staticmethod
+    def _sendTerminateMessage(serverAddress):
+        sendSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sendSocket.connect(serverAddress)
+        sendSocket.sendall("TERMINATE_SERVER\n".encode())
+        sendSocket.shutdown(2)
 
     def forwardToServer(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -45,6 +60,7 @@ class ClientSocketTraffic(traffic.Traffic):
             sock.close()
             return []
         
+
 
 class XmlRpcClientTraffic(ClientSocketTraffic):
     def __init__(self, text="", responseFile=None, rcHandler=None, method=None, params=None):
@@ -78,7 +94,7 @@ class XmlRpcClientTraffic(ClientSocketTraffic):
 
 class HTTPClientTraffic(ClientSocketTraffic):
     headerStr = "--HEA:"
-    ignoreHeaders = [ "Content-Length", "Host", "User-Agent", "traceparent", "tracestate", "Connection", "Origin", "Referer"] # provided automatically, or not usable when recorded
+    ignoreHeaders = [ "Content-Length", "Host", "User-Agent", "traceparent", "tracestate", "Connection", "Origin", "Referer", "Request-Id"] # provided automatically, or not usable when recorded
     defaultValues = {"Content-Type": "application/x-www-form-urlencoded", "Accept-Encoding": "identity"}
     def __init__(self, text=None, responseFile=None, rcHandler=None, method="GET", path="/", headers={}, handler=None):
         if responseFile is None: # replay
@@ -105,8 +121,6 @@ class HTTPClientTraffic(ClientSocketTraffic):
             text = mainText + " " + textStr
         else:
             text = mainText
-        if rcHandler and rcHandler.getboolean("record_timestamps", [ "general" ], False):
-            text += "\n--TIM:" + datetime.now().isoformat()
         for header, value in self.headers.items():
             if header not in self.ignoreHeaders and self.defaultValues.get(header) != value and not header.lower().startswith("sec-"):
                 text += "\n" + self.headerStr + header + "=" + value
@@ -137,6 +151,9 @@ class HTTPClientTraffic(ClientSocketTraffic):
             text = encodingutils.decodeBytes(e.read())
             text = self.applyAlterations(text)
             return [ HTTPServerTraffic(e.code, text, {}, self.responseFile, handler=self.handler) ]
+        except URLError as e:
+            sys.stderr.write("Failed to forward http traffic to server " + self.destination + " : " + str(e) + "\n")
+            return []
         
     def makeResponseTraffic(self, text, responseClass, rcHandler):
         status, body = text.split(" ", 1)
@@ -227,3 +244,4 @@ class HTTPServerStateTraffic(ServerStateTraffic):
 class XmlRpcServerStateTraffic(ServerStateTraffic):
     def __init__(self, dest, rcHandler):
         ServerStateTraffic.__init__(self, "setServerLocation(<address>)", xmlrpclib.ServerProxy(dest), None, rcHandler)
+

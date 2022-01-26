@@ -99,6 +99,7 @@ class AMQPTraffic(traffic.Traffic):
         self.replay = routing_key is None
         self.origin_server = origin_server
         sep = " : type="
+        timestamp = None
         if self.replay: # replay
             lines = text.splitlines()
             self.routing_key, self.msgType = lines[0].split(sep)
@@ -112,11 +113,10 @@ class AMQPTraffic(traffic.Traffic):
             text += encodingutils.decodeBytes(body)
             if rcHandler and rcHandler.getboolean("record_timestamps", [ "general" ], False):
                 timestamp = props.headers.get("timestamp") or datetime.now().isoformat()
-                text += "\n--TIM:" + timestamp
             for header, value in props.headers.items():
                 if header != "timestamp":
                     text += self.headerStr + header + "=" + value
-        traffic.Traffic.__init__(self, text, responseFile, rcHandler)
+        traffic.Traffic.__init__(self, text, responseFile, rcHandler, timestamp=timestamp)
         
     def forwardToDestination(self):
         # Replay and record handled entirely separately, unlike most other traffic, due to how MQ brokers work

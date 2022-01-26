@@ -3,6 +3,7 @@
 import re
 import os
 import sys
+from datetime import datetime
 
 from pprint import pformat
 try:
@@ -12,8 +13,9 @@ except ImportError:
 
 class BaseTraffic(object):
     alterationVariables = OrderedDict()
-    def __init__(self, text, rcHandler=None):
+    def __init__(self, text, rcHandler=None, timestamp=None):
         self.text = text
+        self.timestamp = timestamp
         self.alterations = {}
         if rcHandler:
             self.diag = rcHandler.diag
@@ -22,7 +24,12 @@ class BaseTraffic(object):
                 toReplace = rcHandler.get("replacement", [ alterStr ])
                 if toFind and toReplace is not None:
                     self.alterations[re.compile(toFind)] = toReplace
-                    
+        
+    @classmethod
+    def get_timestamp(cls, rcHandler):                
+        if rcHandler and rcHandler.getboolean("record_timestamps", [ "general" ], False):
+            return datetime.now().isoformat()
+                
     @classmethod
     def isClientClass(cls):
         return False
@@ -93,6 +100,8 @@ class BaseTraffic(object):
         desc = self.getDescription()
         if not desc.endswith("\n"):
             desc += "\n"
+        if self.timestamp:
+            desc += "--TIM:" + self.timestamp + "\n"
         recordFileHandler.record(desc, *args, **kw)
 
     def findQuote(self, out):
@@ -125,8 +134,8 @@ class BaseTraffic(object):
         return formatted_string
     
 class Traffic(BaseTraffic):
-    def __init__(self, text, responseFile, *args):
-        super(Traffic, self).__init__(text, *args)
+    def __init__(self, text, responseFile, *args, **kw):
+        super(Traffic, self).__init__(text, *args, **kw)
         self.responseFile = responseFile
 
     def write(self, message):
