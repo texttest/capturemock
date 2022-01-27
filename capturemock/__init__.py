@@ -208,11 +208,12 @@ class PrefixContext:
     def __init__(self, parseFn=None):
         self.parseFn = parseFn
         self.fns = {}
-        self.clients = set()
-        self.servers = set()
 
-    def sort_clients(self):
-        newFns = list(self.fns.values())
+    def sort_clients(self, fns):
+        if len(fns) < 2:
+            return
+            
+        newFns = [ newFn for newFn, _, _ in fns.values() ]
         baseIndex = int(newFns[0][:2])
         without_prefix = [ fn[2:] for fn in newFns ]
         without_prefix.sort()
@@ -221,23 +222,54 @@ class PrefixContext:
             index = without_prefix.index(tail) + baseIndex
             newName = str(index).zfill(2) + tail
             os.rename(fn, newName)
+            
+    def remove_non_matching(self, item, ix):
+        removed = {}
+        for fn, info in self.fns.items():
+            if info[ix] != item:
+                removed[fn] = info
+        for fn, info in removed.items():
+            del self.fns[fn]
+        return removed
+
+    def all_same_server(self):
+        servers = set()
+        for _, _, server in self.fns.values():
+            servers.add(server)
+        return len(servers) == 1
 
     def add(self, fn, newFn):
+        client, server = None, None
         if self.parseFn:
             client, server, _ = self.parseFn(fn)
-            if client not in self.clients and server not in self.servers:
-                if len(self.clients) > 1 and len(self.servers) == 1:
-                    self.sort_clients()
+            currClient, currServer = None, None
+            if len(self.fns) > 0:
+                _, currClient, currServer = list(self.fns.values())[-1]
+            if client == currClient:
+                self.remove_non_matching(client, 1)
+            elif server == currServer:
+                removed = self.remove_non_matching(server, 2)
+                self.sort_clients(removed)
+            else:
+                if self.all_same_server():
+                    self.sort_clients(self.fns)
                 self.fns.clear()
-                self.clients.clear()
-                self.servers.clear()
-            self.clients.add(client)
-            self.servers.add(server)   
-        self.fns[fn] = newFn
+            
+        self.fns[fn] = newFn, client, server
         
     def get(self, fn):
-        return self.fns.get(fn)
+        info = self.fns.get(fn)
+        if info is not None:
+            return info[0]
 
+class DefaultTimestamper:
+    def __init__(self):
+        self.index = 1
+        
+    def stamp(self):
+        ts = datetime.fromordinal(self.index).isoformat()
+        self.index += 1
+        return ts
 
 # utility for sorting multiple Capturemock recordings so they can be replayed in the right order
 # writes to current working directory
@@ -246,7 +278,7 @@ def add_prefix_by_timestamp(recorded_files, ignoredIndicesIn=None, sep="-", ext=
     ignoredIndices = ignoredIndicesIn or set()
     timestampPrefix = "--TIM:"
     data_by_timestamp = {}
-    default_timestamp_index = 1
+    default_stamper = DefaultTimestamper()
     for fn in recorded_files:
         currText = ""
         curr_timestamp = None
@@ -254,10 +286,7 @@ def add_prefix_by_timestamp(recorded_files, ignoredIndicesIn=None, sep="-", ext=
             for line in f:
                 if line.startswith("<-"):
                     if currText:
-                        ts = curr_timestamp
-                        if ts is None:
-                            ts = datetime.fromordinal(default_timestamp_index).isoformat()
-                            default_timestamp_index += 1
+                        ts = curr_timestamp or default_stamper.stamp()
                         add_timestamp_data(data_by_timestamp, ts, fn, currText)
                     currText = line
                     curr_timestamp = None
@@ -265,18 +294,14 @@ def add_prefix_by_timestamp(recorded_files, ignoredIndicesIn=None, sep="-", ext=
                     curr_timestamp = line[len(timestampPrefix):].strip()
                 else:
                     currText += line
-        add_timestamp_data(data_by_timestamp, curr_timestamp, fn, currText)
+        ts = curr_timestamp or default_stamper.stamp()
+        add_timestamp_data(data_by_timestamp, ts, fn, currText)
     currIndex = 0
     currContext = PrefixContext(parseFn)
     new_files = []
     for timestamp in sorted(data_by_timestamp.keys()):
         timestamp_data = data_by_timestamp.get(timestamp)
         timestamp_filenames = list(timestamp_data.keys())
-        if len(timestamp_data) > 1:
-            print("same timestamp")
-            from pprint import pprint
-            pprint(timestamp_data)
-        # Multiple data for the same microsecond! Try to decide what order is most likely based on existing prefixes
         for fn in timestamp_filenames:
             currText = timestamp_data.get(fn)
             newFn = currContext.get(fn)

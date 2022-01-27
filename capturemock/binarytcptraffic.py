@@ -270,7 +270,7 @@ class TcpHeaderTrafficServer:
 
     def handle_client_traffic(self, text, payload):
         self.requestCount += 1
-        traffic = BinaryClientSocketTraffic(text, None)
+        traffic = BinaryClientSocketTraffic(text, None, rcHandler=self.dispatcher.rcHandler)
         responses = self.dispatcher.process(traffic, self.requestCount)
         if self.serverConverter:
             self.serverConverter.socket.sendall(payload)
@@ -280,7 +280,7 @@ class TcpHeaderTrafficServer:
                 
     def handle_server_traffic(self, text, payload):
         self.requestCount += 1
-        traffic = BinaryServerSocketTraffic(text, None)
+        traffic = BinaryServerSocketTraffic(text, None, rcHandler=self.dispatcher.rcHandler)
         self.dispatcher.process(traffic, self.requestCount)
         if self.clientConverter:
             if len(self.payloadForClient):
