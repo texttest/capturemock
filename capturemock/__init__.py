@@ -205,28 +205,46 @@ def add_timestamp_data(data_by_timestamp, ts, fn, currText):
         tsdict[fn] = currText
 
 class PrefixContext:
-    def __init__(self, parseFn=None):
+    def __init__(self, parseFn=None, ext_servers=[]):
         self.parseFn = parseFn
+        self.ext_servers = ext_servers
         self.fns = {}
+        
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, *args):
+        self.clear()
+
+    def sort_key(self, fn):
+        if any((ext_server in fn for ext_server in self.ext_servers)):
+            return "zzz" + fn
+        else:
+            return fn
+
+    def clear(self):
+        if self.all_same_server():
+            self.sort_clients(self.fns)
+        self.fns.clear()
 
     def sort_clients(self, fns):
         if len(fns) < 2:
             return
             
         newFns = [ newFn for newFn, _, _ in fns.values() ]
-        baseIndex = int(newFns[0][:2])
-        without_prefix = [ fn[2:] for fn in newFns ]
-        without_prefix.sort()
+        baseIndex = int(newFns[0][:3])
+        without_prefix = [ fn[3:] for fn in newFns ]
+        without_prefix.sort(key=self.sort_key)
         for fn in newFns:
-            tail = fn[2:]
+            tail = fn[3:]
             index = without_prefix.index(tail) + baseIndex
-            newName = str(index).zfill(2) + tail
+            newName = str(index).zfill(3) + tail
             os.rename(fn, newName)
             
     def remove_non_matching(self, item, ix):
         removed = {}
         for fn, info in self.fns.items():
-            if info[ix] != item:
+            if info[ix] != item and info[2] not in self.ext_servers:
                 removed[fn] = info
         for fn, info in removed.items():
             del self.fns[fn]
@@ -235,8 +253,15 @@ class PrefixContext:
     def all_same_server(self):
         servers = set()
         for _, _, server in self.fns.values():
-            servers.add(server)
+            if server not in self.ext_servers:
+                servers.add(server)
         return len(servers) == 1
+
+    def find_most_recent(self):
+        for _, currClient, currServer in reversed(self.fns.values()):
+            if currServer not in self.ext_servers:
+                return currClient, currServer
+        return None, None
 
     def add(self, fn, newFn):
         client, server = None, None
@@ -244,16 +269,15 @@ class PrefixContext:
             client, server, _ = self.parseFn(fn)
             currClient, currServer = None, None
             if len(self.fns) > 0:
-                _, currClient, currServer = list(self.fns.values())[-1]
-            if client == currClient:
-                self.remove_non_matching(client, 1)
-            elif server == currServer:
-                removed = self.remove_non_matching(server, 2)
-                self.sort_clients(removed)
-            else:
-                if self.all_same_server():
-                    self.sort_clients(self.fns)
-                self.fns.clear()
+                currClient, currServer = self.find_most_recent()
+            if currClient is not None:
+                if client == currClient:
+                    self.remove_non_matching(client, 1)
+                elif server == currServer:
+                    removed = self.remove_non_matching(server, 2)
+                    self.sort_clients(removed)
+                elif server not in self.ext_servers:
+                    self.clear()
             
         self.fns[fn] = newFn, client, server
         
@@ -274,7 +298,7 @@ class DefaultTimestamper:
 # utility for sorting multiple Capturemock recordings so they can be replayed in the right order
 # writes to current working directory
 # Anything without timestamps is assumed to come first
-def add_prefix_by_timestamp(recorded_files, ignoredIndicesIn=None, sep="-", ext=None, parseFn=None):
+def add_prefix_by_timestamp(recorded_files, ignoredIndicesIn=None, sep="-", ext=None, parseFn=None, ext_servers=[]):
     ignoredIndices = ignoredIndicesIn or set()
     timestampPrefix = "--TIM:"
     data_by_timestamp = {}
@@ -291,41 +315,42 @@ def add_prefix_by_timestamp(recorded_files, ignoredIndicesIn=None, sep="-", ext=
                     currText = line
                     curr_timestamp = None
                 elif line.startswith(timestampPrefix):
-                    curr_timestamp = line[len(timestampPrefix):].strip()
+                    if curr_timestamp is None: # go with the first timestamp if there are many
+                        curr_timestamp = line[len(timestampPrefix):].strip()
                 else:
                     currText += line
         ts = curr_timestamp or default_stamper.stamp()
         add_timestamp_data(data_by_timestamp, ts, fn, currText)
     currIndex = 0
-    currContext = PrefixContext(parseFn)
-    new_files = []
-    for timestamp in sorted(data_by_timestamp.keys()):
-        timestamp_data = data_by_timestamp.get(timestamp)
-        timestamp_filenames = list(timestamp_data.keys())
-        for fn in timestamp_filenames:
-            currText = timestamp_data.get(fn)
-            newFn = currContext.get(fn)
-            if newFn is None:
-                currIndex += 1
-                while currIndex in ignoredIndices:
+    with PrefixContext(parseFn, ext_servers) as currContext:
+        new_files = []
+        for timestamp in sorted(data_by_timestamp.keys()):
+            timestamp_data = data_by_timestamp.get(timestamp)
+            timestamp_filenames = list(timestamp_data.keys())
+            for fn in timestamp_filenames:
+                currText = timestamp_data.get(fn)
+                newFn = currContext.get(fn)
+                if newFn is None:
                     currIndex += 1
-                # original file might already have a prefix, drop it if so
-                newPrefix = str(currIndex).zfill(2) + sep
-                if fn[2] == "-" and fn[1].isdigit():
-                    newFn = newPrefix + fn[3:]
-                else:
-                    newFn = newPrefix + fn
-                if ext:
-                    stem = newFn.rsplit(".", 1)[0]
-                    newFn = stem + "." + ext
-                if newFn == fn:
-                    os.rename(fn, fn + ".orig")
-                new_files.append(newFn)
-                currContext.add(fn, newFn)
-            with open(newFn, "a") as currFile:
-                currFile.write(currText)
-    if currFile:
-        currFile.close()
+                    if currIndex in ignoredIndices:
+                        currContext.clear()
+                        while currIndex in ignoredIndices:
+                            currIndex += 1
+                    # original file might already have a prefix, drop it if so
+                    newPrefix = str(currIndex).zfill(3) + sep
+                    if fn[3] == "-" and fn[2].isdigit():
+                        newFn = newPrefix + fn[4:]
+                    else:
+                        newFn = newPrefix + fn
+                    if ext:
+                        stem = newFn.rsplit(".", 1)[0]
+                        newFn = stem + "." + ext
+                    if newFn == fn:
+                        os.rename(fn, fn + ".orig")
+                    new_files.append(newFn)
+                    currContext.add(fn, newFn)
+                with open(newFn, "a") as currFile:
+                    currFile.write(currText)
     return new_files
 
 

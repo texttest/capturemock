@@ -268,11 +268,11 @@ class TcpHeaderTrafficServer:
             except OSError:
                 self.diag.debug("Connecting server failed %s", dest)
 
-    def handle_client_traffic(self, text, payload):
+    def handle_client_traffic(self, text, payload=None):
         self.requestCount += 1
         traffic = BinaryClientSocketTraffic(text, None, rcHandler=self.dispatcher.rcHandler)
         responses = self.dispatcher.process(traffic, self.requestCount)
-        if self.serverConverter:
+        if self.serverConverter and payload is not None:
             self.serverConverter.socket.sendall(payload)
         elif self.clientConverter:
             for response in responses:
@@ -328,6 +328,7 @@ class TcpHeaderTrafficServer:
                     converter.read_header_or_text()
                 except socket.timeout:
                     self.clientConverter = converter
+                    self.handle_client_traffic("connect")
                     self.diag.debug("Timeout client read, set socket")
                     continue
                 if converter.text: # complete message, i.e. special for CaptureMock

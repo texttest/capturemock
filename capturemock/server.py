@@ -450,10 +450,13 @@ class ServerDispatcherBase:
         self.diag.debug("Processing traffic " + traffic.__class__.__name__)
         topLevelForEdit, fileEditData = self.addPossibleFileEdits(traffic)
         responses = self.getResponses(traffic, topLevelForEdit, fileEditData)
-        traffic.record(self.recordFileHandler, reqNo)
+        doRecord = traffic.shouldBeRecorded(responses)
+        if doRecord:
+            traffic.record(self.recordFileHandler, reqNo)
         for response in responses:
             self.diag.debug("Response of type " + response.__class__.__name__ + " with text " + repr(response.text))
-            response.record(self.recordFileHandler, reqNo)
+            if doRecord:
+                response.record(self.recordFileHandler, reqNo)
             for chainResponse in response.forwardToDestination():
                 self._process(chainResponse, reqNo)
             self.diag.debug("Completed response of type " + response.__class__.__name__)

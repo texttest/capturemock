@@ -96,6 +96,7 @@ class HTTPClientTraffic(ClientSocketTraffic):
     headerStr = "--HEA:"
     ignoreHeaders = [ "Content-Length", "Host", "User-Agent", "traceparent", "tracestate", "Connection", "Origin", "Referer", "Request-Id"] # provided automatically, or not usable when recorded
     defaultValues = {"Content-Type": "application/x-www-form-urlencoded", "Accept-Encoding": "identity"}
+    repeatCache = {}
     def __init__(self, text=None, responseFile=None, rcHandler=None, method="GET", path="/", headers={}, handler=None):
         if responseFile is None: # replay
             parts = text.split(None, 2)
@@ -116,6 +117,7 @@ class HTTPClientTraffic(ClientSocketTraffic):
             textStr = encodingutils.decodeBytes(text)
             self.headers = headers
         self.handler = handler
+        self.checkRepeats = rcHandler.getboolean("check_repeated_calls", [ self.method ], True)
         mainText = self.method + " " + self.path
         if self.payload is not None:
             text = mainText + " " + textStr
@@ -139,6 +141,18 @@ class HTTPClientTraffic(ClientSocketTraffic):
         
     def stripNewline(self, text):
         return text[:-1] if text.endswith("\n") else text
+    
+    def shouldBeRecorded(self, responses):
+        if self.checkRepeats:
+            return True
+        else:
+            cached = self.repeatCache.get(self.text, [])
+            responseText = "".join((resp.text for resp in responses))
+            if responseText in cached:
+                return False
+            
+            self.repeatCache.setdefault(self.text, []).append(responseText)
+            return True
         
     def forwardToServer(self):
         try:

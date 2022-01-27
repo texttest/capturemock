@@ -103,6 +103,9 @@ class BaseTraffic(object):
         if self.timestamp:
             desc += "--TIM:" + self.timestamp + "\n"
         recordFileHandler.record(desc, *args, **kw)
+        
+    def shouldBeRecorded(self, *args):
+        return True
 
     def findQuote(self, out):
         bestPos, bestQuoteChar = None, None
