@@ -299,9 +299,11 @@ class DefaultTimestamper:
 # writes to current working directory
 # Anything without timestamps is assumed to come first
 def add_prefix_by_timestamp(recorded_files, ignoredIndicesIn=None, sep="-", ext=None, parseFn=None, ext_servers=[]):
-    ignoredIndices = ignoredIndicesIn or set()
+    ignoredIndices = ignoredIndicesIn or {}
     timestampPrefix = "--TIM:"
     data_by_timestamp = {}
+    for timestamp in ignoredIndices.values():
+        data_by_timestamp[timestamp] = None
     default_stamper = DefaultTimestamper()
     for fn in recorded_files:
         currText = ""
@@ -326,16 +328,18 @@ def add_prefix_by_timestamp(recorded_files, ignoredIndicesIn=None, sep="-", ext=
         new_files = []
         for timestamp in sorted(data_by_timestamp.keys()):
             timestamp_data = data_by_timestamp.get(timestamp)
+            if timestamp_data is None:
+                # simulated or implied action, do not try to combine events before and after
+                currContext.clear()
+                continue
             timestamp_filenames = list(timestamp_data.keys())
             for fn in timestamp_filenames:
                 currText = timestamp_data.get(fn)
                 newFn = currContext.get(fn)
                 if newFn is None:
                     currIndex += 1
-                    if currIndex in ignoredIndices:
-                        currContext.clear()
-                        while currIndex in ignoredIndices:
-                            currIndex += 1
+                    while currIndex in ignoredIndices:
+                        currIndex += 1
                     # original file might already have a prefix, drop it if so
                     newPrefix = str(currIndex).zfill(3) + sep
                     if fn[3] == "-" and fn[2].isdigit():
@@ -352,6 +356,51 @@ def add_prefix_by_timestamp(recorded_files, ignoredIndicesIn=None, sep="-", ext=
                 with open(newFn, "a") as currFile:
                     currFile.write(currText)
     return new_files
+
+def get_traffic_count(rpfn):
+    count = 0
+    with open(rpfn) as f:
+        for line in f:
+            if line.startswith("<-") or line.startswith("->"):
+                count += 1
+    return count
+
+def find_replay_files(stem, replayed_files):
+    fns = []
+    for rpfn in sorted(replayed_files):
+        curr_stem = rpfn[4:].rsplit(".", 1)[0]
+        if curr_stem == stem:
+            fns.append((rpfn, get_traffic_count(rpfn)))
+    return fns
+
+def open_new_record_file(replay_fns, repIndex, ext):
+    curr_replay_fn, curr_replay_count = replay_fns[repIndex]
+    new_record_fn = curr_replay_fn.rsplit(".", 1)[0] + "." + ext
+    new_record_file = open(new_record_fn, "w")
+    return new_record_file, curr_replay_count
+
+def add_prefix_by_matching_replay(recorded_files, replayed_files, ext=None):
+    for fn in recorded_files:
+        if fn[3] == "-" and fn[2].isdigit():
+            # already prefixed, nothing to do
+            continue
+        stem = fn.rsplit(".", 1)[0]
+        replay_fns = find_replay_files(stem, replayed_files)
+        recIndex = 0
+        repIndex = 0
+        new_record_file, curr_replay_count = open_new_record_file(replay_fns, repIndex, ext)
+        with open(fn) as f:
+            for line in f:
+                if line.startswith("<-") or line.startswith("->"):
+                    recIndex += 1
+                    if recIndex >= curr_replay_count and line.startswith("<-") and repIndex < len(replay_fns):
+                        repIndex += 1
+                        recIndex = 0
+                        new_record_file.close()
+                        new_record_file, curr_replay_count = open_new_record_file(replay_fns, repIndex, ext)
+                if not line.startswith("--TIM:"):
+                    new_record_file.write(line)
+        new_record_file.close()
 
 
 def capturemock(pythonAttrsOrFunc=[], *args, **kw):

@@ -95,15 +95,17 @@ class AMQPTraffic(traffic.Traffic):
     typeId = "RMQ"
     headerStr = "\n--HEA:"
     connector = None
-    def __init__(self, text=None, responseFile=None, rcHandler=None, routing_key=None, body=b"", origin_server=None, props=None):
+    def __init__(self, text=None, responseFile=None, rcHandler=None, routing_key=None, body=b"", origin=None, props=None):
         self.replay = routing_key is None
-        self.origin_server = origin_server
+        self.origin = origin
         sep = " : type="
         timestamp = None
-        if self.replay: # replay
+        self.headers = {}
+        if self.replay:
             lines = text.splitlines()
             self.routing_key, self.msgType = lines[0].split(sep)
-            self.body = encodingutils.encodeString("\n".join(lines[1:]))
+            bodyStr = self.extractHeaders("\n".join(lines[1:]))
+            self.body = encodingutils.encodeString(bodyStr)
             self.rcHandler = rcHandler
         else:
             self.routing_key = routing_key
@@ -112,11 +114,26 @@ class AMQPTraffic(traffic.Traffic):
             text = routing_key + sep + self.msgType +"\n"
             text += encodingutils.decodeBytes(body)
             if rcHandler and rcHandler.getboolean("record_timestamps", [ "general" ], False):
-                timestamp = props.headers.get("timestamp") or datetime.now().isoformat()
+                timestamp = props.headers.get("timestamp")
+                if timestamp is None:
+                    timestamp = datetime.now().isoformat()
             for header, value in props.headers.items():
                 if header != "timestamp":
                     text += self.headerStr + header + "=" + value
         traffic.Traffic.__init__(self, text, responseFile, rcHandler, timestamp=timestamp)
+        
+    def extractHeaders(self, textStr):
+        if self.headerStr in textStr:
+            parts = textStr.split(self.headerStr)
+            for headerStr in parts[1:]:
+                header, value = headerStr.strip().split("=", 1)
+                self.headers[header] = value
+            return self.stripNewline(parts[0])
+        else:
+            return self.stripNewline(textStr)
+        
+    def stripNewline(self, text):
+        return text[:-1] if text.endswith("\n") else text
         
     def forwardToDestination(self):
         # Replay and record handled entirely separately, unlike most other traffic, due to how MQ brokers work
@@ -124,12 +141,12 @@ class AMQPTraffic(traffic.Traffic):
             if AMQPTraffic.connector is None:
                 AMQPTraffic.connector = AMQPConnector(self.rcHandler)
                 
-            headers = {}
-            if self.origin_server:
-                headers["traceparent"] = self.origin_server
-            if self.rcHandler.getboolean("record_timestamps", [ "general" ], False):
-                headers["timestamp"] = datetime.now().isoformat()
-            self.connector.replay(self.routing_key, self.body, self.msgType, headers)
+            if self.origin:
+                self.headers["traceparent"] = self.origin
+                self.headers["timestamp"] = ""
+            elif self.rcHandler.getboolean("record_timestamps", [ "general" ], False):
+                self.headers["timestamp"] = datetime.now().isoformat()
+            self.connector.replay(self.routing_key, self.body, self.msgType, self.headers)
         return []
             
 
