@@ -382,7 +382,13 @@ def open_new_record_file(replay_fns, repIndex, ext):
 def add_prefix_by_matching_replay(recorded_files, replayed_files, ext=None):
     for fn in recorded_files:
         if fn[3] == "-" and fn[2].isdigit():
-            # already prefixed, nothing to do
+            # already prefixed, no division needed
+            new_record_fn = fn.rsplit(".", 1)[0] + "." + ext
+            with open(new_record_fn, "w") as fw:
+                with open(fn) as f:
+                    for line in f:
+                        if not line.startswith("--TIM:"):
+                            fw.write(line)
             continue
         stem = fn.rsplit(".", 1)[0]
         replay_fns = find_replay_files(stem, replayed_files)
@@ -393,7 +399,7 @@ def add_prefix_by_matching_replay(recorded_files, replayed_files, ext=None):
             for line in f:
                 if line.startswith("<-") or line.startswith("->"):
                     recIndex += 1
-                    if recIndex >= curr_replay_count and line.startswith("<-") and repIndex < len(replay_fns):
+                    if recIndex > curr_replay_count and line.startswith("<-") and repIndex + 1 < len(replay_fns):
                         repIndex += 1
                         recIndex = 0
                         new_record_file.close()
