@@ -401,7 +401,7 @@ def add_prefix_by_matching_replay(recorded_files, replayed_files, ext=None):
                     recIndex += 1
                     if recIndex > curr_replay_count and line.startswith("<-") and repIndex + 1 < len(replay_fns):
                         repIndex += 1
-                        recIndex = 0
+                        recIndex = 1
                         new_record_file.close()
                         new_record_file, curr_replay_count = open_new_record_file(replay_fns, repIndex, ext)
                 if not line.startswith("--TIM:"):
