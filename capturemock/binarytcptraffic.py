@@ -52,19 +52,24 @@ class BinaryTrafficConverter:
             else:
                 self.header = header
                 success, self.header_fields = self.headerConverter.parse(header)
+                self.diag.debug("Got header %s %s", header, self.header_fields)
                 if success:
-                    self.diag.debug("Got header %s %s", header, self.header_fields)
                     length = self.get_body_length()
                     if length:
                         self.body = self.socket.recv(length)
-                    self.diag.debug("Got body of size %s", length, self.body)
+                    self.diag.debug("Got body of size %s %s", length, self.body)
                 else:
+                    self.diag.debug("Failed to parse incoming header %s", header)                    
                     print("FAILED to parse incoming header", header, file=sys.stderr)
+                    return False
         finally:
             self.socket.settimeout(self.header_timeout)
+        return True
             
     def get_body_length(self):
         msg_size = self.header_fields.get("msg_size")
+        if msg_size % 2 == 1: # ACI format does not allow odd message size...
+            msg_size += 1
         header_size = self.header_fields.get("header_size")
         if msg_size and header_size:
             msg_already_read = self.headerConverter.length - header_size
@@ -88,7 +93,9 @@ class BinaryTrafficConverter:
         return self.text
     
     def read_and_parse(self):
-        self.read_header_or_text()
+        # If we can't read the header, ignore it and try the next one
+        while not self.read_header_or_text():
+            pass
         self.parse_body()
         return self.text, self.get_payload()
     
@@ -237,7 +244,7 @@ class TcpHeaderTrafficServer:
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.settimeout(self.connection_timeout)
         self.socket.bind((address, 0))
-        self.socket.listen(2) 
+        self.socket.listen(2)
         self.diag = logging.getLogger("Binary TCP Traffic")
         self.clientConverter = None
         self.serverConverter = None
