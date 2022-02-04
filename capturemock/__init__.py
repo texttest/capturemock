@@ -1,5 +1,6 @@
 from .capturepython import interceptPython
 from .capturecommand import interceptCommand
+from .fileedittraffic import FileEditTraffic
 from .config import CaptureMockReplayError, RECORD, REPLAY, REPLAY_OLD_RECORD_NEW
 from . import config, cmdlineutils
 import os, sys, shutil, filecmp, subprocess, tempfile, types
@@ -187,8 +188,11 @@ def commandline():
         shutil.rmtree(interceptDir)
     terminate()
 
-def replay_for_server(rcFile, replayFile, recordFile=None, serverAddress=None, **kw):
+def replay_for_server(rcFile, replayFile, recordFile=None, serverAddress=None, replayEditDir=None, recordEditDir=None, **kw):
     ReplayOptions = namedtuple("ReplayOptions", "mode replay record rcfiles")
+    FileOptions = namedtuple("FileOptions", "replay_file_edits record_file_edits")
+    foptions = FileOptions(replay_file_edits=replayEditDir, record_file_edits=recordEditDir)
+    FileEditTraffic.configure(foptions)
     options = ReplayOptions(mode=RECORD, replay=replayFile, record=recordFile, rcfiles=rcFile)
     from .server import ServerDispatcherBase
     dispatcher = ServerDispatcherBase(options)

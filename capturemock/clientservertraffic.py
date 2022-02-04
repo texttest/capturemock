@@ -1,9 +1,10 @@
 """ Traffic classes for capturing client-server interaction """
 
-import socket, sys
+import socket, sys, os
 from capturemock import traffic, encodingutils
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError, URLError
+from capturemock.fileedittraffic import FileEditTraffic
 
 try:
     import xmlrpclib
@@ -94,6 +95,7 @@ class XmlRpcClientTraffic(ClientSocketTraffic):
 
 class HTTPClientTraffic(ClientSocketTraffic):
     headerStr = "--HEA:"
+    fileContentsStr = "<File Contents for %s>"
     ignoreHeaders = [ "Content-Length", "Host", "User-Agent", "traceparent", "tracestate", "Connection", "Origin", "Referer", "Request-Id"] # provided automatically, or not usable when recorded
     defaultValues = {"Content-Type": "application/x-www-form-urlencoded", "Accept-Encoding": "identity"}
     repeatCache = {}
@@ -106,6 +108,8 @@ class HTTPClientTraffic(ClientSocketTraffic):
                 self.path = parts[1]
                 textStr = self.extractHeaders(parts[2])
                 self.payload = encodingutils.encodeString(textStr) if textStr else None
+                if self.payload:
+                    self.tryReplaceFileContents()
             else:
                 self.path = self.extractHeaders(parts[1])
                 textStr = ""
@@ -114,8 +118,8 @@ class HTTPClientTraffic(ClientSocketTraffic):
             self.method = method
             self.path = path
             self.payload = text
-            textStr = encodingutils.decodeBytes(text)
             self.headers = headers
+            textStr = self.decodePayload(self.payload)
         self.handler = handler
         self.checkRepeats = rcHandler.getboolean("check_repeated_calls", [ self.method ], True)
         mainText = self.method + " " + self.path
@@ -128,6 +132,86 @@ class HTTPClientTraffic(ClientSocketTraffic):
                 text += "\n" + self.headerStr + header + "=" + value
         ClientSocketTraffic.__init__(self, text, responseFile, rcHandler)
         self.text = self.applyAlterations(self.text)
+        
+    def parseVariable(self, line, varName):
+        key = varName + "="
+        start = line.find(key) + len(key)
+        if start != -1:
+            end = line.find(";", start)
+            value = line[start:end] if end != -1 else line[start:]
+            if value.startswith('"') and value.endswith('"'):
+                return value[1:-1]
+            else:
+                return value
+        
+    def openEditFile(self, line):
+        filename = self.parseVariable(line, "filename")
+        editdir = FileEditTraffic.recordFileEditDir
+        path = os.path.join(editdir, filename)
+        if os.path.isfile(path):
+            return filename, open(os.devnull, "wb")
+            
+        if not os.path.isdir(editdir):
+            os.makedirs(editdir)
+        return filename, open(path, "ab")
+        
+    def getBoundary(self):
+        contentType = self.headers.get("Content-Type", "")
+        boundaryText = self.parseVariable(contentType, "boundary")
+        if boundaryText:
+            return b"--" + boundaryText.encode()
+        
+    def tryReplaceFileContents(self):
+        boundary = self.getBoundary()
+        if boundary:
+            linesep = os.linesep.encode()
+            prefix, postfix = self.fileContentsStr.encode().split(b"%s")
+            newPayload = b""
+            currPayload = self.payload
+            start = currPayload.find(prefix)
+            while start != -1:
+                end = currPayload.find(linesep, start)
+                filenameBytes = currPayload[start + len(prefix):end - len(postfix)]
+                filename = encodingutils.decodeBytes(filenameBytes)
+                filepath = os.path.join(FileEditTraffic.replayFileEditDir, filename)
+                if os.path.isfile(filepath):
+                    contents = open(filepath, "rb").read()
+                    newPayload += currPayload[:start]
+                    newPayload += contents
+                    currPayload = currPayload[end:]
+                start = currPayload.find(prefix)
+            if newPayload:
+                self.payload = newPayload + currPayload
+                
+    def decodePayload(self, payload):
+        if payload is None:
+            return ""
+        boundary = self.getBoundary()
+        if boundary is None:
+            return encodingutils.decodeBytes(payload)
+        
+        linesep = os.linesep.encode()
+        lines = []
+        currFileName, currFile = None, None
+        try:
+            for line in payload.split(linesep):
+                hitBoundary = currFile and line.startswith(boundary)
+                if line and currFile and not hitBoundary:
+                    currFile.write(line)
+                else:
+                    textLine = encodingutils.decodeBytes(line)
+                    if hitBoundary:
+                        lines.append(self.fileContentsStr % currFileName)
+                        currFile.close()
+                        currFileName, currFile = None, None
+                    elif textLine.startswith("Content-Disposition: form-data; name=file;"):
+                        currFileName, currFile = self.openEditFile(textLine)
+                
+                    lines.append(textLine)
+        finally:
+            if currFile:
+                currFile.close()
+        return "\n".join(lines)
 
     def extractHeaders(self, textStr):
         if HTTPClientTraffic.headerStr in textStr:
