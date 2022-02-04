@@ -43,7 +43,7 @@ class CaptureMockManager:
                                                     recordFile,
                                                     recordEditDir,
                                                     sutDirectory,
-                                                    environment, 
+                                                    environment,
                                                     stderrFn)
             self.serverAddress = self.serverProcess.stdout.readline().strip()
             self.serverProtocol = rcHandler.get("server_protocol", [ "general" ], "classic")
@@ -209,10 +209,10 @@ class PrefixContext:
         self.parseFn = parseFn
         self.ext_servers = ext_servers
         self.fns = {}
-        
+
     def __enter__(self):
         return self
-    
+
     def __exit__(self, *args):
         self.clear()
 
@@ -230,7 +230,7 @@ class PrefixContext:
     def sort_clients(self, fns):
         if len(fns) < 2:
             return
-            
+
         newFns = [ newFn for newFn, _, _ in fns.values() ]
         baseIndex = int(newFns[0][:3])
         without_prefix = [ fn[3:] for fn in newFns ]
@@ -240,7 +240,7 @@ class PrefixContext:
             index = without_prefix.index(tail) + baseIndex
             newName = str(index).zfill(3) + tail
             os.rename(fn, newName)
-            
+
     def remove_non_matching(self, item, ix):
         removed = {}
         for fn, info in self.fns.items():
@@ -278,9 +278,9 @@ class PrefixContext:
                     self.sort_clients(removed)
                 elif server not in self.ext_servers:
                     self.clear()
-            
+
         self.fns[fn] = newFn, client, server
-        
+
     def get(self, fn):
         info = self.fns.get(fn)
         if info is not None:
@@ -289,7 +289,7 @@ class PrefixContext:
 class DefaultTimestamper:
     def __init__(self):
         self.index = 1
-        
+
     def stamp(self):
         ts = datetime.fromordinal(self.index).isoformat()
         self.index += 1
@@ -365,13 +365,57 @@ def get_traffic_count(rpfn):
                 count += 1
     return count
 
-def find_replay_files(stem, replayed_files):
-    fns = []
-    for rpfn in sorted(replayed_files):
+def find_recorded_position(rpfn, text):
+    curr_text = ""
+    count = 0
+    with open(rpfn) as f:
+        for line in f:
+            if line.startswith("<-") or line.startswith("->"):
+                if curr_text == text:
+                    return count - 1
+                count += 1
+                curr_text = line
+            elif not line.startswith("--TIM:"):
+                curr_text += line
+    
+
+def read_first_traffic(rpfn):
+    text = ""
+    with open(rpfn) as f:
+        for line in f:
+            if line.startswith("->"):
+                return text
+            text += line
+    return text
+
+def find_replay_files(stem, replayed_files, fn):
+    fns = {}
+    replay_count = 0
+    for i, rpfn in enumerate(sorted(replayed_files)):
         curr_stem = rpfn[4:].rsplit(".", 1)[0]
         if curr_stem == stem:
-            fns.append((rpfn, get_traffic_count(rpfn)))
-    return fns
+            if i == len(replayed_files) - 1:
+                # Last file, don't care
+                curr_count = 10000
+            else:
+                curr_count = get_traffic_count(rpfn)
+                replay_count += curr_count
+            fns[rpfn] = curr_count
+    if len(replayed_files) == 1:
+        return list(fns.items())
+
+    record_count = get_traffic_count(fn)
+    if record_count == replay_count:
+        return list(fns.items())
+    prev_replay_fn = None
+    for i, replay_fn in enumerate(fns):
+        firstTraffic = read_first_traffic(replay_fn)
+        position_in_recorded = find_recorded_position(fn, firstTraffic)
+        if position_in_recorded is not None and prev_replay_fn is not None:
+            fns[prev_replay_fn] = position_in_recorded
+        prev_replay_fn = replay_fn
+    return list(fns.items())
+
 
 def open_new_record_file(replay_fns, repIndex, ext):
     curr_replay_fn, curr_replay_count = replay_fns[repIndex]
@@ -391,7 +435,7 @@ def add_prefix_by_matching_replay(recorded_files, replayed_files, ext=None):
                             fw.write(line)
             continue
         stem = fn.rsplit(".", 1)[0]
-        replay_fns = find_replay_files(stem, replayed_files)
+        replay_fns = find_replay_files(stem, replayed_files, fn)
         recIndex = 0
         repIndex = 0
         new_record_file, curr_replay_count = open_new_record_file(replay_fns, repIndex, ext)
