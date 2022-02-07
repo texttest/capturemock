@@ -100,8 +100,25 @@ class HTTPClientTraffic(ClientSocketTraffic):
     defaultValues = {"Content-Type": "application/x-www-form-urlencoded", "Accept-Encoding": "identity"}
     repeatCache = {}
     def __init__(self, text=None, responseFile=None, rcHandler=None, method="GET", path="/", headers={}, handler=None):
+        self.handler = handler
+        if responseFile is not None: # record
+            self.method = method
+            self.path = path
+            self.payload = text
+            self.headers = headers
+            textStr = self.decodePayload(self.payload)
+            mainText = self.method + " " + self.path
+            if self.payload is not None:
+                text = mainText + " " + textStr
+            else:
+                text = mainText
+            for header, value in self.headers.items():
+                if header not in self.ignoreHeaders and self.defaultValues.get(header) != value and not header.lower().startswith("sec-"):
+                    text += "\n" + self.headerStr + header + "=" + value
+        ClientSocketTraffic.__init__(self, text, responseFile, rcHandler)
+        self.text = self.applyAlterations(self.text)
         if responseFile is None: # replay
-            parts = text.split(None, 2)
+            parts = self.text.split(None, 2)
             self.headers = {}
             self.method = parts[0]
             if len(parts) > 2:
@@ -114,24 +131,7 @@ class HTTPClientTraffic(ClientSocketTraffic):
                 self.path = self.extractHeaders(parts[1])
                 textStr = ""
                 self.payload = None
-        else:
-            self.method = method
-            self.path = path
-            self.payload = text
-            self.headers = headers
-            textStr = self.decodePayload(self.payload)
-        self.handler = handler
         self.checkRepeats = rcHandler.getboolean("check_repeated_calls", [ self.method ], True)
-        mainText = self.method + " " + self.path
-        if self.payload is not None:
-            text = mainText + " " + textStr
-        else:
-            text = mainText
-        for header, value in self.headers.items():
-            if header not in self.ignoreHeaders and self.defaultValues.get(header) != value and not header.lower().startswith("sec-"):
-                text += "\n" + self.headerStr + header + "=" + value
-        ClientSocketTraffic.__init__(self, text, responseFile, rcHandler)
-        self.text = self.applyAlterations(self.text)
         
     def parseVariable(self, line, varName):
         key = varName + "="

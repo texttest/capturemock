@@ -1,9 +1,9 @@
 
 """ Class to handle the interface with the rc file """
 try:
-    from ConfigParser import ConfigParser
-except ImportError: # python3
     from configparser import ConfigParser
+except ImportError: # python3
+    from ConfigParser import ConfigParser
     
 import os, sys, logging.config
 
@@ -16,7 +16,7 @@ class CaptureMockReplayError(RuntimeError):
 
 class RcFileHandler:
     def __init__(self, rcFiles):
-        self.parser = ConfigParser()
+        self.parser = ConfigParser(strict=False)
         self.diag = None
         if rcFiles:
             for rcFile in rcFiles:

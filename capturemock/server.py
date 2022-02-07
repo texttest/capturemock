@@ -410,9 +410,15 @@ class ServerDispatcherBase:
 
     def replay_all(self, **kw):
         # Pulls everything out of replay info - then we go to "record" mode
+        recorded_ids = []
+        replay_ids = self.replayInfo.extractIds()
         for i, text in enumerate(self.replayInfo.extractAllTraffic()):
             traffic = self.parseClientTraffic(text, **kw)
-            self.process(traffic, i + 1)
+            responses = self.process(traffic, i + 1)
+            for currId in self.replayInfo.extractIdsFromTraffic(responses):
+                if currId not in recorded_ids:
+                    recorded_ids.append(currId)
+        return dict(zip(replay_ids, recorded_ids))
 
     def processText(self, text, wfile, reqNo):
         self.diag.debug("Request text : " + text)
