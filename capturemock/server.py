@@ -197,8 +197,8 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         HTTPTrafficHandler.requestCount += 1
         rawbytes = self.read_data()
-        text = rawbytes.decode(getpreferredencoding())
         if self.path == "/capturemock/setServerLocation":
+            text = rawbytes.decode(getpreferredencoding())
             traffic = clientservertraffic.HTTPServerStateTraffic(text, rcHandler=self.dispatcher.rcHandler)
             self.send_response(200)
             self.end_headers()

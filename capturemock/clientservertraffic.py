@@ -135,8 +135,9 @@ class HTTPClientTraffic(ClientSocketTraffic):
         
     def parseVariable(self, line, varName):
         key = varName + "="
-        start = line.find(key) + len(key)
+        start = line.find(key)
         if start != -1:
+            start += len(key)
             end = line.find(";", start)
             value = line[start:end] if end != -1 else line[start:]
             if value.startswith('"') and value.endswith('"'):
@@ -144,16 +145,15 @@ class HTTPClientTraffic(ClientSocketTraffic):
             else:
                 return value
         
-    def openEditFile(self, line):
-        filename = self.parseVariable(line, "filename")
+    def openEditFile(self, filename):
         editdir = FileEditTraffic.recordFileEditDir
         path = os.path.join(editdir, filename)
         if os.path.isfile(path):
-            return filename, open(os.devnull, "wb")
+            return open(os.devnull, "wb")
             
         if not os.path.isdir(editdir):
             os.makedirs(editdir)
-        return filename, open(path, "ab")
+        return open(path, "ab")
         
     def getBoundary(self):
         contentType = self.headers.get("Content-Type", "")
@@ -196,7 +196,7 @@ class HTTPClientTraffic(ClientSocketTraffic):
         try:
             for line in payload.split(linesep):
                 hitBoundary = currFile and line.startswith(boundary)
-                if line and currFile and not hitBoundary:
+                if line and currFile and not hitBoundary and not line.startswith(b"Content-"):
                     currFile.write(line)
                 else:
                     textLine = encodingutils.decodeBytes(line)
@@ -204,8 +204,10 @@ class HTTPClientTraffic(ClientSocketTraffic):
                         lines.append(self.fileContentsStr % currFileName)
                         currFile.close()
                         currFileName, currFile = None, None
-                    elif textLine.startswith("Content-Disposition: form-data; name=file;"):
-                        currFileName, currFile = self.openEditFile(textLine)
+                    elif textLine.startswith("Content-Disposition: form-data;"):
+                        currFileName = self.parseVariable(textLine, "filename")
+                        if currFileName:
+                            currFile = self.openEditFile(currFileName)
                 
                     lines.append(textLine)
         finally:

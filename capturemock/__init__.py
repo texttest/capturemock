@@ -413,10 +413,11 @@ def find_replay_files(stem, replayed_files, fn):
         return list(fns.items())
     prev_replay_fn = None
     for i, replay_fn in enumerate(fns):
-        firstTraffic = read_first_traffic(replay_fn)
-        position_in_recorded = find_recorded_position(fn, firstTraffic)
-        if position_in_recorded is not None and prev_replay_fn is not None:
-            fns[prev_replay_fn] = position_in_recorded
+        if prev_replay_fn is not None:
+            firstTraffic = read_first_traffic(replay_fn)
+            position_in_recorded = find_recorded_position(fn, firstTraffic)
+            if position_in_recorded is not None:
+                fns[prev_replay_fn] = position_in_recorded
         prev_replay_fn = replay_fn
     return list(fns.items())
 
@@ -440,6 +441,9 @@ def add_prefix_by_matching_replay(recorded_files, replayed_files, ext=None):
             continue
         stem = fn.rsplit(".", 1)[0]
         replay_fns = find_replay_files(stem, replayed_files, fn)
+        #print(fn)
+        #from pprint import pprint
+        #pprint(replay_fns)
         recIndex = 0
         repIndex = 0
         new_record_file, curr_replay_count = open_new_record_file(replay_fns, repIndex, ext)
