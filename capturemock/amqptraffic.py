@@ -120,6 +120,8 @@ class AMQPTraffic(traffic.Traffic):
             for header, value in props.headers.items():
                 if header != "timestamp":
                     text += self.headerStr + header + "=" + value
+                if header == "originfile":
+                    self.origin = value
         traffic.Traffic.__init__(self, text, responseFile, rcHandler, timestamp=timestamp)
         
     def extractHeaders(self, textStr):
@@ -142,15 +144,20 @@ class AMQPTraffic(traffic.Traffic):
                 AMQPTraffic.connector = AMQPConnector(self.rcHandler)
                 
             if self.origin:
-                self.headers["traceparent"] = self.origin
-                self.headers["timestamp"] = ""
-            elif self.rcHandler.getboolean("record_timestamps", [ "general" ], False):
+                self.headers["originfile"] = self.origin
+            if self.rcHandler.getboolean("record_timestamps", [ "general" ], False):
                 self.headers["timestamp"] = datetime.now().isoformat()
             self.connector.replay(self.routing_key, self.body, self.msgType, self.headers)
         return []
+    
+    def shouldBeRecorded(self, *args):
+        return not self.replay and self.origin != "norecord" # never record these when replaying, must do it in one place
             
-
     @classmethod
     def isClientClass(cls):
         return True
-        
+    
+class AMQPResponseTraffic(AMQPTraffic):
+    direction = "->"
+    def __init__(self, text, responseFile, rcHandler):
+        AMQPTraffic.__init__(self, text, responseFile, rcHandler, origin="norecord")

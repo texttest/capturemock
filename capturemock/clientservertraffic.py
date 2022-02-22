@@ -96,10 +96,10 @@ class XmlRpcClientTraffic(ClientSocketTraffic):
 class HTTPClientTraffic(ClientSocketTraffic):
     headerStr = "--HEA:"
     fileContentsStr = "<File Contents for %s>"
-    ignoreHeaders = [ "Content-Length", "Host", "User-Agent", "traceparent", "tracestate", "Connection", "Origin", "Referer"] # provided automatically, or not usable when recorded
+    ignoreHeaders = [ "Content-Length", "Host", "User-Agent", "Connection", "Origin", "Referer", "Date"] # provided automatically, or not usable when recorded
     defaultValues = {"Content-Type": "application/x-www-form-urlencoded", "Accept-Encoding": "identity"}
     repeatCache = {}
-    def __init__(self, text=None, responseFile=None, rcHandler=None, method="GET", path="/", headers={}, handler=None):
+    def __init__(self, text=None, responseFile=None, rcHandler=None, method="GET", path="/", headers={}, handler=None, **kw):
         self.handler = handler
         if responseFile is not None: # record
             self.method = method
@@ -112,9 +112,7 @@ class HTTPClientTraffic(ClientSocketTraffic):
                 text = mainText + " " + textStr
             else:
                 text = mainText
-            for header, value in self.headers.items():
-                if header not in self.ignoreHeaders and self.defaultValues.get(header) != value and not header.lower().startswith("sec-"):
-                    text += "\n" + self.headerStr + header + "=" + value
+            text += self.getHeaderText(self.headers.items())
         ClientSocketTraffic.__init__(self, text, responseFile, rcHandler)
         self.text = self.applyAlterations(self.text)
         if responseFile is None: # replay
@@ -123,16 +121,23 @@ class HTTPClientTraffic(ClientSocketTraffic):
             self.method = parts[0]
             if len(parts) > 2:
                 self.path = parts[1]
-                textStr = self.extractHeaders(parts[2])
+                textStr = self.extractHeaders(parts[2], self.headers)
                 self.payload = encodingutils.encodeString(textStr) if textStr else None
                 if self.payload:
                     self.tryReplaceFileContents()
             else:
-                self.path = self.extractHeaders(parts[1])
+                self.path = self.extractHeaders(parts[1], self.headers)
                 textStr = ""
                 self.payload = None
         self.checkRepeats = rcHandler.getboolean("check_repeated_calls", [ self.method ], True)
         
+    def getHeaderText(self, headers):
+        text = ""
+        for header, value in headers:
+            if header not in self.ignoreHeaders and self.defaultValues.get(header) != value and not header.lower().startswith("sec-"):
+                text += "\n" + self.headerStr + header + "=" + value
+        return text
+    
     def parseVariable(self, line, varName):
         key = varName + "="
         start = line.find(key)
@@ -215,12 +220,12 @@ class HTTPClientTraffic(ClientSocketTraffic):
                 currFile.close()
         return "\n".join(lines)
 
-    def extractHeaders(self, textStr):
+    def extractHeaders(self, textStr, headers):
         if HTTPClientTraffic.headerStr in textStr:
             parts = textStr.split(HTTPClientTraffic.headerStr)
             for headerStr in parts[1:]:
                 header, value = headerStr.strip().split("=", 1)
-                self.headers[header] = value
+                headers[header] = value
             return self.stripNewline(parts[0])
         else:
             return self.stripNewline(textStr)
@@ -228,8 +233,8 @@ class HTTPClientTraffic(ClientSocketTraffic):
     def stripNewline(self, text):
         return text[:-1] if text.endswith("\n") else text
     
-    def shouldBeRecorded(self, responses):
-        if self.checkRepeats:
+    def shouldBeRecorded(self, responses=None):
+        if self.checkRepeats or responses is None:
             return True
         else:
             cached = self.repeatCache.get(self.text, [])
@@ -244,22 +249,29 @@ class HTTPClientTraffic(ClientSocketTraffic):
         try:
             request = Request(self.destination + self.path, data=self.payload, headers=self.headers, method=self.method)
             response = urlopen(request)
-            text = encodingutils.decodeBytes(response.read())
-            text = self.applyAlterations(text)
-            return [ HTTPServerTraffic(response.status, text, response.getheaders(), self.responseFile, handler=self.handler) ]
+            body = encodingutils.decodeBytes(response.read())
+            body = self.applyAlterations(body)
+            headers = response.getheaders()
+            text = body + self.getHeaderText(headers)
+            return [ HTTPServerTraffic(response.status, text, body, headers, self.responseFile, handler=self.handler) ]
         except HTTPError as e:
             text = encodingutils.decodeBytes(e.read())
             text = self.applyAlterations(text)
-            return [ HTTPServerTraffic(e.code, text, {}, self.responseFile, handler=self.handler) ]
+            return [ HTTPServerTraffic(e.code, text, text, [], self.responseFile, handler=self.handler) ]
         except URLError as e:
             sys.stderr.write("Failed to forward http traffic to server " + self.destination + " : " + str(e) + "\n")
             return []
         
-    def makeResponseTraffic(self, text, responseClass, rcHandler):
-        status, body = text.split(" ", 1)
-        body = self.applyAlterations(body)
-        return responseClass(int(status), body, {}, self.responseFile, self.handler)
-
+    def makeResponseTraffic(self, rawText, responseClass, rcHandler):
+        if responseClass is HTTPServerTraffic:
+            status, text = rawText.split(" ", 1)
+            text = self.applyAlterations(text)
+            headerDict = {}
+            body = self.extractHeaders(text, headerDict)
+            headers = list(headerDict.items())
+            return responseClass(int(status), text, body, headers, self.responseFile, self.handler)
+        else:
+            return super(HTTPClientTraffic, self).makeResponseTraffic(rawText, responseClass, rcHandler)
 
 
 class ServerTraffic(traffic.Traffic):
@@ -287,8 +299,8 @@ class XmlRpcServerTraffic(ServerTraffic):
             return self.responseObject
         
 class HTTPServerTraffic(ServerTraffic):
-    def __init__(self, status, text, headers, responseFile, handler):
-        self.body = text
+    def __init__(self, status, text, body, headers, responseFile, handler):
+        self.body = body
         ServerTraffic.__init__(self, str(status) + " " + text, responseFile)
         self.status = status
         self.headers = headers

@@ -8,6 +8,7 @@ from functools import wraps
 from glob import glob
 from collections import namedtuple
 from datetime import datetime
+import bisect
 
 class CaptureMockManager:
     fileContents = "import capturemock; capturemock.interceptCommand()\n"
@@ -225,7 +226,14 @@ def replay_for_server(rcFile, replayFile, recordFile=None, serverAddress=None, r
     if id_mapping:
         return make_id_alterations_rc_file(id_mapping)
 
-def add_timestamp_data(data_by_timestamp, ts, fn, currText):
+def add_timestamp_data(data_by_timestamp, given_ts, fn, currText, fn_timestamps):
+    if currText.startswith("->"): # it's a reply, must match with best client traffic
+        index = bisect.bisect(fn_timestamps, given_ts)
+        best_index = index - 1 if index > 0 else 0
+        ts = fn_timestamps[best_index]
+    else:
+        fn_timestamps.append(given_ts)
+        ts = given_ts
     tsdict = data_by_timestamp.setdefault(ts, {})
     if fn in tsdict:
         tsdict[fn] += currText
@@ -233,9 +241,8 @@ def add_timestamp_data(data_by_timestamp, ts, fn, currText):
         tsdict[fn] = currText
 
 class PrefixContext:
-    def __init__(self, parseFn=None, ext_servers=[]):
+    def __init__(self, parseFn=None):
         self.parseFn = parseFn
-        self.ext_servers = ext_servers
         self.fns = {}
 
     def __enter__(self):
@@ -243,12 +250,6 @@ class PrefixContext:
 
     def __exit__(self, *args):
         self.clear()
-
-    def sort_key(self, fn):
-        if any((ext_server in fn for ext_server in self.ext_servers)):
-            return "zzz" + fn
-        else:
-            return fn
 
     def clear(self):
         if self.all_same_server():
@@ -262,7 +263,7 @@ class PrefixContext:
         newFns = [ newFn for newFn, _, _ in fns.values() ]
         baseIndex = int(newFns[0][:3])
         without_prefix = [ fn[3:] for fn in newFns ]
-        without_prefix.sort(key=self.sort_key)
+        without_prefix.sort()
         for fn in newFns:
             tail = fn[3:]
             index = without_prefix.index(tail) + baseIndex
@@ -272,7 +273,7 @@ class PrefixContext:
     def remove_non_matching(self, item, ix):
         removed = {}
         for fn, info in self.fns.items():
-            if info[ix] != item and info[2] not in self.ext_servers:
+            if info[ix] != item:
                 removed[fn] = info
         for fn, info in removed.items():
             del self.fns[fn]
@@ -281,14 +282,12 @@ class PrefixContext:
     def all_same_server(self):
         servers = set()
         for _, _, server in self.fns.values():
-            if server not in self.ext_servers:
-                servers.add(server)
+            servers.add(server)
         return len(servers) == 1
 
     def find_most_recent(self):
         for _, currClient, currServer in reversed(self.fns.values()):
-            if currServer not in self.ext_servers:
-                return currClient, currServer
+            return currClient, currServer
         return None, None
 
     def add(self, fn, newFn):
@@ -304,7 +303,7 @@ class PrefixContext:
                 elif server == currServer:
                     removed = self.remove_non_matching(server, 2)
                     self.sort_clients(removed)
-                elif server not in self.ext_servers:
+                else:
                     self.clear()
 
         self.fns[fn] = newFn, client, server
@@ -326,22 +325,24 @@ class DefaultTimestamper:
 # utility for sorting multiple Capturemock recordings so they can be replayed in the right order
 # writes to current working directory
 # Anything without timestamps is assumed to come first
-def add_prefix_by_timestamp(recorded_files, ignoredIndicesIn=None, sep="-", ext=None, parseFn=None, ext_servers=[]):
-    ignoredIndices = ignoredIndicesIn or {}
+
+def create_map_by_timestamp(recorded_files, ignoredIndices={}):
     timestampPrefix = "--TIM:"
     data_by_timestamp = {}
     for timestamp in ignoredIndices.values():
         data_by_timestamp[timestamp] = None
+    
     default_stamper = DefaultTimestamper()
     for fn in recorded_files:
         currText = ""
         curr_timestamp = None
+        fn_timestamps = []
         with open(fn) as f:
             for line in f:
-                if line.startswith("<-"):
+                if line.startswith("<-") or line.startswith("->RMQ"):
                     if currText:
                         ts = curr_timestamp or default_stamper.stamp()
-                        add_timestamp_data(data_by_timestamp, ts, fn, currText)
+                        add_timestamp_data(data_by_timestamp, ts, fn, currText, fn_timestamps)
                     currText = line
                     curr_timestamp = None
                 elif line.startswith(timestampPrefix):
@@ -349,10 +350,17 @@ def add_prefix_by_timestamp(recorded_files, ignoredIndicesIn=None, sep="-", ext=
                         curr_timestamp = line[len(timestampPrefix):].strip()
                 else:
                     currText += line
+        
         ts = curr_timestamp or default_stamper.stamp()
-        add_timestamp_data(data_by_timestamp, ts, fn, currText)
+        add_timestamp_data(data_by_timestamp, ts, fn, currText, fn_timestamps)
+    
+    return data_by_timestamp
+
+def add_prefix_by_timestamp(recorded_files, ignoredIndicesIn=None, sep="-", ext=None, parseFn=None):
+    ignoredIndices = ignoredIndicesIn or {}
+    data_by_timestamp = create_map_by_timestamp(recorded_files, ignoredIndices)
     currIndex = 0
-    with PrefixContext(parseFn, ext_servers) as currContext:
+    with PrefixContext(parseFn) as currContext:
         new_files = []
         for timestamp in sorted(data_by_timestamp.keys()):
             timestamp_data = data_by_timestamp.get(timestamp)
@@ -389,23 +397,28 @@ def get_traffic_count(rpfn):
     count = 0
     with open(rpfn) as f:
         for line in f:
-            if line.startswith("<-") or line.startswith("->"):
+            if line.startswith("<-"):
                 count += 1
     return count
 
 def find_recorded_position(rpfn, text):
     curr_text = ""
     count = 0
+    searching = False
     with open(rpfn) as f:
         for line in f:
-            if line.startswith("<-") or line.startswith("->"):
-                if curr_text == text:
-                    return count - 1
+            if searching:
+                if line.startswith("<-") or line.startswith("->"):
+                    if curr_text == text:
+                        return count - 1
+                elif not line.startswith("--TIM:"):
+                    curr_text += line
+            if line.startswith("<-"):
+                searching = True
                 count += 1
                 curr_text = line
-            elif not line.startswith("--TIM:"):
-                curr_text += line
-    
+            if line.startswith("->"):
+                searching = False
 
 def read_first_traffic(rpfn):
     text = ""
@@ -452,36 +465,58 @@ def open_new_record_file(replay_fns, repIndex, ext):
     new_record_file = open(new_record_fn, "w")
     return new_record_file, curr_replay_count
 
+def transform_to_amqp_client_replay(fn, new_fn):
+    writeFile = None
+    active = False
+    with open(fn) as f:
+        for line in f:
+            if line.startswith("->RMQ"):
+                if writeFile is None:
+                    writeFile = open(new_fn, "w")
+                writeFile.write(line.replace("->", "<-"))
+                active = True
+            elif active:
+                writeFile.write(line)
+            elif line.startswith("<-") or line.startswith("->"):
+                active = False
+    if writeFile is not None:
+        writeFile.close()
+        return True
+    else:
+        return False
+
 def add_prefix_by_matching_replay(recorded_files, replayed_files, ext=None):
     for fn in recorded_files:
+        timestamp_data = create_map_by_timestamp([ fn ])
         if fn[3] == "-" and fn[2].isdigit():
             # already prefixed, no division needed
             new_record_fn = fn.rsplit(".", 1)[0] + "." + ext
             with open(new_record_fn, "w") as fw:
-                with open(fn) as f:
-                    for line in f:
-                        if not line.startswith("--TIM:"):
-                            fw.write(line)
+                for ts in sorted(timestamp_data.keys()):
+                    currText = timestamp_data.get(ts).get(fn)
+                    fw.write(currText)
             continue
         stem = fn.rsplit(".", 1)[0]
         replay_fns = find_replay_files(stem, replayed_files, fn)
+        if len(replay_fns) == 0:
+            print("Failed to find replay files for", fn, file=sys.stderr)
+            continue
         #print(fn)
         #from pprint import pprint
         #pprint(replay_fns)
         recIndex = 0
         repIndex = 0
         new_record_file, curr_replay_count = open_new_record_file(replay_fns, repIndex, ext)
-        with open(fn) as f:
-            for line in f:
-                if line.startswith("<-") or line.startswith("->"):
-                    recIndex += 1
-                    if recIndex > curr_replay_count and line.startswith("<-") and repIndex + 1 < len(replay_fns):
-                        repIndex += 1
-                        recIndex = 1
-                        new_record_file.close()
-                        new_record_file, curr_replay_count = open_new_record_file(replay_fns, repIndex, ext)
-                if not line.startswith("--TIM:"):
-                    new_record_file.write(line)
+        for ts in sorted(timestamp_data.keys()):
+            currText = timestamp_data.get(ts).get(fn)
+            recIndex += 1
+            if recIndex > curr_replay_count and currText.startswith("<-") and repIndex + 1 < len(replay_fns):
+                repIndex += 1
+                recIndex = 1
+                new_record_file.close()
+                new_record_file, curr_replay_count = open_new_record_file(replay_fns, repIndex, ext)
+
+            new_record_file.write(currText)
         new_record_file.close()
 
 

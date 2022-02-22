@@ -262,9 +262,16 @@ class HTTPTrafficServer(HTTPServer):
     @staticmethod
     def getTrafficClasses(incoming):
         if incoming:
-            return [ clientservertraffic.HTTPServerStateTraffic, clientservertraffic.HTTPClientTraffic ]
+            classes = [ clientservertraffic.HTTPServerStateTraffic, clientservertraffic.HTTPClientTraffic ]
         else:
-            return [ clientservertraffic.HTTPServerTraffic, clientservertraffic.HTTPClientTraffic ]
+            classes = [ clientservertraffic.HTTPServerTraffic, clientservertraffic.HTTPClientTraffic ]
+            try:
+                from capturemock.amqptraffic import AMQPResponseTraffic
+                classes.append(AMQPResponseTraffic)
+            except ImportError:
+                # If we haven't got the files installed, reasonable to assume there won't be any AMQP traffic
+                pass
+        return classes
 
 
 class XmlRpcTrafficServer(SimpleXMLRPCServer):
@@ -432,7 +439,9 @@ class ServerDispatcherBase:
     def parseClientTraffic(self, text, **kw):
         for cls in self.serverClass.getTrafficClasses(incoming=True):
             if cls.isClientClass():
-                return cls(text[6:], None, self.rcHandler, **kw)
+                prefix = "<-" + cls.typeId + ":" if cls.typeId else ""
+                if text.startswith(prefix):
+                    return cls(text[6:], None, self.rcHandler, **kw)
 
     def parseTraffic(self, text, wfile):
         for cls in self.getTrafficClasses(incoming=True):
@@ -488,6 +497,7 @@ class ServerDispatcherBase:
             replayedResponses = []
             filesMatched = []
             responseClasses = self.getTrafficClasses(incoming=False)
+            self.diag.debug("Trying with possible classes " + repr(responseClasses))
             for responseClass, text in self.replayInfo.readReplayResponses(traffic, responseClasses):
                 responseTraffic = self.makeResponseTraffic(traffic, responseClass, text, filesMatched, topLevelForEdit)
                 if responseTraffic:

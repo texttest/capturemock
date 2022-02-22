@@ -1,6 +1,7 @@
 """ Module to manage the information in the file and return appropriate matches """
 
 import logging, difflib, re, os
+from pprint import pformat
 try: # Python 2.7, Python 3.x
     from collections import OrderedDict
 except ImportError: # Python 2.6 and earlier
@@ -121,7 +122,7 @@ class ReplayInfo:
                     currResponseHandlers.append((responseHandler, fromSUT))
                 else:
                     currResponseHandlers[-1] = responseHandler, fromSUT
-        self.diag.debug("Replay info " + repr(self.responseMap))
+        self.diag.debug("Replay info " + pformat(self.responseMap))
 
     def registerIntermediateCalls(self, currResponseHandler):
         intermediate = []
