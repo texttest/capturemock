@@ -43,6 +43,8 @@ class BinaryTrafficConverter:
         
     def read_header_or_text(self):
         header = self.socket.recv(self.headerConverter.length)
+        if len(header) == 0:
+            raise TimeoutError("no data received")
         # go to blocking mode once we have a header, need to make sure we read the rest
         self.socket.settimeout(None)
         try:

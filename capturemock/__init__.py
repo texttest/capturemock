@@ -475,10 +475,10 @@ def transform_to_amqp_client_replay(fn, new_fn):
                     writeFile = open(new_fn, "w")
                 writeFile.write(line.replace("->", "<-"))
                 active = True
-            elif active:
-                writeFile.write(line)
             elif line.startswith("<-") or line.startswith("->"):
                 active = False
+            elif active:
+                writeFile.write(line)
     if writeFile is not None:
         writeFile.close()
         return True
