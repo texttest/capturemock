@@ -17,10 +17,6 @@ class ReplayInfo:
         self.replayItems = set()
         self.replayAll = mode == config.REPLAY
         self.exactMatching = rcHandler.getboolean("use_exact_matching", [ "general" ], False)
-        self.idPattern = None
-        idPatternStr = rcHandler.get("id_pattern", [ "general"], "")
-        if idPatternStr:
-            self.idPattern = re.compile(idPatternStr)
         if replayFile:
             trafficList = self.readIntoList(replayFile)
             self.parseTrafficList(trafficList)
@@ -44,31 +40,6 @@ class ReplayInfo:
     @staticmethod
     def makePythonItems(pythonAttrs):
         return [ (attr, re.compile("<-PYT:(import )?" + attr)) for attr in pythonAttrs ]
-    
-    def extractIds(self):
-        if not self.idPattern:
-            return []
-        
-        ids = []
-        for responseHandler in self.responseMap.values():
-            ids += responseHandler.extractIds(self.idPattern)
-        return ids
-    
-    def extractIdsFromTraffic(self, trafficList):
-        if not self.idPattern:
-            return []
-        
-        ids = []
-        for traffic in trafficList:
-            currId = ReplayedResponseHandler.extractIdFromText(self.idPattern, traffic.text)
-            if currId:
-                ids.append(currId)
-        return ids
-    
-    def extractAllTraffic(self):
-        allTraffic = list(self.responseMap.keys())
-        self.responseMap.clear()
-        return allTraffic
 
     def isActiveForAll(self):
         return len(self.responseMap) > 0 and self.replayAll
@@ -134,7 +105,8 @@ class ReplayInfo:
                 intermediate.insert(0, responseHandler)
         currResponseHandler.addIntermediate(intermediate)
 
-    def readIntoList(self, replayFile):
+    @classmethod
+    def readIntoList(cls, replayFile):
         trafficList = []
         currTraffic = ""
         with open(replayFile, newline=None) as f:
@@ -309,25 +281,6 @@ class ReplayedResponseHandler:
         self.timesChosen += increment
         return responses
     
-    def extractIds(self, idPattern):
-        ids = []
-        for responseList in self.responses:
-            for text in responseList:
-                text = text.split(":", 1)[-1]
-                currId = self.extractIdFromText(idPattern, text)
-                if currId and currId not in ids:
-                    ids.append(currId)
-        return ids
-    
-    @classmethod
-    def extractIdFromText(self, idPattern, text):
-        idMatch = idPattern.match(text)
-        if idMatch is not None:
-            try:
-                return idMatch.group(1)
-            except IndexError:
-                return idMatch.group(0)      
-
 
 def filterFileForReplay(itemInfo, replayFile):
     with open(replayFile, newline=None) as f:

@@ -6,7 +6,7 @@ from capturemock.replayinfo import ReplayInfo
 from capturemock import recordfilehandler, cmdlineutils
 from capturemock import commandlinetraffic, fileedittraffic, clientservertraffic, customtraffic
 from locale import getpreferredencoding
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple
 
 from urllib.request import urlopen
 from urllib.parse import urlparse, urlunparse
@@ -14,6 +14,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import TCPServer, StreamRequestHandler
 from xmlrpc.client import Fault, ServerProxy
 from xmlrpc.server import SimpleXMLRPCServer
+import re
 
 def getPython():
     if os.name == "nt":
@@ -415,18 +416,6 @@ class ServerDispatcherBase:
                                    time.strftime("%d%b%H:%M:%S", time.localtime(modTime)) + " and size " + str(modSize))
         return topLevelForEdit, fileEditData
 
-    def replay_all(self, **kw):
-        # Pulls everything out of replay info - then we go to "record" mode
-        recorded_ids = []
-        replay_ids = self.replayInfo.extractIds()
-        for i, text in enumerate(self.replayInfo.extractAllTraffic()):
-            traffic = self.parseClientTraffic(text, **kw)
-            responses = self.process(traffic, i + 1)
-            for currId in self.replayInfo.extractIdsFromTraffic(responses):
-                if currId not in recorded_ids:
-                    recorded_ids.append(currId)
-        return dict(zip(replay_ids, recorded_ids))
-
     def processText(self, text, wfile, reqNo):
         self.diag.debug("Request text : " + text)
         if text.startswith("TERMINATE_SERVER"):
@@ -435,13 +424,6 @@ class ServerDispatcherBase:
             traffic = self.parseTraffic(text, wfile)
             self.process(traffic, reqNo)
             self.diag.debug("Finished processing incoming request")
-
-    def parseClientTraffic(self, text, **kw):
-        for cls in self.serverClass.getTrafficClasses(incoming=True):
-            if cls.isClientClass():
-                prefix = "<-" + cls.typeId + ":" if cls.typeId else ""
-                if text.startswith(prefix):
-                    return cls(text[6:], None, self.rcHandler, **kw)
 
     def parseTraffic(self, text, wfile):
         for cls in self.getTrafficClasses(incoming=True):
@@ -462,7 +444,7 @@ class ServerDispatcherBase:
         return responses
 
     def _process(self, traffic, reqNo):
-        self.diag.debug("Processing traffic " + traffic.__class__.__name__)
+        self.diag.debug("Processing traffic " + traffic.__class__.__name__ + " with text " + repr(traffic.text))
         topLevelForEdit, fileEditData = self.addPossibleFileEdits(traffic)
         responses = self.getResponses(traffic, topLevelForEdit, fileEditData)
         doRecord = traffic.shouldBeRecorded(responses)
@@ -640,6 +622,80 @@ class ServerDispatcher(ServerDispatcherBase):
     def shutdown(self):
         self.diag.debug("Told to shut down!")
         self.server.shutdown()
+        
+        
+class ReplayOnlyDispatcher(ServerDispatcherBase):
+    def __init__(self, replayFile, recordFile, rcFile):
+        ReplayOptions = namedtuple("ReplayOptions", "mode replay record rcfiles")
+        # don't read into ReplayInfo as normal, optimised for responses
+        options = ReplayOptions(mode=config.RECORD, replay=None, record=recordFile, rcfiles=rcFile)
+        ServerDispatcherBase.__init__(self, options)
+        self.idPattern = None
+        idPatternStr = self.rcHandler.get("id_pattern", [ "general"], "")
+        if idPatternStr:
+            self.idPattern = re.compile(idPatternStr)
+        self.clientTrafficStrings = []
+        self.replay_ids = []
+        for trafficStr in ReplayInfo.readIntoList(replayFile):
+            if trafficStr.startswith("<-"):
+                self.clientTrafficStrings.append(trafficStr)
+            elif self.idPattern:
+                text = trafficStr.split(":", 1)[-1]
+                currId = self.extractIdFromText(text)
+                if currId:
+                    self.diag.info("Extracting IDs from response data " + currId)
+                    self.replay_ids.append(currId)
+        
+    def extractIdsFromResponses(self, responses):
+        if not self.idPattern:
+            return []
+        
+        ids = []
+        for traffic in responses:
+            currId = self.extractIdFromText(traffic.text)
+            if currId:
+                self.diag.info("Extracting ID from traffic " + currId)
+                ids.append(currId)
+        return ids
+    
+    def extractIdFromText(self, text):
+        idMatch = self.idPattern.match(text)
+        if idMatch is not None:
+            groups = idMatch.groups()
+            if len(groups) > 0:
+                return groups[-1]
+            else:
+                return idMatch.group(0)
+            
+    def add_id_mapping(self, traffic, replay_id, recorded_id):
+        sectionNames = traffic.getAlterationSectionNames()
+        self.rcHandler.addToList("alterations", sectionNames, replay_id)
+        self.rcHandler.add_section(replay_id)
+        self.rcHandler.set(replay_id, "match_pattern", replay_id)
+        self.rcHandler.set(replay_id, "replacement", recorded_id)        
+
+    def replay_all(self, **kw):
+        # Pulls everything out of replay info - then we go to "record" mode
+        recorded_ids = []
+        alterations = {}
+        for i, text in enumerate(self.clientTrafficStrings):
+            traffic = self.parseClientTraffic(text, **kw)
+            responses = self.process(traffic, i + 1)
+            for currId in self.extractIdsFromResponses(responses):
+                if currId not in recorded_ids:
+                    recorded_ids.append(currId)
+                    replay_id = self.replay_ids.pop(0)
+                    self.diag.debug("Adding ID mapping from " + replay_id + " to " + currId)
+                    alterations[replay_id] = currId
+                    self.add_id_mapping(traffic, replay_id, currId)
+        return alterations
+    
+    def parseClientTraffic(self, text, **kw):
+        for cls in self.serverClass.getTrafficClasses(incoming=True):
+            if cls.isClientClass():
+                prefix = "<-" + cls.typeId + ":" if cls.typeId else ""
+                if text.startswith(prefix):
+                    return cls(text[6:], None, self.rcHandler, **kw)
 
 # The basic point here is to make sure that traffic appears in the record
 # file in the order in which it comes in, not in the order in which it completes (which is indeterministic and

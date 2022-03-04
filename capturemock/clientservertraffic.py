@@ -96,7 +96,7 @@ class XmlRpcClientTraffic(ClientSocketTraffic):
 class HTTPClientTraffic(ClientSocketTraffic):
     headerStr = "--HEA:"
     fileContentsStr = "<File Contents for %s>"
-    ignoreHeaders = [ "Content-Length", "Host", "User-Agent", "Connection", "Origin", "Referer", "Date"] # provided automatically, or not usable when recorded
+    ignoreHeaders = [ "Content-Length", "Host", "User-Agent", "Connection", "Origin", "Referer", "Date", "Authorization"] # provided automatically, or not usable when recorded
     defaultValues = {"Content-Type": "application/x-www-form-urlencoded", "Accept-Encoding": "identity"}
     repeatCache = {}
     def __init__(self, text=None, responseFile=None, rcHandler=None, method="GET", path="/", headers={}, handler=None, **kw):
@@ -134,7 +134,8 @@ class HTTPClientTraffic(ClientSocketTraffic):
     def getHeaderText(self, headers):
         text = ""
         for header, value in headers:
-            if header not in self.ignoreHeaders and self.defaultValues.get(header) != value and not header.lower().startswith("sec-"):
+            if header not in self.ignoreHeaders and self.defaultValues.get(header) != value and \
+                not header.lower().startswith("sec-") and not header.lower().startswith("x-forwarded"):
                 text += "\n" + self.headerStr + header + "=" + value
         return text
     

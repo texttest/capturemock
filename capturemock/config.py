@@ -53,6 +53,18 @@ class RcFileHandler:
                     result += listStr.split(",")
         return result
 
+    def addToList(self, setting, sections, newItem):
+        values = self.getList(setting, sections)
+        values.append(newItem)
+        valueStr = ",".join(values)
+        self.set(sections[0], setting, valueStr)
+    
+    def add_section(self, *args):
+        return self.parser.add_section(*args)
+
+    def set(self, *args):
+        return self.parser.set(*args)
+
     def setUpLogging(self, mainLogName):
         logConfigFile = self.get("log_config_file", [ "general" ],
                                  self.getPersonalPath("logging.conf"))

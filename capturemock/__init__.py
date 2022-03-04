@@ -212,13 +212,11 @@ def make_id_alterations_rc_file(id_mapping):
 
 
 def replay_for_server(rcFile, replayFile, recordFile=None, serverAddress=None, replayEditDir=None, recordEditDir=None, **kw):
-    ReplayOptions = namedtuple("ReplayOptions", "mode replay record rcfiles")
     FileOptions = namedtuple("FileOptions", "replay_file_edits record_file_edits")
     foptions = FileOptions(replay_file_edits=replayEditDir, record_file_edits=recordEditDir)
     FileEditTraffic.configure(foptions)
-    options = ReplayOptions(mode=RECORD, replay=replayFile, record=recordFile, rcfiles=rcFile)
-    from .server import ServerDispatcherBase
-    dispatcher = ServerDispatcherBase(options)
+    from .server import ReplayOnlyDispatcher
+    dispatcher = ReplayOnlyDispatcher(replayFile, recordFile, rcFile)
     if serverAddress:
         from .clientservertraffic import ClientSocketTraffic
         ClientSocketTraffic.setServerLocation(serverAddress, True)
