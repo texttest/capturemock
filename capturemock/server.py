@@ -652,6 +652,7 @@ class ReplayOnlyDispatcher(ServerDispatcherBase):
             return []
         
         ids = []
+        self.diag.debug("Extracting IDs from responses")
         for traffic in responses:
             currId = self.extractIdFromText(traffic.text)
             if currId:
@@ -680,6 +681,7 @@ class ReplayOnlyDispatcher(ServerDispatcherBase):
         recorded_ids = []
         alterations = {}
         for i, text in enumerate(self.clientTrafficStrings):
+            self.diag.debug("Replaying traffic with text beginning " + text[:30] + "...")
             traffic = self.parseClientTraffic(text, **kw)
             responses = self.process(traffic, i + 1)
             for currId in self.extractIdsFromResponses(responses):
