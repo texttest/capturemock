@@ -636,6 +636,7 @@ class ReplayOnlyDispatcher(ServerDispatcherBase):
             self.idPattern = re.compile(idPatternStr)
         self.clientTrafficStrings = []
         self.replay_ids = []
+        self.diag.info("Replaying everything as client from " + replayFile)
         for trafficStr in ReplayInfo.readIntoList(replayFile):
             if trafficStr.startswith("<-"):
                 self.clientTrafficStrings.append(trafficStr)
@@ -688,6 +689,7 @@ class ReplayOnlyDispatcher(ServerDispatcherBase):
                     self.diag.debug("Adding ID mapping from " + replay_id + " to " + currId)
                     alterations[replay_id] = currId
                     self.add_id_mapping(traffic, replay_id, currId)
+        self.diag.info("Replaying all now complete")
         return alterations
     
     def parseClientTraffic(self, text, **kw):
