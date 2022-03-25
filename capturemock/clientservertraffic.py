@@ -170,7 +170,7 @@ class HTTPClientTraffic(ClientSocketTraffic):
     def tryReplaceFileContents(self):
         boundary = self.getBoundary()
         if boundary:
-            linesep = os.linesep.encode()
+            linesep = b"\r\n"
             prefix, postfix = self.fileContentsStr.encode().split(b"%s")
             newPayload = b""
             currPayload = self.payload
@@ -196,7 +196,7 @@ class HTTPClientTraffic(ClientSocketTraffic):
         if boundary is None:
             return encodingutils.decodeBytes(payload)
         
-        linesep = os.linesep.encode()
+        linesep = b"\r\n"
         lines = []
         currFileName, currFile = None, None
         try:
