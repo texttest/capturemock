@@ -250,7 +250,7 @@ class TcpHeaderTrafficServer:
         self.diag = logging.getLogger("Binary TCP Traffic")
         self.clientConverter = None
         self.serverConverter = None
-        self.payloadForClient = b""
+        self.serverTrafficCache = []
         self.terminate = False
         self.requestCount = 0
 
@@ -288,18 +288,17 @@ class TcpHeaderTrafficServer:
                 self.clientConverter.send_payload(response.text)
                 
     def handle_server_traffic(self, text, payload):
-        self.requestCount += 1
-        traffic = BinaryServerSocketTraffic(text, None, rcHandler=self.dispatcher.rcHandler)
-        self.dispatcher.process(traffic, self.requestCount)
         if self.clientConverter:
-            if len(self.payloadForClient):
-                self.clientConverter.socket.sendall(self.payloadForClient + payload)
-                self.payloadForClient = b""
-            else:
-                self.clientConverter.socket.sendall(payload)
+            self.handle_server_traffic_for_real(text, payload)
         else:
             self.diag.debug("Server traffic, no client")
-            self.payloadForClient += payload
+            self.serverTrafficCache.append((text, payload))
+            
+    def handle_server_traffic_for_real(self, text, payload):
+        traffic = BinaryServerSocketTraffic(text, None, rcHandler=self.dispatcher.rcHandler)
+        self.requestCount += 1
+        self.dispatcher.process(traffic, self.requestCount)
+        self.clientConverter.socket.sendall(payload)
 
     def try_client(self):
         if self.clientConverter:
@@ -322,6 +321,12 @@ class TcpHeaderTrafficServer:
             except OSError:
                 self.diag.debug("Read from server timed out")
         return False
+    
+    def handle_server_traffic_from_cache(self):
+        if len(self.serverTrafficCache):
+            for cacheText, cachePayload in self.serverTrafficCache:
+                self.handle_server_traffic_for_real(cacheText, cachePayload)
+            self.serverTrafficCache.clear()
 
     def run(self):
         while not self.terminate:
@@ -338,6 +343,7 @@ class TcpHeaderTrafficServer:
                 except socket.timeout:
                     self.clientConverter = converter
                     self.handle_client_traffic("connect")
+                    self.handle_server_traffic_from_cache()
                     self.diag.debug("Timeout client read, set socket")
                     continue
                 if converter.text: # complete message, i.e. special for CaptureMock
@@ -365,30 +371,46 @@ class TcpHeaderTrafficServer:
             return [ BinaryServerSocketTraffic, BinaryClientSocketTraffic ]
         
         
+def get_header(line, headers):
+    for header in headers:
+        if line.startswith(header):
+            return header
+        
 if __name__ == "__main__":
     from capturemock import config
-    rc = r"D:\texttest_repos\tone\capturemock_tcp.rc"
+    rc = r"D:\texttest_repos\tone\capturemock-any-systemmanager.rc"
     rcHandler = config.RcFileHandler([ rc ])
     diag = logging.getLogger("test")
     conv = BinaryTrafficConverter(rcHandler, None, diag)
-    fn = r"D:\TT\tone.25Jan155236.33084\tone\Transports\PetainerData\CreateMission\ttrh.tone"
+    fn = r"D:\TT\tone.28Mar154841.35540\tone\Transports\PetainerData\SetIO\cpmock_binarytcp.txt"
     curr_payload = b""
     curr_text = ""
     recording = False
     count = 1
     failed = []
+    prefix = "Binary TCP Traffic DEBUG - "
+    text_headers = [ prefix + "Payload text ", prefix + "Recording " ]
+    payload_header = prefix + "Sending payload "
+    header_header = prefix + "Got header "
+    body_header = prefix + "Got body of size "
+    end_header = prefix + "Server traffic, no client"
     with open(fn) as f:
         for line in f:
-            if line.startswith("Got header"):
-                curr_payload += eval(line.split()[2])
-            elif line.startswith("Got body of size"):
-                curr_payload += eval(line.split(" ", 5)[5])
-            elif line.startswith("Recording"):
-                curr_text += line[10:]
+            text_header = get_header(line, text_headers)
+            if text_header:
+                curr_text = line[len(text_header):]
                 recording = True
-            elif line.startswith("--TIM"):
-                print(count, "compare", curr_text, "with", curr_payload)
+            elif line.startswith(header_header):
+                curr_payload += eval(line.split()[7])
+            elif line.startswith(body_header):
+                curr_payload += eval(line.split(" ", 10)[10])
+            elif line.startswith(payload_header) or line.startswith(end_header):
+                if line.startswith(payload_header):
+                    curr_payload = eval(line[len(payload_header):])
+                print(count, "compare", curr_text, "with")
+                print(curr_payload)
                 new_payload = conv.convert_to_payload(curr_text)
+                print(new_payload)
                 if new_payload == curr_payload:
                     print("SUCCESS")
                 else:
@@ -415,8 +437,8 @@ if __name__ == "__main__":
     
     for curr_text, curr_payload, new_payload in failed:
         print("\n" + curr_text)
-        print("got:", new_payload)
-        print("not:", curr_payload)
+        print("got:", len(new_payload), new_payload)
+        print("not:", len(curr_payload), curr_payload)
         fakeSock = FakeSocket(curr_payload)
         conv = BinaryTrafficConverter(rcHandler, fakeSock, diag)
         text, _ = conv.read_and_parse()
