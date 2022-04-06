@@ -198,12 +198,15 @@ class HTTPClientTraffic(ClientSocketTraffic):
         
         linesep = b"\r\n"
         lines = []
-        currFileName, currFile = None, None
+        currFileName, currFile, currFileWritten = None, None, False
         try:
             for line in payload.split(linesep):
                 hitBoundary = currFile and line.startswith(boundary)
                 if line and currFile and not hitBoundary and not line.startswith(b"Content-"):
-                    currFile.write(line + linesep)
+                    if currFileWritten:
+                        currFile.write(linesep)
+                    currFile.write(line)
+                    currFileWritten = True
                 else:
                     textLine = encodingutils.decodeBytes(line)
                     if hitBoundary:
@@ -214,6 +217,7 @@ class HTTPClientTraffic(ClientSocketTraffic):
                         currFileName = self.parseVariable(textLine, "filename")
                         if currFileName:
                             currFile = self.openEditFile(currFileName)
+                            currFileWritten = False
                 
                     lines.append(textLine)
         finally:
