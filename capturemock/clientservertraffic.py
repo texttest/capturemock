@@ -203,7 +203,7 @@ class HTTPClientTraffic(ClientSocketTraffic):
             for line in payload.split(linesep):
                 hitBoundary = currFile and line.startswith(boundary)
                 if line and currFile and not hitBoundary and not line.startswith(b"Content-"):
-                    currFile.write(line)
+                    currFile.write(line + linesep)
                 else:
                     textLine = encodingutils.decodeBytes(line)
                     if hitBoundary:
