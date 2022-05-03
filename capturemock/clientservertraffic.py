@@ -151,15 +151,21 @@ class HTTPClientTraffic(ClientSocketTraffic):
             else:
                 return value
         
-    def openEditFile(self, filename):
+    def writeEditFile(self, filename, contents):
         editdir = FileEditTraffic.recordFileEditDir
         path = os.path.join(editdir, filename)
         if os.path.isfile(path):
-            return open(os.devnull, "wb")
-            
+            oldContents = open(path, "rb").read()
+            if oldContents == contents:
+                return filename
+        
+        newFn = FileEditTraffic.getFileEditName(filename)
         if not os.path.isdir(editdir):
             os.makedirs(editdir)
-        return open(path, "ab")
+        newPath = os.path.join(editdir, newFn)
+        with open(newPath, "wb") as f:
+            f.write(contents)
+        return newFn
         
     def getBoundary(self):
         contentType = self.headers.get("Content-Type", "")
@@ -189,6 +195,19 @@ class HTTPClientTraffic(ClientSocketTraffic):
             if newPayload:
                 self.payload = newPayload + currPayload
                 
+    def decodeResponsePayload(self, payload, headers):
+        disposition = dict(headers).get("Content-Disposition", "")
+        if disposition.startswith("attachment;"):
+            givenFn = self.parseVariable(disposition, "filename")
+            fnUsed = self.writeEditFile(givenFn, payload)
+            return self.fileContentsStr % fnUsed + self.getHeaderText(headers), payload
+        else:
+            body = encodingutils.decodeBytes(payload)
+            body = self.applyAlterations(body)
+            text = body + self.getHeaderText(headers)
+            newPayload = encodingutils.encodeString(body)
+            return text, newPayload
+                
     def decodePayload(self, payload):
         if payload is None:
             return ""
@@ -198,31 +217,24 @@ class HTTPClientTraffic(ClientSocketTraffic):
         
         linesep = b"\r\n"
         lines = []
-        currFileName, currFile, currFileWritten = None, None, False
-        try:
-            for line in payload.split(linesep):
-                hitBoundary = currFile and line.startswith(boundary)
-                if line and currFile and not hitBoundary and not line.startswith(b"Content-"):
-                    if currFileWritten:
-                        currFile.write(linesep)
-                    currFile.write(line)
-                    currFileWritten = True
-                else:
-                    textLine = encodingutils.decodeBytes(line)
-                    if hitBoundary:
-                        lines.append(self.fileContentsStr % currFileName)
-                        currFile.close()
-                        currFileName, currFile = None, None
-                    elif textLine.startswith("Content-Disposition: form-data;"):
-                        currFileName = self.parseVariable(textLine, "filename")
-                        if currFileName:
-                            currFile = self.openEditFile(currFileName)
-                            currFileWritten = False
-                
-                    lines.append(textLine)
-        finally:
-            if currFile:
-                currFile.close()
+        currFileName, currFileWritten, fileContents = None, False, b""
+        for line in payload.split(linesep):
+            hitBoundary = currFileName and line.startswith(boundary)
+            if line and currFileName and not hitBoundary and not line.startswith(b"Content-"):
+                if currFileWritten:
+                    fileContents += linesep
+                fileContents += line
+                currFileWritten = True
+            else:
+                textLine = encodingutils.decodeBytes(line)
+                if hitBoundary:
+                    fileNameUsed = self.writeEditFile(currFileName, fileContents)
+                    lines.append(self.fileContentsStr % fileNameUsed)
+                    currFileName, currFileWritten, fileContents = None, False, b""
+                elif textLine.startswith("Content-Disposition: form-data;"):
+                    currFileName = self.parseVariable(textLine, "filename")
+            
+                lines.append(textLine)
         return "\n".join(lines)
 
     def extractHeaders(self, textStr, headers):
@@ -254,15 +266,14 @@ class HTTPClientTraffic(ClientSocketTraffic):
         try:
             request = Request(self.destination + self.path, data=self.payload, headers=self.headers, method=self.method)
             response = urlopen(request)
-            body = encodingutils.decodeBytes(response.read())
-            body = self.applyAlterations(body)
+            payload = response.read()
             headers = response.getheaders()
-            text = body + self.getHeaderText(headers)
+            text, body = self.decodeResponsePayload(payload, headers)
             return [ HTTPServerTraffic(response.status, text, body, headers, self.responseFile, handler=self.handler) ]
         except HTTPError as e:
-            text = encodingutils.decodeBytes(e.read())
-            text = self.applyAlterations(text)
-            return [ HTTPServerTraffic(e.code, text, text, [], self.responseFile, handler=self.handler) ]
+            payload = e.read()
+            text, body = self.decodeResponsePayload(payload, e.headers)
+            return [ HTTPServerTraffic(e.code, text, body, e.headers, self.responseFile, handler=self.handler) ]
         except URLError as e:
             sys.stderr.write("Failed to forward http traffic to server " + self.destination + " : " + str(e) + "\n")
             return []
@@ -326,7 +337,7 @@ class HTTPServerTraffic(ServerTraffic):
     
     def write(self, message):
         if self.responseFile:
-            self.responseFile.write(encodingutils.encodeString(message))
+            self.responseFile.write(message)
 
 class ServerStateTraffic(ServerTraffic):
     def __init__(self, inText, dest, responseFile, rcHandler):
