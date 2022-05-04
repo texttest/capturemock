@@ -272,8 +272,9 @@ class HTTPClientTraffic(ClientSocketTraffic):
             return [ HTTPServerTraffic(response.status, text, body, headers, self.responseFile, handler=self.handler) ]
         except HTTPError as e:
             payload = e.read()
-            text, body = self.decodeResponsePayload(payload, e.headers)
-            return [ HTTPServerTraffic(e.code, text, body, e.headers, self.responseFile, handler=self.handler) ]
+            headers = e.getheaders()
+            text, body = self.decodeResponsePayload(payload, headers)
+            return [ HTTPServerTraffic(e.code, text, body, headers, self.responseFile, handler=self.handler) ]
         except URLError as e:
             sys.stderr.write("Failed to forward http traffic to server " + self.destination + " : " + str(e) + "\n")
             return []
