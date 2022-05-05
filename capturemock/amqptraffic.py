@@ -11,15 +11,19 @@ class AMQPConnector:
             self.url = rcHandler.get("url", [ "amqp" ])
             self.exchange = rcHandler.get("exchange", [ "amqp" ])
             self.exchange_type = rcHandler.get("exchange_type", [ "amqp" ])
+            self.auto_delete = rcHandler.getboolean("auto_delete", [ "amqp" ], True)
+            self.durable = rcHandler.getboolean("durable", [ "amqp" ], True)
         else:
             self.url, self.exchange = servAddr.rsplit("/", 1)
             self.exchange_type = None
+            self.auto_delete = True
+            self.durable = True
 
         params = pika.URLParameters(self.url)
         self.connection = pika.BlockingConnection(params)
         self.channel = self.connection.channel()
         if self.exchange_type:
-            self.channel.exchange_declare(self.exchange, exchange_type=self.exchange_type, durable=True, auto_delete=True)
+            self.channel.exchange_declare(self.exchange, exchange_type=self.exchange_type, durable=self.durable, auto_delete=self.auto_delete)
         
     def record_from_queue(self, on_message):
         queue = self.exchange + ".capturemock"
@@ -101,13 +105,7 @@ class AMQPTraffic(traffic.Traffic):
         sep = " : type="
         timestamp = None
         self.headers = {}
-        if self.replay:
-            lines = text.splitlines()
-            self.routing_key, self.msgType = lines[0].split(sep)
-            bodyStr = self.extractHeaders("\n".join(lines[1:]))
-            self.body = encodingutils.encodeString(bodyStr)
-            self.rcHandler = rcHandler
-        else:
+        if not self.replay:
             self.routing_key = routing_key
             self.body = body
             self.msgType = props.type
@@ -123,7 +121,14 @@ class AMQPTraffic(traffic.Traffic):
                 if header == "originfile":
                     self.origin = value
         traffic.Traffic.__init__(self, text, responseFile, rcHandler, timestamp=timestamp)
-        
+        self.text = self.applyAlterations(self.text)
+        if self.replay:
+            lines = self.text.splitlines()
+            self.routing_key, self.msgType = lines[0].split(sep)
+            bodyStr = self.extractHeaders("\n".join(lines[1:]))
+            self.body = encodingutils.encodeString(bodyStr)
+            self.rcHandler = rcHandler
+            
     def extractHeaders(self, textStr):
         if self.headerStr in textStr:
             parts = textStr.split(self.headerStr)
