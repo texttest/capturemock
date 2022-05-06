@@ -284,7 +284,8 @@ class HTTPClientTraffic(ClientSocketTraffic):
             status, text = rawText.split(" ", 1)
             text = self.applyAlterations(text)
             headerDict = {}
-            body = self.extractHeaders(text, headerDict)
+            bodyText = self.extractHeaders(text, headerDict)
+            body = encodingutils.encodeString(bodyText)
             headers = list(headerDict.items())
             return responseClass(int(status), text, body, headers, self.responseFile, self.handler)
         else:
