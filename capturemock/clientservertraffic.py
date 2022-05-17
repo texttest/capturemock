@@ -326,12 +326,14 @@ class HTTPServerTraffic(ServerTraffic):
     
     def forwardToDestination(self):
         if self.handler:
-            self.handler.send_response(self.status)
+            # don't include server and date, chances are we already have them
+            self.handler.send_response_only(self.status)
             for hdr, value in self.headers:
                 # Might need to handle chunked transfer, for now, just ignore it and return it as one
                 if hdr.lower() != "transfer-encoding" or value.lower() != "chunked":
                     self.handler.send_header(hdr, value)
             self.handler.send_header('Access-Control-Allow-Origin', '*')
+            self.handler.send_header('Access-Control-Expose-Headers', '*')
             self.handler.end_headers()
         self.write(self.body)
         # Don't close the file, the HTTP server mechanism does that for us
