@@ -633,7 +633,7 @@ class ReplayOnlyDispatcher(ServerDispatcherBase):
         self.idPattern = None
         idPatternStr = self.rcHandler.get("id_pattern", [ "general"], "")
         if idPatternStr:
-            self.idPattern = re.compile(idPatternStr)
+            self.idPattern = re.compile(idPatternStr, re.DOTALL)
         self.clientTrafficStrings = []
         self.replay_ids = []
         self.diag.info("Replaying everything as client from " + replayFile)
