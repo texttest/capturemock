@@ -239,8 +239,9 @@ def add_timestamp_data(data_by_timestamp, given_ts, fn, currText, fn_timestamps)
         tsdict[fn] = currText
 
 class PrefixContext:
-    def __init__(self, parseFn=None):
+    def __init__(self, parseFn, strictOrderClients):
         self.parseFn = parseFn
+        self.strictOrderClients = strictOrderClients
         self.fns = {}
 
     def __enter__(self):
@@ -296,7 +297,7 @@ class PrefixContext:
             if len(self.fns) > 0:
                 currClient, currServer = self.find_most_recent()
             if currClient is not None:
-                if client == currClient:
+                if client == currClient and client not in self.strictOrderClients:
                     self.remove_non_matching(client, 1)
                 elif server == currServer:
                     removed = self.remove_non_matching(server, 2)
@@ -354,11 +355,11 @@ def create_map_by_timestamp(recorded_files, ignoredIndices={}):
     
     return data_by_timestamp
 
-def add_prefix_by_timestamp(recorded_files, ignoredIndicesIn=None, sep="-", ext=None, parseFn=None):
+def add_prefix_by_timestamp(recorded_files, ignoredIndicesIn=None, sep="-", ext=None, parseFn=None, strictOrderClients=None):
     ignoredIndices = ignoredIndicesIn or {}
     data_by_timestamp = create_map_by_timestamp(recorded_files, ignoredIndices)
     currIndex = 0
-    with PrefixContext(parseFn) as currContext:
+    with PrefixContext(parseFn, strictOrderClients or []) as currContext:
         new_files = []
         for timestamp in sorted(data_by_timestamp.keys()):
             timestamp_data = data_by_timestamp.get(timestamp)
