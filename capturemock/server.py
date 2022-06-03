@@ -171,6 +171,7 @@ class ClassicTrafficRequestHandler(StreamRequestHandler):
 
 class HTTPTrafficHandler(BaseHTTPRequestHandler):
     dispatcher = None
+    redirects = []
     requestCount = 0
     def read_data(self):
         content_length = int(self.headers['Content-Length']) # <--- Gets the size of data
@@ -183,8 +184,19 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
         urldata = urlparse(self.path)
         urldata = urldata._replace(scheme="", netloc="")
         return urlunparse(urldata)
+    
+    def try_redirect(self):
+        for redirectKey, target in self.redirects:
+            if redirectKey in self.path:
+                self.send_response(307)
+                self.send_header('Location', target + self.path)
+                self.end_headers()
+                return True
+        return False
 
     def do_GET(self):
+        if self.try_redirect():
+            return
         HTTPTrafficHandler.requestCount += 1
         if self.path == "/capturemock/shutdownServer":
             self.send_response(200)
@@ -196,8 +208,22 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
             self.dispatcher.process(traffic, self.requestCount)
 
     def do_POST(self):
-        HTTPTrafficHandler.requestCount += 1
         rawbytes = self.read_data()
+        if self.try_redirect():
+            text = rawbytes.decode(getpreferredencoding())
+            self.dispatcher.diag.debug("Forwarding POST " + text)
+            for header, value in self.headers.items():
+                self.dispatcher.diag.debug("Header " + str(header) + " = " + str(value))
+            return
+        if self.path.startswith("/capturemock/sendPathRedirect/"):
+            redirectKey = self.path.rsplit("/", 1)[-1]
+            target = rawbytes.decode(getpreferredencoding())
+            self.redirects.append((redirectKey, target))
+            self.send_response(200)
+            self.end_headers()
+            return
+        
+        HTTPTrafficHandler.requestCount += 1
         if self.path == "/capturemock/setServerLocation":
             text = rawbytes.decode(getpreferredencoding())
             traffic = clientservertraffic.HTTPServerStateTraffic(text, rcHandler=self.dispatcher.rcHandler)
@@ -209,6 +235,8 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
         self.dispatcher.process(traffic, self.requestCount)
         
     def do_method_with_payload(self, method):
+        if self.try_redirect():
+            return
         HTTPTrafficHandler.requestCount += 1
         rawbytes = self.read_data()
         traffic = clientservertraffic.HTTPClientTraffic(rawbytes, self.wfile, method=method, path=self.get_local_path(), headers=self.headers, 
@@ -222,6 +250,8 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
         self.do_method_with_payload("PUT")
         
     def do_DELETE(self):
+        if self.try_redirect():
+            return
         HTTPTrafficHandler.requestCount += 1
         traffic = clientservertraffic.HTTPClientTraffic(responseFile=self.wfile, method="DELETE", path=self.get_local_path(), headers=self.headers, 
                                                         rcHandler=self.dispatcher.rcHandler, handler=self)
@@ -449,6 +479,7 @@ class ServerDispatcherBase:
         responses = self.getResponses(traffic, topLevelForEdit, fileEditData)
         doRecord = traffic.shouldBeRecorded(responses)
         if doRecord:
+            self.diag.debug("Calling traffic record for " + str(reqNo) + " recording request " + str(self.recordFileHandler.recordingRequest))
             traffic.record(self.recordFileHandler, reqNo)
         for response in responses:
             self.diag.debug("Response of type " + response.__class__.__name__ + " with text " + repr(response.text))
