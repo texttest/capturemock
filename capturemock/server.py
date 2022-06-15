@@ -646,7 +646,7 @@ class ServerDispatcher(ServerDispatcherBase):
             return socket.gethostbyname("localhost")
 
     def run(self):
-        self.diag.debug("Starting capturemock server")
+        self.diag.debug("Starting capturemock server at " + self.server.getAddress())
         self.server.run()
         self.diag.debug("Shut down capturemock server")
         
