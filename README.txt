@@ -17,7 +17,7 @@ Installation:
 
 Documentation:
 
-    http://www.texttest.org/index.php?page=capturemock
+    http://texttest.sourceforge.net/index.php?page=capturemock
 
 Test suite:
 
