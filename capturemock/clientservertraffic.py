@@ -20,9 +20,11 @@ class ClientSocketTraffic(traffic.Traffic):
     def isClientClass(cls):
         return True
     
-    def __init__(self, text, responseFile, rcHandler=None):
+    def __init__(self, text, responseFile, rcHandler=None, **kw):
         ts = self.get_timestamp(rcHandler)
         super(ClientSocketTraffic, self).__init__(text, responseFile, rcHandler=rcHandler, timestamp=ts)
+        self.text = self.applyAlterations(self.text)
+        self.connectionFailed = False
         
     def forwardToDestination(self):
         return self.forwardToServer() if self.destination is not None else []
@@ -46,10 +48,21 @@ class ClientSocketTraffic(traffic.Traffic):
         sendSocket.connect(serverAddress)
         sendSocket.sendall("TERMINATE_SERVER\n".encode())
         sendSocket.shutdown(2)
+        
+    def shouldBeRecorded(self, *args):
+        return not self.connectionFailed and traffic.Traffic.shouldBeRecorded(self, *args)
 
     def forwardToServer(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.connect(self.destination)
+        try:
+            sock.connect(self.destination)
+        except OSError as e:
+            sys.stderr.write("WARNING: Could not forward to server " + str(self.destination) + "\n")
+            sys.stderr.write(str(e) + "\n")
+            sys.stderr.write("-- " + self.text + "\n")
+            sock.close()
+            self.connectionFailed = True
+            return []
         sock.sendall(self.text.encode())
         try:
             sock.shutdown(socket.SHUT_WR)
@@ -70,9 +83,7 @@ class XmlRpcClientTraffic(ClientSocketTraffic):
             self.params = params
             text = self.method + repr(params).replace(",)", ")")
         ClientSocketTraffic.__init__(self, text, None, rcHandler)
-        if method is not None: # record
-            self.text = self.applyAlterations(self.text)
-        else: # replay
+        if method is None: # replay 
             self.method, paramText = text.rstrip().split("(", 1)
             paramText = "(" + paramText
             paramText = self.applyAlterationVariables(paramText)
@@ -113,8 +124,7 @@ class HTTPClientTraffic(ClientSocketTraffic):
             else:
                 text = mainText
             text += self.getHeaderText(self.headers.items())
-        ClientSocketTraffic.__init__(self, text, responseFile, rcHandler)
-        self.text = self.applyAlterations(self.text)
+        ClientSocketTraffic.__init__(self, text, responseFile, rcHandler, **kw)
         if responseFile is None: # replay
             parts = self.text.split(None, 2)
             self.headers = {}
