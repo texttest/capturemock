@@ -400,16 +400,20 @@ def get_traffic_count(rpfn):
                 count += 1
     return count
 
-def find_recorded_position(rpfn, text):
+def find_recorded_position(rpfn, text, skip):
     curr_text = ""
     count = 0
     searching = False
+    curr_skip = 0
     with open(rpfn) as f:
         for line in f:
             if searching:
                 if line.startswith("<-") or line.startswith("->"):
                     if curr_text == text:
-                        return count - 1
+                        if curr_skip == skip:
+                            return count - 1
+                        else:
+                            curr_skip += 1
                 elif not line.startswith("--TIM:"):
                     curr_text += line
             if line.startswith("<-"):
@@ -423,10 +427,14 @@ def read_first_traffic(rpfn):
     text = ""
     with open(rpfn) as f:
         for line in f:
-            if line.startswith("->"):
+            if text and (line.startswith("->") or line.startswith("<-")):
                 return text
             text += line
     return text
+
+def get_text_count(rpfn, text):
+    with open(rpfn) as f:
+        return f.read().count(text)
 
 def find_replay_files(stem, replayed_files, fn):
     fns = {}
@@ -448,13 +456,16 @@ def find_replay_files(stem, replayed_files, fn):
     if record_count == replay_count:
         return list(fns.items())
     prev_replay_fn = None
+    prev_first_traffic = None
     for i, replay_fn in enumerate(fns):
+        firstTraffic = read_first_traffic(replay_fn)
         if prev_replay_fn is not None:
-            firstTraffic = read_first_traffic(replay_fn)
-            position_in_recorded = find_recorded_position(fn, firstTraffic)
+            skip = get_text_count(prev_replay_fn, firstTraffic) if firstTraffic == prev_first_traffic else 0
+            position_in_recorded = find_recorded_position(fn, firstTraffic, skip)
             if position_in_recorded is not None:
                 fns[prev_replay_fn] = position_in_recorded
         prev_replay_fn = replay_fn
+        prev_first_traffic = firstTraffic
     return list(fns.items())
 
 
