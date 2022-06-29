@@ -184,6 +184,11 @@ class HTTPClientTraffic(ClientSocketTraffic):
         if boundaryText:
             return b"--" + boundaryText.encode()
         
+    def getFileEditContents(self, filename):
+        filepath = os.path.join(FileEditTraffic.replayFileEditDir, filename)
+        if os.path.isfile(filepath):
+            return open(filepath, "rb").read()
+        
     def tryReplaceFileContents(self):
         boundary = self.getBoundary()
         if boundary:
@@ -196,21 +201,24 @@ class HTTPClientTraffic(ClientSocketTraffic):
                 end = currPayload.find(linesep, start)
                 filenameBytes = currPayload[start + len(prefix):end - len(postfix)]
                 filename = encodingutils.decodeBytes(filenameBytes)
-                filepath = os.path.join(FileEditTraffic.replayFileEditDir, filename)
-                if os.path.isfile(filepath):
-                    contents = open(filepath, "rb").read()
+                contents = self.getFileEditContents(filename)
+                if contents:
                     newPayload += currPayload[:start]
                     newPayload += contents
                     currPayload = currPayload[end:]
                 start = currPayload.find(prefix)
             if newPayload:
                 self.payload = newPayload + currPayload
-                
-    def decodeResponsePayload(self, payload, headers):
+         
+    def getAttachmentFileName(self, headers):
         disposition = dict(headers).get("Content-Disposition", "")
         if disposition.startswith("attachment;"):
-            givenFn = self.parseVariable(disposition, "filename")
-            fnUsed = self.writeEditFile(givenFn, payload)
+            return self.parseVariable(disposition, "filename")
+                
+    def decodeResponsePayload(self, payload, headers):
+        attachmentFn = self.getAttachmentFileName(headers)
+        if attachmentFn:
+            fnUsed = self.writeEditFile(attachmentFn, payload)
             return self.fileContentsStr % fnUsed + self.getHeaderText(headers), payload
         else:
             body = encodingutils.decodeBytes(payload)
@@ -297,6 +305,10 @@ class HTTPClientTraffic(ClientSocketTraffic):
             headerDict = {}
             bodyText = self.extractHeaders(text, headerDict)
             body = encodingutils.encodeString(bodyText)
+            attachmentFn = self.getAttachmentFileName(headerDict)
+            if attachmentFn:
+                replaceStr = (self.fileContentsStr % attachmentFn).encode()
+                body = body.replace(replaceStr, self.getFileEditContents(attachmentFn))
             headers = list(headerDict.items())
             return responseClass(int(status), text, body, headers, self.responseFile, self.handler)
         else:
