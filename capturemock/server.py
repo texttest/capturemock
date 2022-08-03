@@ -223,6 +223,13 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
             self.end_headers()
             return
         
+        if self.path == "/capturemock/addAlterations":
+            rcFile = rawbytes.decode(getpreferredencoding())
+            self.dispatcher.rcHandler.addFile(rcFile)
+            self.send_response(200)
+            self.end_headers()
+            return
+        
         HTTPTrafficHandler.requestCount += 1
         if self.path == "/capturemock/setServerLocation":
             text = rawbytes.decode(getpreferredencoding())

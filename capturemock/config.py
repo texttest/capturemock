@@ -26,6 +26,9 @@ class RcFileHandler:
             rcFiles = self.getPersonalPath("config")
         self.parser.read(rcFiles)
 
+    def addFile(self, rcFile):
+        self.parser.read(rcFile)
+
     def getPersonalPath(self, fileName):
         return os.path.join(os.path.expanduser("~/.capturemock"), fileName)
 
