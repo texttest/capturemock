@@ -325,7 +325,7 @@ class DefaultTimestamper:
 # writes to current working directory
 # Anything without timestamps is assumed to come first
 
-def create_map_by_timestamp(recorded_files, ignoredIndices={}):
+def create_map_by_timestamp(recorded_files, ignoredIndices={}, serverRmqSeparate=False):
     timestampPrefix = "--TIM:"
     data_by_timestamp = {}
     for timestamp in ignoredIndices.values():
@@ -338,7 +338,7 @@ def create_map_by_timestamp(recorded_files, ignoredIndices={}):
         fn_timestamps = []
         with open(fn) as f:
             for line in f:
-                if line.startswith("<-") or line.startswith("->RMQ"):
+                if line.startswith("<-") or (serverRmqSeparate and line.startswith("->RMQ")):
                     if currText:
                         ts = curr_timestamp or default_stamper.stamp()
                         add_timestamp_data(data_by_timestamp, ts, fn, currText, fn_timestamps)
@@ -357,7 +357,7 @@ def create_map_by_timestamp(recorded_files, ignoredIndices={}):
 
 def add_prefix_by_timestamp(recorded_files, ignoredIndicesIn=None, sep="-", ext=None, parseFn=None, strictOrderClients=None):
     ignoredIndices = ignoredIndicesIn or {}
-    data_by_timestamp = create_map_by_timestamp(recorded_files, ignoredIndices)
+    data_by_timestamp = create_map_by_timestamp(recorded_files, ignoredIndices, serverRmqSeparate=True)
     currIndex = 0
     with PrefixContext(parseFn, strictOrderClients or []) as currContext:
         new_files = []
@@ -497,7 +497,7 @@ def transform_to_amqp_client_replay(fn, new_fn):
 
 def add_prefix_by_matching_replay(recorded_files, replayed_files, ext=None):
     for fn in recorded_files:
-        timestamp_data = create_map_by_timestamp([ fn ])
+        timestamp_data = create_map_by_timestamp([ fn ], serverRmqSeparate=False)
         if fn[3] == "-" and fn[2].isdigit():
             # already prefixed, no division needed
             new_record_fn = fn.rsplit(".", 1)[0] + "." + ext
