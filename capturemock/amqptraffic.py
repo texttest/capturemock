@@ -25,8 +25,11 @@ class AMQPConnector:
         if self.exchange_type:
             self.channel.exchange_declare(self.exchange, exchange_type=self.exchange_type, durable=self.durable, auto_delete=self.auto_delete)
         
+    def get_queue_name(self):
+        return self.exchange + ".capturemock"
+    
     def record_from_queue(self, on_message):
-        queue = self.exchange + ".capturemock"
+        queue = self.get_queue_name()
         self.channel.queue_declare(queue, durable=True, auto_delete=True)
         self.channel.queue_bind(queue, self.exchange, routing_key="#")
         self.channel.basic_consume(queue, on_message)
@@ -48,6 +51,9 @@ class AMQPConnector:
     
     def terminate(self):
         self.channel.stop_consuming()
+        queue = self.get_queue_name()
+        self.channel.queue_delete(queue)
+        self.channel.exchange_delete(self.exchange)
         
     def getAddress(self):
         return self.url + "/" + self.exchange
