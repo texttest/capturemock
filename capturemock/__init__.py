@@ -332,13 +332,18 @@ def create_map_by_timestamp(recorded_files, ignoredIndices={}, serverRmqSeparate
         data_by_timestamp[timestamp] = None
     
     default_stamper = DefaultTimestamper()
+    inGet = False
     for fn in recorded_files:
         currText = ""
         curr_timestamp = None
         fn_timestamps = []
         with open(fn) as f:
             for line in f:
-                if line.startswith("<-") or (serverRmqSeparate and line.startswith("->RMQ")):
+                if line.startswith("<-CLI:GET"):
+                    inGet = True
+                elif line.startswith("<-"):
+                    inGet = False
+                if line.startswith("<-") or (line.startswith("->RMQ") and (serverRmqSeparate or inGet)):
                     if currText:
                         ts = curr_timestamp or default_stamper.stamp()
                         add_timestamp_data(data_by_timestamp, ts, fn, currText, fn_timestamps)
