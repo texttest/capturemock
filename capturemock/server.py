@@ -69,7 +69,11 @@ def startServer(rcFiles,
 
 def stopServer(servAddr, protocol):
     if protocol == "http":
-        urlopen(servAddr + "/capturemock/shutdownServer")
+        try:
+            urlopen(servAddr + "/capturemock/shutdownServer")
+        except socket.error:
+            print("Could not send terminate message to CaptureMock server at " + servAddr + \
+                  ", seemed not to be running anyway.", file=sys.stderr)
     elif protocol == "xmlrpc":
         s = ServerProxy(servAddr)
         s.shutdownCaptureMockServer()
@@ -81,7 +85,7 @@ def stopServer(servAddr, protocol):
             ClassicTrafficServer.sendTerminateMessage(servAddr)
         except socket.error: # pragma: no cover - should be unreachable, just for robustness
             print("Could not send terminate message to CaptureMock server at " + servAddr + \
-                  ", seemed not to be running anyway.")
+                  ", seemed not to be running anyway.", file=sys.stderr)
 
 
 class ClassicTrafficServer(TCPServer):
