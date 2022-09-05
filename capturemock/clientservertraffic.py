@@ -364,7 +364,12 @@ class HTTPServerTraffic(ServerTraffic):
     
     def write(self, message):
         if self.responseFile:
-            self.responseFile.write(message)
+            try:
+                self.responseFile.write(message)
+            except ConnectionError:
+                # The service that sent the original request is no longer listening for answers
+                # This is not necessarily a problem - we don't want to raise exceptions here
+                pass
 
 class ServerStateTraffic(ServerTraffic):
     def __init__(self, inText, dest, responseFile, rcHandler):
