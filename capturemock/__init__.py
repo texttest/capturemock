@@ -502,8 +502,9 @@ def transform_to_amqp_client_replay(fn, new_fn):
 
 def add_prefix_by_matching_replay(recorded_files, replayed_files, ext=None):
     for fn in recorded_files:
-        timestamp_data = create_map_by_timestamp([ fn ], serverRmqSeparate=False)
-        if fn[3] == "-" and fn[2].isdigit():
+        hasPrefix = fn[3] == "-" and fn[2].isdigit()
+        timestamp_data = create_map_by_timestamp([ fn ], serverRmqSeparate=hasPrefix)
+        if hasPrefix:
             # already prefixed, no division needed
             new_record_fn = fn.rsplit(".", 1)[0] + "." + ext
             with open(new_record_fn, "w") as fw:
