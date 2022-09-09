@@ -206,6 +206,9 @@ class HTTPClientTraffic(ClientSocketTraffic):
                     newPayload += currPayload[:start]
                     newPayload += contents
                     currPayload = currPayload[end:]
+                else:
+                    print("ERROR: Cannot find file named", repr(filename), "when replaying!", file=sys.stderr)
+                    break
                 start = currPayload.find(prefix)
             if newPayload:
                 self.payload = newPayload + currPayload
