@@ -2,7 +2,7 @@ import os, stat, sys, socket, threading, time, subprocess
 from copy import copy
 
 from capturemock import config
-from capturemock.replayinfo import ReplayInfo
+from capturemock.replayinfo import ReplayInfo, IdFinder
 from capturemock import recordfilehandler, cmdlineutils
 from capturemock import commandlinetraffic, fileedittraffic, clientservertraffic, customtraffic
 from locale import getpreferredencoding
@@ -672,44 +672,33 @@ class ReplayOnlyDispatcher(ServerDispatcherBase):
         # don't read into ReplayInfo as normal, optimised for responses
         options = ReplayOptions(mode=config.RECORD, replay=None, record=recordFile, rcfiles=rcFile)
         ServerDispatcherBase.__init__(self, options)
-        self.idPattern = None
-        idPatternStr = self.rcHandler.get("id_pattern", [ "general"], "")
-        if idPatternStr:
-            self.idPattern = re.compile(idPatternStr, re.DOTALL)
+        self.idFinder = IdFinder(self.rcHandler, "id_pattern_server")
         self.clientTrafficStrings = []
         self.replay_ids = []
         self.diag.info("Replaying everything as client from " + replayFile)
         for trafficStr in ReplayInfo.readIntoList(replayFile):
             if trafficStr.startswith("<-"):
                 self.clientTrafficStrings.append(trafficStr)
-            elif self.idPattern:
+            elif self.idFinder:
                 text = trafficStr.split(":", 1)[-1]
-                currId = self.extractIdFromText(text)
+                self.diag.info("Try to extracting IDs from response text " + text)
+                currId = self.idFinder.extractIdFromText(text)
                 if currId:
                     self.diag.info("Extracting IDs from response data " + currId)
                     self.replay_ids.append(currId)
         
     def extractIdsFromResponses(self, responses):
-        if not self.idPattern:
+        if not self.idFinder:
             return []
         
         ids = []
         self.diag.debug("Extracting IDs from responses")
         for traffic in responses:
-            currId = self.extractIdFromText(traffic.text)
+            currId = self.idFinder.extractIdFromText(traffic.text)
             if currId:
                 self.diag.info("Extracting ID from traffic " + currId)
                 ids.append(currId)
         return ids
-    
-    def extractIdFromText(self, text):
-        idMatch = self.idPattern.match(text)
-        if idMatch is not None:
-            groups = idMatch.groups()
-            if len(groups) > 0:
-                return groups[-1]
-            else:
-                return idMatch.group(0)
             
     def add_id_mapping(self, traffic, replay_id, recorded_id):
         sectionNames = traffic.getAlterationSectionNames()

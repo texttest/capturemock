@@ -9,6 +9,25 @@ except ImportError: # Python 2.6 and earlier
 
 from capturemock import config
 
+class IdFinder:
+    def __init__(self, rcHandler, pattern_key):
+        idPatternStr = rcHandler.get(pattern_key, [ "general"], "")
+        self.idPattern = None
+        if idPatternStr:
+            self.idPattern = re.compile(idPatternStr, re.DOTALL)
+            
+    def __bool__(self):
+        return bool(self.idPattern)
+            
+    def extractIdFromText(self, text):
+        idMatch = self.idPattern.match(text)
+        if idMatch is not None:
+            groups = idMatch.groups()
+            if len(groups) > 0:
+                return groups[-1]
+            else:
+                return idMatch.group(0)
+
 
 class ReplayInfo:
     def __init__(self, mode, replayFile, rcHandler):
@@ -17,7 +36,9 @@ class ReplayInfo:
         self.replayItems = set()
         self.replayAll = mode == config.REPLAY
         self.exactMatching = rcHandler.getboolean("use_exact_matching", [ "general" ], False)
+        self.idFinder = None
         if replayFile:
+            self.idFinder = IdFinder(rcHandler, "id_pattern_client")
             trafficList = self.readIntoList(replayFile)
             self.parseTrafficList(trafficList)
             items = self.makeCommandItems(rcHandler.getIntercepts("command line")) + \
@@ -129,9 +150,20 @@ class ReplayInfo:
 
         responseMapKey = self.getResponseMapKey(traffic, exact)
         if responseMapKey:
-            return self.responseMap[responseMapKey].makeResponses(allClasses)
+            replayId, recordId = self.makeIdMapping(traffic, responseMapKey)
+            return self.responseMap[responseMapKey].makeResponses(allClasses, replayId, recordId)
         else:
             return []
+        
+    def makeIdMapping(self, traffic, replayTrafficDesc):
+        recordId, replayId = None, None
+        if self.idFinder:
+            recordId = self.idFinder.extractIdFromText(traffic.text)
+            if recordId:
+                replayTrafficText = replayTrafficDesc.split(":", 1)[-1]
+                replayId = self.idFinder.extractIdFromText(replayTrafficText)
+        
+        return replayId, recordId
 
     def findResponseToTrafficStartingWith(self, prefix):
         for currDesc, responseHandler in self.responseMap.items():
@@ -269,7 +301,7 @@ class ReplayedResponseHandler:
     def getUnmatchedResponseCount(self):
         return len(self.responses) - self.timesChosen
 
-    def makeResponses(self, allClasses):
+    def makeResponses(self, allClasses, replayId, recordId):
         trafficStrings, increment = self.getCurrentStrings()
         responses = []
         for trafficStr in trafficStrings:
@@ -277,6 +309,8 @@ class ReplayedResponseHandler:
             trafficType = prefix[-3:]
             for trafficClass in allClasses:
                 if trafficClass.typeId == trafficType:
+                    if replayId and recordId:
+                        text = text.replace(replayId, recordId)
                     responses.append((trafficClass, text))
         self.timesChosen += increment
         return responses
