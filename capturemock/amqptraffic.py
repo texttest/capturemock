@@ -6,7 +6,7 @@ from datetime import datetime
 class AMQPConnector:
     own_routing_key = "CaptureMock"
     terminate_body = b"terminate"
-    def __init__(self, rcHandler=None, servAddr=None):
+    def __init__(self, rcHandler=None, servAddr=None, connName=None):
         if rcHandler is not None:
             self.url = rcHandler.get("url", [ "amqp" ])
             self.exchange = rcHandler.get("exchange", [ "amqp" ])
@@ -20,6 +20,8 @@ class AMQPConnector:
             self.durable = True
 
         params = pika.URLParameters(self.url)
+        if connName:
+            params.client_properties = { 'connection_name' : connName }
         self.connection = pika.BlockingConnection(params)
         self.channel = self.connection.channel()
         if self.exchange_type:
@@ -68,7 +70,7 @@ class AMQPTrafficServer:
     def __init__(self, dispatcher):
         self.count = 0
         self.dispatcher = dispatcher
-        self.connector = AMQPConnector(self.dispatcher.rcHandler)
+        self.connector = AMQPConnector(self.dispatcher.rcHandler, connName="CaptureMock recorder")
         
     def on_message(self, channel, method_frame, header_frame, body):
         self.count += 1
@@ -95,7 +97,7 @@ class AMQPTrafficServer:
     
     @classmethod
     def sendTerminateMessage(cls, servAddr):
-        connector = AMQPConnector(servAddr=servAddr)
+        connector = AMQPConnector(servAddr=servAddr, connName="CaptureMock terminator")
         connector.sendTerminateMessage()
 
 
@@ -152,7 +154,7 @@ class AMQPTraffic(traffic.Traffic):
         # Replay and record handled entirely separately, unlike most other traffic, due to how MQ brokers work
         if self.replay:
             if AMQPTraffic.connector is None:
-                AMQPTraffic.connector = AMQPConnector(self.rcHandler)
+                AMQPTraffic.connector = AMQPConnector(self.rcHandler, connName="CaptureMock replay")
                 
             if self.origin:
                 self.headers["originfile"] = self.origin
