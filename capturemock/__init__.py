@@ -210,8 +210,21 @@ def make_id_alterations_rc_file(id_mapping):
             f.write('replacement = ' + new_id + '\n')
     return fn    
 
+def get_default_setup_for_texttest():
+    relpath = os.getenv("TEXTTEST_SANDBOX").replace(os.getenv("TEXTTEST_SANDBOX_ROOT"), "")
+    relpath = relpath.split(os.sep, 2)[-1]
+    replay_files = glob(os.path.join(os.getenv("TEXTTEST_ROOT"), relpath, "httpmocks.*"))
+    if len(replay_files) == 1:
+        return replay_files[0], os.path.basename(replay_files[0])
+    else:
+        raise RuntimeError("Could not find default replay file for CaptureMock from " + repr(replay_files))
+    
 
-def replay_for_server(rcFile, replayFile, recordFile=None, serverAddress=None, replayEditDir=None, recordEditDir=None, **kw):
+def replay_for_server(rcFile=None, replayFile=None, recordFile=None, serverAddress=None, replayEditDir=None, recordEditDir=None, **kw):
+    if rcFile is None:
+        rcFile = "capturemockrc"
+    if replayFile is None and "TEXTTEST_SANDBOX" in os.environ:
+        replayFile, recordFile = get_default_setup_for_texttest()
     FileOptions = namedtuple("FileOptions", "replay_file_edits record_file_edits")
     foptions = FileOptions(replay_file_edits=replayEditDir, record_file_edits=recordEditDir)
     FileEditTraffic.configure(foptions)

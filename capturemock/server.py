@@ -675,16 +675,16 @@ class ReplayOnlyDispatcher(ServerDispatcherBase):
         self.idFinder = IdFinder(self.rcHandler, "id_pattern_server")
         self.clientTrafficStrings = []
         self.replay_ids = []
-        self.diag.info("Replaying everything as client from " + replayFile)
+        self.diag.debug("Replaying everything as client from " + replayFile)
         for trafficStr in ReplayInfo.readIntoList(replayFile):
             if trafficStr.startswith("<-"):
                 self.clientTrafficStrings.append(trafficStr)
             elif self.idFinder:
                 text = trafficStr.split(":", 1)[-1]
-                self.diag.info("Try to extracting IDs from response text " + text)
+                self.diag.debug("Try to extracting IDs from response text " + text)
                 currId = self.idFinder.extractIdFromText(text)
                 if currId:
-                    self.diag.info("Extracting IDs from response data " + currId)
+                    self.diag.debug("Extracting IDs from response data " + currId)
                     self.replay_ids.append(currId)
         
     def extractIdsFromResponses(self, responses):
@@ -696,7 +696,7 @@ class ReplayOnlyDispatcher(ServerDispatcherBase):
         for traffic in responses:
             currId = self.idFinder.extractIdFromText(traffic.text)
             if currId:
-                self.diag.info("Extracting ID from traffic " + currId)
+                self.diag.debug("Extracting ID from traffic " + currId)
                 ids.append(currId)
         return ids
             
@@ -722,7 +722,7 @@ class ReplayOnlyDispatcher(ServerDispatcherBase):
                     self.diag.debug("Adding ID mapping from " + replay_id + " to " + currId)
                     alterations[replay_id] = currId
                     self.add_id_mapping(traffic, replay_id, currId)
-        self.diag.info("Replaying all now complete")
+        self.diag.debug("Replaying all now complete")
         return alterations
     
     def parseClientTraffic(self, text, **kw):
