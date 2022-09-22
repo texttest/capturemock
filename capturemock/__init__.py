@@ -9,6 +9,7 @@ from glob import glob
 from collections import namedtuple
 from datetime import datetime
 import bisect
+from urllib.request import urlopen
 
 class CaptureMockManager:
     fileContents = "import capturemock; capturemock.interceptCommand()\n"
@@ -26,7 +27,8 @@ class CaptureMockManager:
                     interceptDir=None,
                     sutDirectory=os.getcwd(),
                     environment=os.environ,
-                    stderrFn=None):
+                    stderrFn=None,
+                    recordFromUrl=None):
         if config.isActive(mode, replayFile):
             # Environment which the server should get
             environment["CAPTUREMOCK_MODE"] = str(mode)
@@ -54,6 +56,10 @@ class CaptureMockManager:
             environment["CAPTUREMOCK_SERVER"] = self.serverAddress
             if self.makePathIntercepts(commands, interceptDir, replayFile, mode):
                 environment["PATH"] = interceptDir + os.pathsep + environment.get("PATH", "")
+            if recordFromUrl:
+                if self.serverProtocol == "http":
+                    setUrl = self.serverAddress + "/capturemock/setServerLocation"
+                    urlopen(setUrl, data=recordFromUrl.encode()).read()
             return True
         else:
             return False
@@ -159,7 +165,6 @@ def setUpServer(*args, **kw):
     manager = CaptureMockManager()
     return manager.startServer(*args, **kw)
 
-
 def terminate():
     if manager:
         manager.terminate()
@@ -217,7 +222,7 @@ def get_default_setup_for_texttest():
     if len(replay_files) == 1:
         return replay_files[0], os.path.basename(replay_files[0])
     else:
-        raise RuntimeError("Could not find default replay file for CaptureMock from " + repr(replay_files))
+        return None, None
     
 
 def replay_for_server(rcFile=None, replayFile=None, recordFile=None, serverAddress=None, replayEditDir=None, recordEditDir=None, **kw):
@@ -225,6 +230,9 @@ def replay_for_server(rcFile=None, replayFile=None, recordFile=None, serverAddre
         rcFile = "capturemockrc"
     if replayFile is None and "TEXTTEST_SANDBOX" in os.environ:
         replayFile, recordFile = get_default_setup_for_texttest()
+        if replayFile:
+            raise RuntimeError("Could not find default replay file for CaptureMock")
+
     FileOptions = namedtuple("FileOptions", "replay_file_edits record_file_edits")
     foptions = FileOptions(replay_file_edits=replayEditDir, record_file_edits=recordEditDir)
     FileEditTraffic.configure(foptions)
