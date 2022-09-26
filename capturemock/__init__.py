@@ -165,6 +165,22 @@ def setUpServer(*args, **kw):
     manager = CaptureMockManager()
     return manager.startServer(*args, **kw)
 
+
+def start_server_from_texttest(recordFromUrl=None, **kw):
+    env = os.environ.copy()
+    rcFilesStr = os.getenv("TEXTTEST_CAPTUREMOCK_RCFILES")
+    setUpServer(os.getenv("TEXTTEST_CAPTUREMOCK_MODE"),
+                os.getenv("TEXTTEST_CAPTUREMOCK_RECORD"),
+                os.getenv("TEXTTEST_CAPTUREMOCK_REPLAY"),
+                os.getenv("TEXTTEST_CAPTUREMOCK_RECORD_EDIT_DIR"),
+                os.getenv("TEXTTEST_CAPTUREMOCK_REPLAY_EDIT_DIR"),
+                rcFilesStr.split(",") if rcFilesStr else [],
+                environment=env,
+                recordFromUrl=recordFromUrl,
+                **kw)
+    return env
+
+
 def terminate():
     if manager:
         manager.terminate()
@@ -215,23 +231,20 @@ def make_id_alterations_rc_file(id_mapping):
             f.write('replacement = ' + new_id + '\n')
     return fn    
 
-def get_default_setup_for_texttest():
-    relpath = os.getenv("TEXTTEST_SANDBOX").replace(os.getenv("TEXTTEST_SANDBOX_ROOT"), "")
-    relpath = relpath.split(os.sep, 2)[-1]
-    replay_files = glob(os.path.join(os.getenv("TEXTTEST_ROOT"), relpath, "httpmocks.*"))
-    if len(replay_files) == 1:
-        return replay_files[0], os.path.basename(replay_files[0])
-    else:
-        return None, None
-    
+def texttest_is_recording():
+    return int(os.getenv("TEXTTEST_CAPTUREMOCK_MODE", "0")) == RECORD or os.getenv("TEXTTEST_CAPTUREMOCK_REPLAY") is None
 
 def replay_for_server(rcFile=None, replayFile=None, recordFile=None, serverAddress=None, replayEditDir=None, recordEditDir=None, **kw):
     if rcFile is None:
-        rcFile = "capturemockrc"
-    if replayFile is None and "TEXTTEST_SANDBOX" in os.environ:
-        replayFile, recordFile = get_default_setup_for_texttest()
-        if replayFile:
-            raise RuntimeError("Could not find default replay file for CaptureMock")
+        rcFile = os.getenv("TEXTTEST_CAPTUREMOCK_RCFILES")
+    if replayFile is None:
+        replayFile = os.getenv("TEXTTEST_CAPTUREMOCK_REPLAY")
+    if recordFile is None:
+        recordFile = os.getenv("TEXTTEST_CAPTUREMOCK_RECORD")
+    if replayEditDir is None:
+        replayEditDir = os.getenv("TEXTTEST_CAPTUREMOCK_REPLAY_EDIT_DIR")
+    if recordEditDir is None:
+        recordEditDir = os.getenv("TEXTTEST_CAPTUREMOCK_RECORD_EDIT_DIR")
 
     FileOptions = namedtuple("FileOptions", "replay_file_edits record_file_edits")
     foptions = FileOptions(replay_file_edits=replayEditDir, record_file_edits=recordEditDir)
