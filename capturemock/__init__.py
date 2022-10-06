@@ -285,7 +285,7 @@ class PrefixContext:
         self.clear()
 
     def clear(self):
-        if self.all_same_server():
+        if self.all_same_server_different_clients():
             self.sort_clients(self.fns)
         self.fns.clear()
 
@@ -312,11 +312,13 @@ class PrefixContext:
             del self.fns[fn]
         return removed
 
-    def all_same_server(self):
+    def all_same_server_different_clients(self):
         servers = set()
-        for _, _, server in self.fns.values():
+        clients = set()
+        for _, client, server in self.fns.values():
             servers.add(server)
-        return len(servers) == 1
+            clients.add(client)
+        return len(servers) == 1 and len(clients) > 1
 
     def find_most_recent(self):
         for _, currClient, currServer in reversed(self.fns.values()):
