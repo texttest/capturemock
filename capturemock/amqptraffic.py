@@ -113,13 +113,14 @@ class AMQPTraffic(traffic.Traffic):
         sep = " : type="
         timestamp = None
         self.headers = {}
+        record_timestamps = rcHandler and rcHandler.getboolean("record_timestamps", [ "general" ], False)
         if not self.replay:
             self.routing_key = routing_key
             self.body = body
             self.msgType = props.type
             text = routing_key + sep + self.msgType +"\n"
             text += encodingutils.decodeBytes(body)
-            if rcHandler and rcHandler.getboolean("record_timestamps", [ "general" ], False):
+            if record_timestamps:
                 timestamp = props.headers.get("timestamp")
                 if timestamp is None:
                     timestamp = datetime.now().isoformat()
@@ -128,6 +129,8 @@ class AMQPTraffic(traffic.Traffic):
                     text += self.headerStr + header + "=" + value
                 if header == "originfile":
                     self.origin = value
+        elif record_timestamps:
+            timestamp = datetime.now().isoformat()
         traffic.Traffic.__init__(self, text, responseFile, rcHandler, timestamp=timestamp)
         self.text = self.applyAlterations(self.text)
         if self.replay:
@@ -158,8 +161,6 @@ class AMQPTraffic(traffic.Traffic):
                 
             if self.origin:
                 self.headers["originfile"] = self.origin
-            if self.rcHandler.getboolean("record_timestamps", [ "general" ], False):
-                self.headers["timestamp"] = datetime.now().isoformat()
             self.connector.replay(self.routing_key, self.body, self.msgType, self.headers)
         return []
     
