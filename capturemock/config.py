@@ -41,7 +41,7 @@ class RcFileHandler:
     
     def getWithAddress(self, *args):
         rawValue = self.get(*args)
-        return rawValue.replace("${CAPTUREMOCK_SERVER}", self.address)
+        return rawValue.replace("${CAPTUREMOCK_SERVER}", self.address) if self.address else rawValue
 
     def getboolean(self, *args):
         return self._get(self.parser.getboolean, *args)
