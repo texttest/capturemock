@@ -638,7 +638,9 @@ class ServerDispatcher(ServerDispatcherBase):
         # There doesn't seem to be any disadvantage of allowing a longer queue, so we will increase it by a lot...
         self.request_queue_size = 500
         self.server = self.makeServer()
-        sys.stdout.write(self.server.getAddress() + "\n") # Tell our caller, so they can tell the program being handled
+        address = self.server.getAddress()
+        self.rcHandler.address = address
+        sys.stdout.write(address + "\n") # Tell our caller, so they can tell the program being handled
         sys.stdout.flush()
     
     def makeServer(self):

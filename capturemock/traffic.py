@@ -21,7 +21,7 @@ class BaseTraffic(object):
             self.diag = rcHandler.diag
             for alterStr in rcHandler.getList("alterations", self.getAlterationSectionNames()):
                 toFind = os.path.expandvars(rcHandler.get("match_pattern", [ alterStr ]))
-                toReplace = rcHandler.get("replacement", [ alterStr ])
+                toReplace = rcHandler.getWithAddress("replacement", [ alterStr ])
                 if toFind and toReplace is not None:
                     self.alterations[re.compile(toFind)] = toReplace
         

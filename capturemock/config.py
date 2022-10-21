@@ -18,6 +18,7 @@ class RcFileHandler:
     def __init__(self, rcFiles):
         self.parser = ConfigParser(strict=False)
         self.diag = None
+        self.address = None
         if rcFiles:
             for rcFile in rcFiles:
                 if not os.path.isfile(rcFile):
@@ -37,6 +38,10 @@ class RcFileHandler:
 
     def get(self, *args):
         return self._get(self.parser.get, *args)
+    
+    def getWithAddress(self, *args):
+        rawValue = self.get(*args)
+        return rawValue.replace("${CAPTUREMOCK_SERVER}", self.address)
 
     def getboolean(self, *args):
         return self._get(self.parser.getboolean, *args)
