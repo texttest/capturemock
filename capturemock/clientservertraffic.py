@@ -128,7 +128,7 @@ class HTTPClientTraffic(ClientSocketTraffic):
         ClientSocketTraffic.__init__(self, text, responseFile, rcHandler, **kw)
         if responseFile is None: # replay
             parts = self.text.split(None, 2)
-            self.headers = {}
+            self.headers = rcHandler.getSection("http_headers_replay")            
             self.method = parts[0]
             if len(parts) > 2:
                 self.path = parts[1]

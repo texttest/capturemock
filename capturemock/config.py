@@ -63,6 +63,12 @@ class RcFileHandler:
                 if listStr:
                     result += listStr.split(",")
         return result
+    
+    def getSection(self, section):
+        if self.parser.has_section(section):
+            return dict(self.parser.items(section))
+        else:
+            return {}
 
     def addToList(self, setting, sections, newItem):
         values = self.getList(setting, sections)
