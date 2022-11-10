@@ -703,11 +703,11 @@ class ReplayOnlyDispatcher(ServerDispatcherBase):
         return ids
             
     def add_id_mapping(self, traffic, replay_id, recorded_id):
-        sectionNames = traffic.getAlterationSectionNames()
-        self.rcHandler.addToList("alterations", sectionNames, replay_id)
-        self.rcHandler.add_section(replay_id)
-        self.rcHandler.set(replay_id, "match_pattern", replay_id)
-        self.rcHandler.set(replay_id, "replacement", recorded_id)        
+        if self.rcHandler.add_section(replay_id):
+            sectionNames = traffic.getAlterationSectionNames()
+            self.rcHandler.addToList("alterations", sectionNames, replay_id)
+            self.rcHandler.set(replay_id, "match_pattern", replay_id)
+            self.rcHandler.set(replay_id, "replacement", recorded_id)
 
     def replay_all(self, **kw):
         # Pulls everything out of replay info - then we go to "record" mode

@@ -76,8 +76,12 @@ class RcFileHandler:
         valueStr = ",".join(values)
         self.set(sections[0], setting, valueStr)
     
-    def add_section(self, *args):
-        return self.parser.add_section(*args)
+    def add_section(self, section):
+        if self.parser.has_section(section):
+            # raises exceptions by default, but we can easily get the same mapping several times
+            return False
+        self.parser.add_section(section)        
+        return True
 
     def set(self, *args):
         return self.parser.set(*args)
