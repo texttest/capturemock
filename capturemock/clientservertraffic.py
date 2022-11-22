@@ -188,9 +188,10 @@ class HTTPClientTraffic(ClientSocketTraffic):
             return b"--" + boundaryText.encode()
         
     def getFileEditContents(self, filename):
-        filepath = os.path.join(FileEditTraffic.replayFileEditDir, filename)
-        if os.path.isfile(filepath):
-            return open(filepath, "rb").read()
+        if FileEditTraffic.replayFileEditDir:
+            filepath = os.path.join(FileEditTraffic.replayFileEditDir, filename)
+            if os.path.isfile(filepath):
+                return open(filepath, "rb").read()
         
     def tryReplaceFileContents(self):
         boundary = self.getBoundary()
