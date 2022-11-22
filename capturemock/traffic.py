@@ -87,6 +87,9 @@ class BaseTraffic(object):
 
     def isMarkedForReplay(self, *args):
         return True # Some things can't be disabled and hence can't be added on piecemeal afterwards
+    
+    def hasRepeatsInReplay(self):
+        return True
 
     def getDescription(self):
         return self.direction + self.typeId + ":" + self.text

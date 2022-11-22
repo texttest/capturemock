@@ -142,6 +142,9 @@ class HTTPClientTraffic(ClientSocketTraffic):
                 self.payload = None
         self.checkRepeats = rcHandler.getboolean("check_repeated_calls", [ self.method ], True)
         
+    def hasRepeatsInReplay(self):
+        return self.checkRepeats
+        
     def getHeaderText(self, headers):
         text = ""
         for header, value in headers:

@@ -37,6 +37,7 @@ class ReplayInfo:
         self.replayAll = mode == config.REPLAY
         self.exactMatching = rcHandler.getboolean("use_exact_matching", [ "general" ], False)
         self.idFinder = None
+        self.prevResponseMapKey = None
         if replayFile:
             self.idFinder = IdFinder(rcHandler, "id_pattern_client")
             trafficList = self.readIntoList(replayFile)
@@ -151,7 +152,9 @@ class ReplayInfo:
         responseMapKey = self.getResponseMapKey(traffic, exact)
         if responseMapKey:
             replayId, recordId = self.makeIdMapping(traffic, responseMapKey)
-            return self.responseMap[responseMapKey].makeResponses(allClasses, replayId, recordId)
+            duplicate = not traffic.hasRepeatsInReplay() and responseMapKey == self.prevResponseMapKey
+            self.prevResponseMapKey = responseMapKey
+            return self.responseMap[responseMapKey].makeResponses(allClasses, replayId, recordId, duplicate)
         else:
             return []
         
@@ -169,9 +172,9 @@ class ReplayInfo:
         for currDesc, responseHandler in self.responseMap.items():
             _, text = currDesc.split(":", 1)
             if text.startswith(prefix):
-                responses, _ = responseHandler.getCurrentStrings()
-                if len(responses):
-                    return responses[0][6:]
+                response = responseHandler.getFirstResponse()
+                if response:
+                    return response[6:]
 
     def getResponseMapKey(self, traffic, exact):
         desc = self.getTrafficLookupKey(traffic.getDescription())
@@ -283,26 +286,32 @@ class ReplayedResponseHandler:
     def allIntermediatesCalled(self):
         return all((handler.timesChosen for handler in self.intermediateHandlers[self.timesChosen - 1 ]))
 
-    def getCurrentStrings(self):
+    def getCurrentStrings(self, responseIndex):
         if self.intermediateHandlers:
-            if self.timesChosen == 0:
+            if responseIndex == 0:
                 return self.responses[0], 1
             elif self.allIntermediatesCalled():
-                moreHandlers = self.timesChosen < len(self.intermediateHandlers)
-                return self.responses[self.timesChosen], int(moreHandlers)
+                moreHandlers = responseIndex < len(self.intermediateHandlers)
+                return self.responses[responseIndex], int(moreHandlers)
             else:
-                return self.responses[self.timesChosen - 1], 0
-        elif self.timesChosen < len(self.responses):
-            currStrings = self.responses[self.timesChosen]
+                return self.responses[responseIndex - 1], 0
+        elif responseIndex < len(self.responses):
+            currStrings = self.responses[responseIndex]
         else:
             currStrings = self.responses[0]
         return currStrings, 1
 
+    def getFirstResponse(self):
+        responses, _ = self.getCurrentStrings(self.timesChosen)
+        if len(responses):
+            return responses[0]
+
     def getUnmatchedResponseCount(self):
         return len(self.responses) - self.timesChosen
 
-    def makeResponses(self, allClasses, replayId, recordId):
-        trafficStrings, increment = self.getCurrentStrings()
+    def makeResponses(self, allClasses, replayId, recordId, duplicate):
+        responseIndex = self.timesChosen - 1 if (duplicate and self.timesChosen > 0) else self.timesChosen
+        trafficStrings, increment = self.getCurrentStrings(responseIndex)
         responses = []
         for trafficStr in trafficStrings:
             prefix, text = trafficStr.split(":", 1)
@@ -312,7 +321,8 @@ class ReplayedResponseHandler:
                     if replayId and recordId:
                         text = text.replace(replayId, recordId)
                     responses.append((trafficClass, text))
-        self.timesChosen += increment
+        if not duplicate:
+            self.timesChosen += increment
         return responses
     
 
