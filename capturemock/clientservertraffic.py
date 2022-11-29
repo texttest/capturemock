@@ -147,7 +147,7 @@ class HTTPClientTraffic(ClientSocketTraffic):
         
     def getHeaderText(self, headers):
         text = ""
-        for header, value in headers:
+        for header, value in sorted(headers, key=lambda item: item[0].lower()):
             if header not in self.ignoreHeaders and self.defaultValues.get(header) != value and \
                 not header.lower().startswith("sec-") and not header.lower().startswith("x-forwarded"):
                 text += "\n" + self.headerStr + header + "=" + value
