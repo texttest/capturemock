@@ -360,7 +360,7 @@ class HTTPServerTraffic(ServerTraffic):
             self.handler.send_response_only(self.status)
             for hdr, value in self.headers:
                 # Might need to handle chunked transfer, for now, just ignore it and return it as one
-                if hdr.lower() != "transfer-encoding" or value.lower() != "chunked":
+                if hdr.lower() != 'access-control-allow-origin' and (hdr.lower() != "transfer-encoding" or value.lower() != "chunked"):
                     self.handler.send_header(hdr, value)
             self.handler.send_header('Access-Control-Allow-Origin', '*')
             self.handler.send_header('Access-Control-Expose-Headers', '*')
