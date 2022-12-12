@@ -56,14 +56,16 @@ class CaptureMockManager:
             environment["CAPTUREMOCK_SERVER"] = self.serverAddress
             if self.makePathIntercepts(commands, interceptDir, replayFile, mode):
                 environment["PATH"] = interceptDir + os.pathsep + environment.get("PATH", "")
-            if recordFromUrl:
-                if self.serverProtocol == "http":
-                    setUrl = self.serverAddress + "/capturemock/setServerLocation"
-                    urlopen(setUrl, data=recordFromUrl.encode()).read()
+            if recordFromUrl and self.serverProtocol == "http":
+                self.sendServerLocation(recordFromUrl)
             return True
         else:
             return False
-
+        
+    def sendServerLocation(self, url):
+        setUrl = self.serverAddress + "/capturemock/setServerLocation"
+        urlopen(setUrl, data=url.encode()).read()
+        
     def makeWindowsIntercept(self, interceptName):
         destFile = interceptName + ".exe"
         if sys.version_info.major == 3: # python 3, uses pyinstaller
