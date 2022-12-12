@@ -90,6 +90,9 @@ class BaseTraffic(object):
     
     def hasRepeatsInReplay(self):
         return True
+    
+    def canModifyServer(self):
+        return True
 
     def getDescription(self):
         return self.direction + self.typeId + ":" + self.text

@@ -37,7 +37,7 @@ class ReplayInfo:
         self.replayAll = mode == config.REPLAY
         self.exactMatching = rcHandler.getboolean("use_exact_matching", [ "general" ], False)
         self.idFinder = None
-        self.prevResponseMapKey = None
+        self.prevResponseMapKeys = set()
         if replayFile:
             self.idFinder = IdFinder(rcHandler, "id_pattern_client")
             trafficList = self.readIntoList(replayFile)
@@ -152,8 +152,10 @@ class ReplayInfo:
         responseMapKey = self.getResponseMapKey(traffic, exact)
         if responseMapKey:
             replayId, recordId = self.makeIdMapping(traffic, responseMapKey)
-            duplicate = not traffic.hasRepeatsInReplay() and responseMapKey == self.prevResponseMapKey
-            self.prevResponseMapKey = responseMapKey
+            if traffic.canModifyServer():
+                self.prevResponseMapKeys.clear()
+            duplicate = not traffic.hasRepeatsInReplay() and responseMapKey in self.prevResponseMapKeys
+            self.prevResponseMapKeys.add(responseMapKey)
             return self.responseMap[responseMapKey].makeResponses(allClasses, replayId, recordId, duplicate)
         else:
             return []

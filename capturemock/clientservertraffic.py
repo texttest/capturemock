@@ -144,6 +144,9 @@ class HTTPClientTraffic(ClientSocketTraffic):
         
     def hasRepeatsInReplay(self):
         return self.checkRepeats
+    
+    def canModifyServer(self):
+        return not self.text.startswith("GET")
         
     def getHeaderText(self, headers):
         text = ""
