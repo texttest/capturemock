@@ -141,12 +141,13 @@ class HTTPClientTraffic(ClientSocketTraffic):
                 textStr = ""
                 self.payload = None
         self.checkRepeats = rcHandler.getboolean("check_repeated_calls", [ self.method ], True)
+        self.allCanModify = rcHandler.getboolean("assume_all_can_modify", [ "general" ], False)
         
     def hasRepeatsInReplay(self):
         return self.checkRepeats
     
     def canModifyServer(self):
-        return not self.text.startswith("GET")
+        return self.allCanModify or not self.text.startswith("GET")
         
     def getHeaderText(self, headers):
         text = ""
