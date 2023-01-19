@@ -233,10 +233,16 @@ class HTTPClientTraffic(ClientSocketTraffic):
             return self.fileContentsStr % fnUsed + self.getHeaderText(headers), payload
         else:
             body = encodingutils.decodeBytes(payload)
-            body = self.applyAlterations(body)
-            text = body + self.getHeaderText(headers)
-            newPayload = encodingutils.encodeString(body)
-            return text, newPayload
+            headerText = self.getHeaderText(headers)
+            if len(self.alterations) == 0:
+                return body + headerText, payload
+            
+            newBody = self.applyAlterations(body)
+            if newBody == body:
+                return body + headerText, payload
+                
+            newPayload = encodingutils.encodeString(newBody)
+            return newBody + headerText, newPayload
                 
     def decodePayload(self, payload):
         if payload is None:
