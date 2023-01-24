@@ -11,11 +11,13 @@ class AMQPConnector:
             self.url = rcHandler.get("url", [ "amqp" ])
             self.exchange = rcHandler.get("exchange", [ "amqp" ])
             self.exchange_type = rcHandler.get("exchange_type", [ "amqp" ])
+            self.exchange_forward = rcHandler.get("exchange_forward", [ "amqp" ])
             self.auto_delete = rcHandler.getboolean("auto_delete", [ "amqp" ], True)
             self.durable = rcHandler.getboolean("durable", [ "amqp" ], True)
         else:
             self.url, self.exchange = servAddr.rsplit("/", 1)
             self.exchange_type = None
+            self.exchange_forward = None
             self.auto_delete = True
             self.durable = True
 
@@ -26,6 +28,8 @@ class AMQPConnector:
         self.channel = self.connection.channel()
         if self.exchange_type:
             self.channel.exchange_declare(self.exchange, exchange_type=self.exchange_type, durable=self.durable, auto_delete=self.auto_delete)
+        if self.exchange_forward:
+            self.channel.exchange_bind(self.exchange_forward, self.exchange, routing_key="#")
         
     def get_queue_name(self):
         return self.exchange + ".capturemock"
