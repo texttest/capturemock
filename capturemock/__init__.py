@@ -396,6 +396,10 @@ def create_map_by_timestamp(recorded_files, ignoredIndices={}):
 def add_prefix_by_timestamp(recorded_files, ignoredIndicesIn=None, sep="-", ext=None, parseFn=None, strictOrderClients=None):
     ignoredIndices = ignoredIndicesIn or {}
     data_by_timestamp = create_map_by_timestamp(recorded_files, ignoredIndices)
+    return add_prefixes_from_timestamp_map(data_by_timestamp, ignoredIndices, sep, ext, parseFn, strictOrderClients)
+
+def add_prefixes_from_timestamp_map(data_by_timestamp, ignoredIndicesIn=None, sep="-", ext=None, parseFn=None, strictOrderClients=None):
+    ignoredIndices = ignoredIndicesIn or {}
     currIndex = 0
     with PrefixContext(parseFn, strictOrderClients or []) as currContext:
         new_files = []
