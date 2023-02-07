@@ -24,7 +24,9 @@ class IdFinder:
         if idMatch is not None:
             groups = idMatch.groups()
             if len(groups) > 0:
-                return groups[-1]
+                for group in reversed(groups):
+                    if group is not None:
+                        return group
             else:
                 return idMatch.group(0)
 
