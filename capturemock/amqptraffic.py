@@ -12,12 +12,14 @@ class AMQPConnector:
             self.exchange = rcHandler.get("exchange", [ "amqp" ])
             self.exchange_type = rcHandler.get("exchange_type", [ "amqp" ])
             self.exchange_forward = rcHandler.get("exchange_forward", [ "amqp" ])
+            self.exchange_forward_prefix = rcHandler.get("exchange_forward_prefix", [ "amqp" ])
             self.auto_delete = rcHandler.getboolean("auto_delete", [ "amqp" ], True)
             self.durable = rcHandler.getboolean("durable", [ "amqp" ], True)
         else:
             self.url, self.exchange = servAddr.rsplit("/", 1)
             self.exchange_type = None
             self.exchange_forward = None
+            self.exchange_forward_prefix = None
             self.auto_delete = True
             self.durable = True
 
@@ -28,7 +30,7 @@ class AMQPConnector:
         self.channel = self.connection.channel()
         if self.exchange_type:
             self.channel.exchange_declare(self.exchange, exchange_type=self.exchange_type, durable=self.durable, auto_delete=self.auto_delete)
-        if self.exchange_forward:
+        if self.exchange_forward and not self.exchange_forward_prefix:
             self.channel.exchange_bind(self.exchange_forward, self.exchange, routing_key="#")
         
     def get_queue_name(self):
@@ -48,7 +50,12 @@ class AMQPConnector:
     def replay(self, routing_key, body, msgType, headers):
         properties = pika.BasicProperties(headers=headers, type=msgType)
         self.channel.basic_publish(self.exchange, routing_key, body, properties=properties)
-
+        
+    def try_forward_with_prefix(self, routing_key, body, msgType, headers):
+        if self.exchange_forward_prefix:
+            properties = pika.BasicProperties(headers=headers, type=msgType)
+            self.channel.basic_publish(self.exchange_forward, self.exchange_forward_prefix + "." + routing_key, body, properties=properties)
+        
     def sendTerminateMessage(self):
         self.channel.basic_publish(self.exchange, self.own_routing_key, self.terminate_body)
 
@@ -84,6 +91,7 @@ class AMQPTrafficServer:
             self.connector.terminate()
         else:
             traffic = AMQPTraffic(rcHandler=self.dispatcher.rcHandler, routing_key=routing_key, body=body, props=header_frame)
+            traffic.try_forward_with_prefix(self.connector)
             self.dispatcher.process(traffic, self.count)
         
     def run(self):
@@ -167,6 +175,9 @@ class AMQPTraffic(traffic.Traffic):
                 self.headers["originfile"] = self.origin
             self.connector.replay(self.routing_key, self.body, self.msgType, self.headers)
         return []
+    
+    def try_forward_with_prefix(self, connector):
+        connector.try_forward_with_prefix(self.routing_key, self.body, self.msgType, self.headers)
     
     def shouldBeRecorded(self, *args):
         return not self.replay and self.origin != "norecord" # never record these when replaying, must do it in one place
