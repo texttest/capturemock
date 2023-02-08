@@ -15,6 +15,7 @@ from socketserver import TCPServer, StreamRequestHandler
 from xmlrpc.client import Fault, ServerProxy
 from xmlrpc.server import SimpleXMLRPCServer
 import re
+import json
 
 def getPython():
     if os.name == "nt":
@@ -175,7 +176,8 @@ class ClassicTrafficRequestHandler(StreamRequestHandler):
 
 class HTTPTrafficHandler(BaseHTTPRequestHandler):
     dispatcher = None
-    redirects = []
+    redirects = {}
+    redirectAuthMapping = {}
     requestCount = 0
     def read_data(self):
         content_length = int(self.headers['Content-Length']) # <--- Gets the size of data
@@ -189,13 +191,53 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
         urldata = urldata._replace(scheme="", netloc="")
         return urlunparse(urldata)
     
+    def get_auth_tag(self):
+        bearer = "Bearer "
+        authTag = self.headers.get("Authorization")
+        if authTag.startswith(bearer):
+            return authTag[len(bearer):]
+        else:
+            return authTag
+    
+    def find_redirect_target_id(self):
+        # avoid race conditions, if the auth mapping isn't in yet, wait a bit and try again
+        for _ in range(20):
+            if len(self.redirectAuthMapping) > 0:
+                authTag = self.get_auth_tag()
+                return self.redirectAuthMapping.get(authTag)
+            time.sleep(0.1)
+    
+    def find_redirect_target(self, targetData):
+        if len(targetData) == 1:
+            return list(targetData.values())[0]
+
+        targetId = self.find_redirect_target_id()
+        if targetId:
+            return targetData.get(targetId)
+        
+    def get_redirect_target_data(self):
+        for givenPath, targetData in self.redirects.items():
+            if self.path.startswith(givenPath):
+                return targetData
+    
     def try_redirect(self):
-        for redirectKey, target in self.redirects:
-            if redirectKey in self.path:
+        targetData = self.get_redirect_target_data()
+        if targetData:
+            target = self.find_redirect_target(targetData)
+            if target:
                 self.send_response(307)
                 self.send_header('Location', target + self.path)
-                self.end_headers()
-                return True
+            elif len(self.redirectAuthMapping) == 0:
+                # no redirect, try to use directly
+                return False
+            else:
+                # with redirect by auth, assume we are redirect-only, return 404 without match
+                print("FAILED to redirect!", file=sys.stderr)
+                print(self.path, file=sys.stderr)
+                print(self.get_auth_tag(), file=sys.stderr)
+                self.send_response(404)
+            self.end_headers()
+            return True
         return False
 
     def do_GET(self):
@@ -213,18 +255,24 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         rawbytes = self.read_data()
-        if self.try_redirect():
-            text = rawbytes.decode(getpreferredencoding())
-            self.dispatcher.diag.debug("Forwarding POST " + text)
-            for header, value in self.headers.items():
-                self.dispatcher.diag.debug("Header " + str(header) + " = " + str(value))
-            return
-        if self.path.startswith("/capturemock/sendPathRedirect/"):
-            redirectKey = self.path.rsplit("/", 1)[-1]
-            target = rawbytes.decode(getpreferredencoding())
-            self.redirects.append((redirectKey, target))
+        if self.path.startswith("/capturemock/sendAuthMapping"):
+            data = rawbytes.decode(getpreferredencoding())
+            mapping = json.loads(data)
+            self.redirectAuthMapping.update(mapping)
             self.send_response(200)
             self.end_headers()
+            return
+        
+        if self.path.startswith("/capturemock/sendPathRedirect/"):
+            redirectKey = "/".join(self.path.split("/")[3:])
+            target = rawbytes.decode(getpreferredencoding())
+            mapping = json.loads(target)
+            self.redirects.setdefault(redirectKey, {}).update(mapping)
+            self.send_response(200)
+            self.end_headers()
+            return
+        
+        if self.try_redirect():
             return
         
         if self.path == "/capturemock/addAlterations":
