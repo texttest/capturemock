@@ -35,12 +35,14 @@ class AMQPConnector:
         
     def get_queue_name(self):
         return self.exchange + ".capturemock"
-    
-    def record_from_queue(self, on_message):
+
+    def setup_recording(self, on_message):
         queue = self.get_queue_name()
         self.channel.queue_declare(queue, durable=True, auto_delete=True)
         self.channel.queue_bind(queue, self.exchange, routing_key="#")
-        self.channel.basic_consume(queue, on_message)
+        self.channel.basic_consume(queue, on_message)        
+    
+    def record_from_queue(self):
         try:
             self.channel.start_consuming()
         except KeyboardInterrupt:
@@ -82,6 +84,7 @@ class AMQPTrafficServer:
         self.count = 0
         self.dispatcher = dispatcher
         self.connector = AMQPConnector(self.dispatcher.rcHandler, connName="CaptureMock recorder")
+        self.connector.setup_recording(self.on_message)
         
     def on_message(self, channel, method_frame, header_frame, body):
         self.count += 1
@@ -95,7 +98,7 @@ class AMQPTrafficServer:
             self.dispatcher.process(traffic, self.count)
         
     def run(self):
-        self.connector.record_from_queue(self.on_message)
+        self.connector.record_from_queue()
 
     def getAddress(self):
         return self.connector.getAddress()
