@@ -17,6 +17,11 @@ class BinaryServerSocketTraffic(clientservertraffic.ServerTraffic):
     def forwardToDestination(self):
         return []
 
+def toString(data):
+    if isinstance(data, bytes):
+        return data.decode()
+    else:
+        return str(data)
         
 class BinaryTrafficConverter:
     header_timeout = 0.5
@@ -42,7 +47,7 @@ class BinaryTrafficConverter:
         return rawBytes.decode()
         
     def read_header_or_text(self):
-        header = self.socket.recv(self.headerConverter.length)
+        header = self.socket.recv(self.headerConverter.getLength())
         if len(header) == 0:
             raise TimeoutError("no data received")
         # go to blocking mode once we have a header, need to make sure we read the rest
@@ -53,7 +58,7 @@ class BinaryTrafficConverter:
                 self.diag.debug("Got message %s", self.text)
             else:
                 self.header = header
-                success, self.header_fields = self.headerConverter.parse(header)
+                success, self.header_fields = self.headerConverter.parse(header, self.diag)
                 self.diag.debug("Got header %s %s", header, self.header_fields)
                 if success:
                     length = self.get_body_length()
@@ -70,12 +75,14 @@ class BinaryTrafficConverter:
             
     def get_body_length(self):
         msg_size = self.header_fields.get("msg_size")
-        if msg_size % 2 == 1: # ACI format does not allow odd message size...
+        if msg_size is not None and msg_size % 2 == 1: # ACI format does not allow odd message size...
             msg_size += 1
-        header_size = self.header_fields.get("header_size")
+        header_size = int(self.header_fields.get("header_size"))
         if msg_size and header_size:
-            msg_already_read = self.headerConverter.length - header_size
+            msg_already_read = self.headerConverter.getLength() - header_size
             return msg_size - msg_already_read
+        elif header_size:
+            return self.header_fields.get("length") - header_size
         else:
             return self.header_fields.get("length")
         
@@ -87,9 +94,24 @@ class BinaryTrafficConverter:
             return self.body
         
     def parse_body(self):
-        bodyReader = BinaryMessageConverter(self.rcHandler, self.header_fields.get("type"))
-        _, body_values = bodyReader.parse(self.get_body_to_parse())
+        body = self.get_body_to_parse()
+        body_type = toString(self.header_fields.get("type"))
+        subHeaderReader = BinaryMessageConverter(self.rcHandler, body_type + "_header")
+        if subHeaderReader.hasData():
+            _, subheader_values = subHeaderReader.parse(body, self.diag)
+            self.diag.debug("Found subheader values %s", repr(subheader_values))
+            self.header_fields.update(subheader_values)
+            subHeaderLength = subHeaderReader.getLength()
+            body = body[subHeaderLength:]
+            subtype = toString(subheader_values.get("subtype"))
+            if subtype:
+                body_type += "." + subtype
+                self.diag.debug("using subtype %s", body_type)
+        bodyReader = BinaryMessageConverter(self.rcHandler, body_type)
+        _, body_values = bodyReader.parse(body, self.diag)
         self.diag.debug("Got body %s", body_values)
+        self.diag.debug("assume %s", repr(self.headerConverter.assume))
+        self.diag.debug("hf %s", repr(self.header_fields))
         self.text = self.headerConverter.getHeaderDescription(self.header_fields) + "\n" + pformat(body_values, sort_dicts=False, width=200)
         self.diag.debug("Recording %s", self.text)
         return self.text
@@ -123,18 +145,31 @@ class BinaryTrafficConverter:
         
 class BinaryMessageConverter:
     def __init__(self, rcHandler, rawSection):
-        section = self.toString(rawSection)
+        section = toString(rawSection)
+        sections = [ section ]
         self.rcHandler = rcHandler
-        self.fields = rcHandler.getList("fields", [ section ])
-        self.formats = rcHandler.getList("format", [ section ])
-        self.assume = self.readDictionary(rcHandler, "assume", section)
-        self.enforce = self.readDictionary(rcHandler, "enforce", section)
+        self.fields = rcHandler.getList("fields", sections)
+        self.formats = rcHandler.getList("format", sections)
+        self.assume = self.readDictionary(rcHandler, "assume", sections)
+        self.enforce = self.readDictionary(rcHandler, "enforce", sections)
         self.assume.update(self.enforce)
-        self.length = struct.calcsize(self.formats[0]) if self.formats else 0
+        self.length = None
+        
+    def hasData(self):
+        return len(self.formats) > 0
+        
+    def getLength(self):
+        if self.length is not None:
+            # if we've already parsed it
+            return self.length
+        elif self.formats:
+            return struct.calcsize(self.formats[0])
+        else:
+            return 0
     
-    def readDictionary(self, rcHandler, key, section):
+    def readDictionary(self, rcHandler, key, sections):
         ret = {}
-        for part in rcHandler.getList(key, [ section ]):
+        for part in rcHandler.getList(key, sections):
             key, value = part.split("=")
             ret[key] = value
         return ret
@@ -143,9 +178,9 @@ class BinaryMessageConverter:
         msgType = fields.get("type")
         filtered_fields = {}
         for key, value in fields.items():
-            if key not in [ "type", "length" ] and self.assume.get(key) != str(value):
+            if key not in [ "type", "length" ] and self.assume.get(key) != toString(value):
                 filtered_fields[key] = value
-        return self.toString(msgType) + " " + repr(filtered_fields)
+        return toString(msgType) + " " + repr(filtered_fields)
 
     def parseHeaderDescription(self, text):
         typeText, fieldText = text.split(" ", 1)
@@ -175,30 +210,58 @@ class BinaryMessageConverter:
             
     def get_parameter_key(self, values):
         return 
-
-    def toString(self, data):
-        if isinstance(data, bytes):
-            return data.decode()
-        else:
-            return str(data)
         
-    def parse(self, rawBytes):
+    def unpack_string(self, rawBytes, offset):
+        str_length = struct.unpack_from("<i", rawBytes, offset=offset)[0]
+        if str_length > 0:
+            string_data = struct.unpack_from("<" + str(str_length) + "s", rawBytes, offset=offset+4)[0]
+            return string_data, str_length + 4
+        else:
+            return b"" if str_length == 0 else None, 4
+        
+    def unpack(self, fmt, rawBytes, diag):
+        if "STR" in fmt:    
+            curroffset = 0
+            endianchar = fmt[0]
+            data = []
+            for i, part in enumerate(fmt.split("STR")):
+                if i > 0:
+                    diag.debug("unpack string from %s", rawBytes[curroffset:])
+                    string_data, length = self.unpack_string(rawBytes, curroffset)
+                    diag.debug("string was %s with length %d", string_data, length)
+                    data.append(string_data)
+                    curroffset += length
+                if part:
+                    partToUse = part if part.startswith(endianchar) else endianchar + part
+                    diag.debug("unpack from %s %s", partToUse, rawBytes[curroffset:])
+                    part_data = struct.unpack_from(partToUse, rawBytes, offset=curroffset)
+                    diag.debug("part data %s", part_data)
+                    data += list(part_data)
+                    curroffset += struct.calcsize(partToUse)
+            return data, curroffset
+        else:
+            return struct.unpack_from(fmt, rawBytes), struct.calcsize(fmt)
+
+    def parse(self, rawBytes, diag):
         data = None
         for fmt in self.formats:
             try:
-                data = struct.unpack_from(fmt, rawBytes)
+                data, length = self.unpack(fmt, rawBytes, diag)
+                self.length = length
                 break
-            except struct.error:
-                pass
+            except struct.error as e:
+                diag.debug("Failed to unpack due to %s", str(e))
         if data is None:
             return False, { "unknown_format" : rawBytes.hex() }
         
+        diag.debug("Found %s", data)
         field_values = {}
         for i, field in enumerate(self.fields):
             if i < len(data):
                 value = self.try_convert_enum(field, data[i])
-                field_values[field] = value
-        parameters = list(data[len(field_values):])
+                if value is not None:
+                    field_values[field] = value
+        parameters = list(data[len(self.fields):])
         if len(parameters) > 0:
             key = "additional_params" if "parameters" in field_values else "parameters"
             field_values[key] = parameters
@@ -206,6 +269,9 @@ class BinaryMessageConverter:
         for key, value in self.enforce.items():
             if str(field_values.get(key)) != value:
                 ok = False
+        for key, value in self.assume.items():
+            if key not in field_values:
+                field_values[key] = value
         return ok, field_values
             
     def try_convert_enum(self, field, value):
