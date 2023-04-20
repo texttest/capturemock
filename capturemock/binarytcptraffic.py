@@ -142,7 +142,69 @@ class BinaryTrafficConverter:
         self.diag.debug("Sending payload %s", payload)
         self.socket.sendall(payload)
                 
+class StructConverter:
+    def __init__(self, fmt):
+        self.fmt = fmt
+        self.length = struct.calcsize(self.fmt)
         
+    def __repr__(self):
+        return self.__class__.__name__ + "(" + self.fmt + ")"
+    
+    def unpack(self, rawBytes, offset, *args):
+        return struct.unpack_from(self.fmt, rawBytes, offset=offset), self.length
+    
+class SequenceConverter:
+    def __init__(self, lengthFmt, fmt):
+        self.lengthFmt = lengthFmt
+        self.elementFmt = fmt
+        self.extraLength = struct.calcsize(lengthFmt)
+        
+    def __repr__(self):
+        return self.__class__.__name__ + "(" + self.lengthFmt + ", " + self.elementFmt + ")"
+        
+class StringConverter(SequenceConverter):
+    def __init__(self, lengthFmt):
+        fmt = lengthFmt[0] + "%ds"
+        SequenceConverter.__init__(self, lengthFmt, fmt)
+        
+    def unpack(self, rawBytes, offset, *args):
+        str_length = struct.unpack_from(self.lengthFmt, rawBytes, offset=offset)[0]
+        if str_length > 0:
+            string_data = struct.unpack_from(self.elementFmt % str_length, rawBytes, offset=offset+self.extraLength)
+            return string_data, str_length + self.extraLength
+        else:
+            return [ b"" ] if str_length == 0 else [ None ], self.extraLength
+                
+class ListConverter(SequenceConverter):
+    def __init__(self, lengthFmt, elementFmt, elementConverters):
+        SequenceConverter.__init__(self, lengthFmt, elementFmt)
+        self.elementConverters = elementConverters
+        
+    def unpack(self, rawBytes, offset, diag):
+        list_length = struct.unpack_from(self.lengthFmt, rawBytes, offset=offset)[0]
+        if list_length == 0:
+            return [[]], self.extraLength
+        data = []
+        element_offset = offset + self.extraLength
+        for ix in range(list_length):
+            element_data = []
+            for converter in self.elementConverters:
+                diag.debug("subconverting with %s", converter)
+                diag.debug("current subdata is %s", rawBytes[element_offset:])
+                curr_data, curr_offset = converter.unpack(rawBytes, element_offset, diag)
+                diag.debug("Unpacked to %s %d", curr_data, curr_offset)
+                element_data += curr_data
+                diag.debug("Element data now %s", element_data)
+                element_offset += curr_offset
+            if len(element_data) == 1:
+                data.append(element_data[0])
+            else:
+                data.append(tuple(element_data))
+        return [ data ], element_offset - offset
+    
+    def __repr__(self):
+        return self.__class__.__name__ + "(" + self.lengthFmt + ", " + self.elementFmt + ", " + repr(self.elementConverters) + ")"
+    
 class BinaryMessageConverter:
     def __init__(self, rcHandler, rawSection):
         section = toString(rawSection)
@@ -211,36 +273,62 @@ class BinaryMessageConverter:
     def get_parameter_key(self, values):
         return 
         
-    def unpack_string(self, rawBytes, offset):
-        str_length = struct.unpack_from("<i", rawBytes, offset=offset)[0]
-        if str_length > 0:
-            string_data = struct.unpack_from("<" + str(str_length) + "s", rawBytes, offset=offset+4)[0]
-            return string_data, str_length + 4
-        else:
-            return b"" if str_length == 0 else None, 4
+    @classmethod
+    def find_close_bracket(cls, fmt, ix):
+        open_bracket = fmt.find("[", ix + 1)
+        close_bracket = fmt.find("]", ix)
+        if open_bracket == -1 or close_bracket < open_bracket:
+            return close_bracket
+        next_close = cls.find_close_bracket(fmt, open_bracket)
+        return cls.find_close_bracket(fmt, next_close + 1)
+
+    @classmethod
+    def split_format(cls, fmt):
+        ix = 0
+        endianchar = fmt[0]
+        curr_fmt = ""
+        converters = []
+        specialChars = "$[]"
+        while ix < len(fmt):
+            currChar = fmt[ix]
+            if currChar in specialChars:
+                prev = curr_fmt[:-1]
+                if prev and prev != endianchar:
+                    if not prev.startswith(endianchar):
+                        prev = endianchar + prev
+                    converters.append(StructConverter(prev))
+                lengthFmt = endianchar + curr_fmt[-1]
+                if currChar == "[":
+                    closePos = cls.find_close_bracket(fmt, ix)
+                    listFmt = endianchar + fmt[ix + 1:closePos]
+                    listConverters = cls.split_format(listFmt)
+                    converters.append(ListConverter(lengthFmt, listFmt, listConverters))
+                    ix = closePos
+                else:
+                    converters.append(StringConverter(lengthFmt))
+                curr_fmt = ""
+            else:
+                curr_fmt += fmt[ix]
+            ix += 1
+        if curr_fmt:
+            if not curr_fmt.startswith(endianchar):
+                curr_fmt = endianchar + curr_fmt
+            converters.append(StructConverter(curr_fmt))
+        return converters
         
-    def unpack(self, fmt, rawBytes, diag):
-        if "STR" in fmt:    
-            curroffset = 0
-            endianchar = fmt[0]
-            data = []
-            for i, part in enumerate(fmt.split("STR")):
-                if i > 0:
-                    diag.debug("unpack string from %s", rawBytes[curroffset:])
-                    string_data, length = self.unpack_string(rawBytes, curroffset)
-                    diag.debug("string was %s with length %d", string_data, length)
-                    data.append(string_data)
-                    curroffset += length
-                if part:
-                    partToUse = part if part.startswith(endianchar) else endianchar + part
-                    diag.debug("unpack from %s %s", partToUse, rawBytes[curroffset:])
-                    part_data = struct.unpack_from(partToUse, rawBytes, offset=curroffset)
-                    diag.debug("part data %s", part_data)
-                    data += list(part_data)
-                    curroffset += struct.calcsize(partToUse)
-            return data, curroffset
-        else:
-            return struct.unpack_from(fmt, rawBytes), struct.calcsize(fmt)
+    @classmethod
+    def unpack(cls, fmt, rawBytes, diag):
+        offset = 0
+        data = []
+        diag.debug("splitting format %s", fmt)
+        for converter in cls.split_format(fmt):
+            diag.debug("converting with %s", converter)
+            diag.debug("current data is %s", rawBytes[offset:])
+            curr_data, curr_offset = converter.unpack(rawBytes, offset, diag)
+            diag.debug("Unpacked to %s %d", curr_data, curr_offset)
+            data += curr_data
+            offset += curr_offset
+        return data, offset
 
     def parse(self, rawBytes, diag):
         data = None
@@ -443,70 +531,85 @@ def get_header(line, headers):
             return header
         
 if __name__ == "__main__":
-    from capturemock import config
-    rc = r"D:\texttest_repos\tone\capturemock-any-systemmanager.rc"
-    rcHandler = config.RcFileHandler([ rc ])
-    diag = logging.getLogger("test")
-    conv = BinaryTrafficConverter(rcHandler, None, diag)
-    fn = r"D:\TT\tone.28Mar154841.35540\tone\Transports\PetainerData\SetIO\cpmock_binarytcp.txt"
-    curr_payload = b""
-    curr_text = ""
-    recording = False
-    count = 1
-    failed = []
-    prefix = "Binary TCP Traffic DEBUG - "
-    text_headers = [ prefix + "Payload text ", prefix + "Recording " ]
-    payload_header = prefix + "Sending payload "
-    header_header = prefix + "Got header "
-    body_header = prefix + "Got body of size "
-    end_header = prefix + "Server traffic, no client"
-    with open(fn) as f:
-        for line in f:
-            text_header = get_header(line, text_headers)
-            if text_header:
-                curr_text = line[len(text_header):]
-                recording = True
-            elif line.startswith(header_header):
-                curr_payload += eval(line.split()[7])
-            elif line.startswith(body_header):
-                curr_payload += eval(line.split(" ", 10)[10])
-            elif line.startswith(payload_header) or line.startswith(end_header):
-                if line.startswith(payload_header):
-                    curr_payload = eval(line[len(payload_header):])
-                print(count, "compare", curr_text, "with")
-                print(curr_payload)
-                new_payload = conv.convert_to_payload(curr_text)
-                print(new_payload)
-                if new_payload == curr_payload:
-                    print("SUCCESS")
-                else:
-                    print("FAILURE")
-                    failed.append((curr_text, curr_payload, new_payload))
-                recording = False
-                curr_payload = b""
-                curr_text = ""
-                count += 1
-            elif recording:
-                curr_text += line
-    print("\nFAILED:")
-    class FakeSocket:
-        def __init__(self, rawBytes):
-            self.rawBytes = rawBytes
-            
-        def recv(self, count):
-            ret = self.rawBytes[:count]
-            self.rawBytes = self.rawBytes[count:]
-            return ret
-        
-        def settimeout(self, *args):
-            pass
-    
-    for curr_text, curr_payload, new_payload in failed:
-        print("\n" + curr_text)
-        print("got:", len(new_payload), new_payload)
-        print("not:", len(curr_payload), curr_payload)
-        fakeSock = FakeSocket(curr_payload)
-        conv = BinaryTrafficConverter(rcHandler, fakeSock, diag)
-        text, _ = conv.read_and_parse()
-        print("\nNew:", text)
-                
+    fmt = "<2Bq2Ii$I3Bi$i$Bi$Ii$i$i[i$]"
+    fmt = "<i[i$i[i$]i$Ii$i$i$B]"
+    fmt = "<q3Ii[i$]BHIBHIdi$i$Ii[i$i$i$Bi$Ii$i$i[i$]i$Ii$i$i$B]i[i$]i$i$I"
+    # fmt = "<5Ii$"
+    # fmt = "<Ii$i$i$2I2BH"
+    # fmt = "<4I2BH2Bq2Ii$I3Bi$i$Bi$Ii$i$i[i$]i$i$i$i$i$dI"
+    # fmt = "<i[i$]"
+    # rawBytes = b'HELFK\x00\x00\x00'
+    # rawBytes = b'\x00\x00\x00\x00/\x00\x00\x00http://opcfoundation.org/UA/SecurityPolicy#None\xff\xff\xff\xff\xff\xff\xff\xff\x01\x00\x00\x00\x01\x00\x00\x00\x01\x00\xbe\x01\x00\x00@\x10\xd0\x02\x8es\xd9\x01\x01\x00\x00\x00\x00\x00\x00\x00\xff\xff\xff\xff\xe8\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x80\xee6\x00'
+    # rawBytes = b'\x01\x00\x00\x00%\x00\x00\x00opc.tcp://0.0.0.0:0/freeopcua/server/'
+    print(BinaryMessageConverter.split_format(fmt))
+    logger = logging.getLogger("main")
+    logger.setLevel(logging.DEBUG)
+    #print(BinaryMessageConverter.unpack(fmt, rawBytes, logger))
+    # from capturemock import config
+    # rc = r"D:\texttest_repos\tone\capturemock-any-systemmanager.rc"
+    # rcHandler = config.RcFileHandler([ rc ])
+    # diag = logging.getLogger("test")
+    # conv = BinaryTrafficConverter(rcHandler, None, diag)
+    # fn = r"D:\TT\tone.28Mar154841.35540\tone\Transports\PetainerData\SetIO\cpmock_binarytcp.txt"
+    # curr_payload = b""
+    # curr_text = ""
+    # recording = False
+    # count = 1
+    # failed = []
+    # prefix = "Binary TCP Traffic DEBUG - "
+    # text_headers = [ prefix + "Payload text ", prefix + "Recording " ]
+    # payload_header = prefix + "Sending payload "
+    # header_header = prefix + "Got header "
+    # body_header = prefix + "Got body of size "
+    # end_header = prefix + "Server traffic, no client"
+    # with open(fn) as f:
+    #     for line in f:
+    #         text_header = get_header(line, text_headers)
+    #         if text_header:
+    #             curr_text = line[len(text_header):]
+    #             recording = True
+    #         elif line.startswith(header_header):
+    #             curr_payload += eval(line.split()[7])
+    #         elif line.startswith(body_header):
+    #             curr_payload += eval(line.split(" ", 10)[10])
+    #         elif line.startswith(payload_header) or line.startswith(end_header):
+    #             if line.startswith(payload_header):
+    #                 curr_payload = eval(line[len(payload_header):])
+    #             print(count, "compare", curr_text, "with")
+    #             print(curr_payload)
+    #             new_payload = conv.convert_to_payload(curr_text)
+    #             print(new_payload)
+    #             if new_payload == curr_payload:
+    #                 print("SUCCESS")
+    #             else:
+    #                 print("FAILURE")
+    #                 failed.append((curr_text, curr_payload, new_payload))
+    #             recording = False
+    #             curr_payload = b""
+    #             curr_text = ""
+    #             count += 1
+    #         elif recording:
+    #             curr_text += line
+    # print("\nFAILED:")
+    # class FakeSocket:
+    #     def __init__(self, rawBytes):
+    #         self.rawBytes = rawBytes
+    #
+    #     def recv(self, count):
+    #         ret = self.rawBytes[:count]
+    #         self.rawBytes = self.rawBytes[count:]
+    #         return ret
+    #
+    #     def settimeout(self, *args):
+    #         pass
+    #
+    # for curr_text, curr_payload, new_payload in failed:
+    #     print("\n" + curr_text)
+    #     print("got:", len(new_payload), new_payload)
+    #     print("not:", len(curr_payload), curr_payload)
+    #     fakeSock = FakeSocket(curr_payload)
+    #     conv = BinaryTrafficConverter(rcHandler, fakeSock, diag)
+    #     text, _ = conv.read_and_parse()
+    #     print("\nNew:", text)
+    #
+
