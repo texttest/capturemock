@@ -18,7 +18,9 @@ class BinaryServerSocketTraffic(clientservertraffic.ServerTraffic):
         return []
 
 def toString(data):
-    if isinstance(data, bytes):
+    if isinstance(data, tuple): # produced by variable types, assume the key data is at the end
+        return toString(data[-1])
+    elif isinstance(data, bytes):
         return data.decode()
     else:
         return str(data)
@@ -159,6 +161,12 @@ class SequenceConverter:
         self.elementFmt = fmt
         self.extraLength = struct.calcsize(lengthFmt)
         
+    def to_element(self, element_data):
+        if len(element_data) == 1:
+            return element_data[0]
+        else:
+            return tuple(element_data)
+            
     def __repr__(self):
         return self.__class__.__name__ + "(" + self.lengthFmt + ", " + self.elementFmt + ")"
         
@@ -196,14 +204,48 @@ class ListConverter(SequenceConverter):
                 element_data += curr_data
                 diag.debug("Element data now %s", element_data)
                 element_offset += curr_offset
-            if len(element_data) == 1:
-                data.append(element_data[0])
-            else:
-                data.append(tuple(element_data))
+            data.append(self.to_element(element_data))
         return [ data ], element_offset - offset
     
     def __repr__(self):
         return self.__class__.__name__ + "(" + self.lengthFmt + ", " + self.elementFmt + ", " + repr(self.elementConverters) + ")"
+
+class OptionConverter(SequenceConverter):
+    def __init__(self, lengthFmt, elementFmt, optionConverters, bitTemplates):
+        SequenceConverter.__init__(self, lengthFmt, elementFmt)
+        self.optionConverters = optionConverters
+        self.bitTemplates = bitTemplates
+        
+    def find_converters(self, optionType):
+        if optionType < len(self.optionConverters):
+            return self.optionConverters[optionType]
+        for bit, template in self.bitTemplates.items():
+            if optionType & bit:
+                subOptionType = optionType - bit
+                if subOptionType < len(self.optionConverters):
+                    elementConverters = self.optionConverters[subOptionType]
+                    if "[]" in template:
+                        lengthFmt = self.lengthFmt[0] + template[0]
+                        return [ ListConverter(lengthFmt, template, elementConverters) ]
+        print("WARNING: failed to find option converter for value", optionType, "in format", self.elementFmt, file=sys.stderr)
+        return []
+        
+    def unpack(self, rawBytes, offset, diag):
+        optionType = struct.unpack_from(self.lengthFmt, rawBytes, offset=offset)[0]
+        data = []
+        data_offset = offset + self.extraLength
+        for converter in self.find_converters(optionType):
+            diag.debug("option converting with type %s, %s", optionType, converter)
+            diag.debug("current option data is %s", rawBytes[data_offset:])
+            curr_data, curr_dataLength = converter.unpack(rawBytes, data_offset, diag)
+            data += curr_data
+            diag.debug("option data now %s", data)
+            data_offset += curr_dataLength
+        return [ (optionType, self.to_element(data)) ], data_offset - offset
+        
+    def __repr__(self):
+        return self.__class__.__name__ + "(" + self.lengthFmt + ", " + self.elementFmt + ", " + repr(self.optionConverters) + ")"
+
     
 class BinaryMessageConverter:
     def __init__(self, rcHandler, rawSection):
@@ -274,13 +316,13 @@ class BinaryMessageConverter:
         return 
         
     @classmethod
-    def find_close_bracket(cls, fmt, ix):
-        open_bracket = fmt.find("[", ix + 1)
-        close_bracket = fmt.find("]", ix)
+    def find_close_bracket(cls, fmt, ix, bracket_char, close_bracket_char):
+        open_bracket = fmt.find(bracket_char, ix + 1)
+        close_bracket = fmt.find(close_bracket_char, ix)
         if open_bracket == -1 or close_bracket < open_bracket:
             return close_bracket
-        next_close = cls.find_close_bracket(fmt, open_bracket)
-        return cls.find_close_bracket(fmt, next_close + 1)
+        next_close = cls.find_close_bracket(fmt, open_bracket, bracket_char, close_bracket_char)
+        return cls.find_close_bracket(fmt, next_close + 1, bracket_char, close_bracket_char)
 
     @classmethod
     def split_format(cls, fmt):
@@ -288,7 +330,7 @@ class BinaryMessageConverter:
         endianchar = fmt[0]
         curr_fmt = ""
         converters = []
-        specialChars = "$[]"
+        specialChars = "$[]()"
         while ix < len(fmt):
             currChar = fmt[ix]
             if currChar in specialChars:
@@ -299,10 +341,23 @@ class BinaryMessageConverter:
                     converters.append(StructConverter(prev))
                 lengthFmt = endianchar + curr_fmt[-1]
                 if currChar == "[":
-                    closePos = cls.find_close_bracket(fmt, ix)
+                    closePos = cls.find_close_bracket(fmt, ix, "[", "]")
                     listFmt = endianchar + fmt[ix + 1:closePos]
                     listConverters = cls.split_format(listFmt)
                     converters.append(ListConverter(lengthFmt, listFmt, listConverters))
+                    ix = closePos
+                elif currChar == "(":
+                    closePos = cls.find_close_bracket(fmt, ix, "(", ")")
+                    allOptionFmt = fmt[ix + 1:closePos]
+                    optionConverters = []
+                    bitTemplates = {}
+                    for optionFmt in allOptionFmt.split("|"):
+                        if "=" in optionFmt:
+                            bit, template = optionFmt.split("=")
+                            bitTemplates[int(bit)] = template
+                        else:
+                            optionConverters.append(cls.split_format(endianchar + optionFmt))
+                    converters.append(OptionConverter(lengthFmt, allOptionFmt, optionConverters, bitTemplates))
                     ix = closePos
                 else:
                     converters.append(StringConverter(lengthFmt))
