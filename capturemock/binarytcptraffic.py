@@ -217,6 +217,12 @@ class SequenceConverter:
         else:
             return tuple(element_data)
         
+    def from_element(self, element, converters):
+        if len(converters) > 1 or converters[0].get_data_size() > 1:
+            return element
+        else:
+            return (element,)
+        
     def get_data_size(self):
         return 1
     
@@ -269,12 +275,6 @@ class ListConverter(SequenceConverter):
             data.append(self.to_element(element_data))
         return [ data ], element_offset - offset
 
-    def from_element(self, element):
-        if len(self.elementConverters) > 1 or self.elementConverters[0].get_data_size() > 1:
-            return element
-        else:
-            return (element,)
-
     def pack(self, data, index, diag):
         elements = data[index]
         diag.debug("packing list %s", elements)
@@ -284,7 +284,7 @@ class ListConverter(SequenceConverter):
             elementIndex = 0
             for converter in self.elementConverters:
                 diag.debug("converting list element with %s %s %d", converter, element, elementIndex)
-                curr_bytes = converter.pack(self.from_element(element), elementIndex, diag)
+                curr_bytes = converter.pack(self.from_element(element, self.elementConverters), elementIndex, diag)
                 diag.debug("Packed to %s", curr_bytes)
                 rawBytes += curr_bytes
                 elementIndex += converter.get_data_size()
@@ -332,9 +332,10 @@ class OptionConverter(SequenceConverter):
         optionType, element = toPack
         rawBytes = struct.pack(self.lengthFmt, optionType)
         elementIndex = 0
-        for converter in self.find_converters(optionType):
+        converters = self.find_converters(optionType)
+        for converter in converters:
             diag.debug("option converting with type %s, %s %s %d", optionType, converter, element, elementIndex)
-            curr_bytes = converter.pack(element, elementIndex, diag)
+            curr_bytes = converter.pack(self.from_element(element, converters), elementIndex, diag)
             diag.debug("Packed to %s", curr_bytes)
             rawBytes += curr_bytes
             elementIndex += converter.get_data_size()
