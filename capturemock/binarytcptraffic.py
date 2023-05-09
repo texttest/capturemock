@@ -177,6 +177,23 @@ class BinaryTrafficConverter:
         self.diag.debug("Sending payload %s", payload)
         self.socket.sendall(payload)
 
+class NullConverter:
+    def __repr__(self):
+        return self.__class__.__name__
+
+    def combine_converters(self, converters):
+        pass
+    
+    def unpack(self, *args):
+        return (None,), 0
+
+    def get_data_size(self):
+        return 0
+
+    def pack(self, *args):
+        return b""
+    
+
 class StructConverter:
     def __init__(self, fmt):
         self.fmt = fmt
@@ -185,6 +202,9 @@ class StructConverter:
     def __repr__(self):
         return self.__class__.__name__ + "(" + self.fmt + ")"
 
+    def combine_converters(self, converters):
+        pass
+    
     def unpack(self, rawBytes, offset, *args):
         return struct.unpack_from(self.fmt, rawBytes, offset=offset), self.length
 
@@ -210,6 +230,9 @@ class SequenceConverter:
         self.lengthFmt = lengthFmt
         self.elementFmt = fmt
         self.extraLength = struct.calcsize(lengthFmt)
+        
+    def combine_converters(self, converters):
+        pass
 
     def to_element(self, element_data):
         if len(element_data) == 1:
@@ -289,6 +312,10 @@ class ListConverter(SequenceConverter):
                 rawBytes += curr_bytes
                 elementIndex += converter.get_data_size()
         return rawBytes
+    
+    def combine_converters(self, converters):
+        if len(self.elementConverters) == 0:
+            return ListConverter(self.lengthFmt, self.elementFmt, converters)
 
     def __repr__(self):
         return self.__class__.__name__ + "(" + self.lengthFmt + ", " + self.elementFmt + ", " + repr(self.elementConverters) + ")"
@@ -302,14 +329,17 @@ class OptionConverter(SequenceConverter):
     def find_converters(self, optionType):
         if optionType < len(self.optionConverters):
             return self.optionConverters[optionType]
-        for bit, template in self.bitTemplates.items():
+        for bit, bitConverters in self.bitTemplates.items():
             if optionType & bit:
                 subOptionType = optionType - bit
-                if subOptionType < len(self.optionConverters):
-                    elementConverters = self.optionConverters[subOptionType]
-                    if "[]" in template:
-                        lengthFmt = self.lengthFmt[0] + template[0]
-                        return [ ListConverter(lengthFmt, template, elementConverters) ]
+                if not subOptionType:
+                    return bitConverters
+                remainder = self.find_converters(subOptionType)
+                for bitConverter in bitConverters:
+                    combined = bitConverter.combine_converters(remainder)
+                    if combined:
+                        return [ combined ]
+                return bitConverters + remainder
         print("WARNING: failed to find option converter for value", optionType, "in format", self.elementFmt, file=sys.stderr)
         return []
 
@@ -342,7 +372,8 @@ class OptionConverter(SequenceConverter):
         return rawBytes
 
     def __repr__(self):
-        return self.__class__.__name__ + "(" + self.lengthFmt + ", " + self.elementFmt + ", " + repr(self.optionConverters) + ")"
+        return self.__class__.__name__ + "(" + self.lengthFmt + ", " + self.elementFmt + ", " + \
+            repr(self.optionConverters) + ", " + repr(self.bitTemplates) + ")"
 
 
 class BinaryMessageConverter:
@@ -446,21 +477,45 @@ class BinaryMessageConverter:
                 lengthFmt = endianchar + curr_fmt[-1]
                 if currChar == "[":
                     closePos = cls.find_close_bracket(fmt, ix, "[", "]")
-                    listFmt = endianchar + fmt[ix + 1:closePos]
-                    listConverters = cls.split_format(listFmt)
-                    converters.append(ListConverter(lengthFmt, listFmt, listConverters))
+                    fmtPart = fmt[ix + 1:closePos]
+                    if fmtPart:
+                        listFmt = endianchar + fmtPart
+                        listConverters = cls.split_format(listFmt)
+                        converters.append(ListConverter(lengthFmt, listFmt, listConverters))
+                    else:
+                        # placeholder for bit templates
+                        converters.append(ListConverter(lengthFmt, "variable", []))
                     ix = closePos
                 elif currChar == "(":
                     closePos = cls.find_close_bracket(fmt, ix, "(", ")")
                     allOptionFmt = fmt[ix + 1:closePos]
                     optionConverters = []
                     bitTemplates = {}
+                    currSubFmt = ""
+                    indent = 0
                     for optionFmt in allOptionFmt.split("|"):
-                        if "=" in optionFmt:
-                            bit, template = optionFmt.split("=")
-                            bitTemplates[int(bit)] = template
+                        optionFmtToUse = None
+                        if "(" in optionFmt:
+                            currSubFmt += optionFmt + "|"
+                            indent += 1
+                        elif indent > 0:
+                            if ")" in optionFmt:
+                                indent -= 1
+                                if indent == 0:
+                                    optionFmtToUse = currSubFmt + optionFmt
+                                    currSubFmt = ""
+                            else:
+                                currSubFmt += optionFmt + "|"
                         else:
-                            optionConverters.append(cls.split_format(endianchar + optionFmt))
+                            optionFmtToUse = optionFmt
+                        if optionFmtToUse is not None:                        
+                            if "=" in optionFmtToUse:
+                                bit, template = optionFmtToUse.split("=", 1)
+                                bitTemplates[int(bit)] = cls.split_format(endianchar + template)
+                            elif optionFmtToUse:
+                                optionConverters.append(cls.split_format(endianchar + optionFmtToUse))
+                            else:
+                                optionConverters.append([ NullConverter() ])
                     converters.append(OptionConverter(lengthFmt, allOptionFmt, optionConverters, bitTemplates))
                     ix = closePos
                 else:
@@ -592,7 +647,7 @@ class TcpHeaderTrafficServer:
             connSocket.settimeout(self.connection_timeout)
             return connSocket
         except socket.timeout:
-            pass
+            self.diag.debug("Timeout accepting new connection")
 
     def tryConnectServer(self):
         dest = clientservertraffic.ClientSocketTraffic.destination
@@ -610,6 +665,7 @@ class TcpHeaderTrafficServer:
         traffic = BinaryClientSocketTraffic(text, None, rcHandler=self.dispatcher.rcHandler)
         responses = self.dispatcher.process(traffic, self.requestCount)
         if self.serverConverter and payload is not None:
+            self.diag.debug("Foward client payload to server %s", payload)
             self.serverConverter.socket.sendall(payload)
         elif self.clientConverter:
             for response in responses:
@@ -634,8 +690,10 @@ class TcpHeaderTrafficServer:
                 text, payload = self.clientConverter.read_and_parse()
                 self.handle_client_traffic(text, payload)
                 return True
-            except OSError:
+            except TimeoutError:
                 self.diag.debug("Read from client timed out")
+            except OSError as e:
+                self.diag.debug("Read from client had other error %s", str(e))
         return False
 
     def try_server(self):
@@ -646,8 +704,14 @@ class TcpHeaderTrafficServer:
                 text, payload = self.serverConverter.read_and_parse()
                 self.handle_server_traffic(text, payload)
                 return True
-            except OSError:
+            except TimeoutError:
                 self.diag.debug("Read from server timed out")
+            except ConnectionAbortedError:
+                self.diag.debug("Server connection aborted, resetting!")
+                self.serverConverter = None
+                self.tryConnectServer()
+            except OSError as e:
+                self.diag.debug("Read from server had other error %s", str(e))
         return False
 
     def handle_server_traffic_from_cache(self):
@@ -655,6 +719,13 @@ class TcpHeaderTrafficServer:
             for cacheText, cachePayload in self.serverTrafficCache:
                 self.handle_server_traffic_for_real(cacheText, cachePayload)
             self.serverTrafficCache.clear()
+
+    def set_client_converter(self, converter):
+        if self.clientConverter is not None:
+            # Second connection from client, we should do a new connection to the server
+            self.serverConverter = None
+            self.tryConnectServer()
+        self.clientConverter = converter
 
     def run(self):
         while not self.terminate:
@@ -665,11 +736,12 @@ class TcpHeaderTrafficServer:
                 continue
             connSocket = self.acceptSocket()
             if connSocket:
+                self.diag.debug("Accepted new connection from client")
                 converter = BinaryTrafficConverter(self.dispatcher.rcHandler, connSocket, self.diag)
                 try:
                     converter.read_header_or_text()
                 except socket.timeout:
-                    self.clientConverter = converter
+                    self.set_client_converter(converter)
                     self.handle_client_traffic("connect")
                     self.handle_server_traffic_from_cache()
                     self.diag.debug("Timeout client read, set socket")
@@ -679,7 +751,7 @@ class TcpHeaderTrafficServer:
                     self.diag.debug("Got message %s", converter.text)
                     self.tryConnectServer()
                 else:
-                    self.clientConverter = converter
+                    self.set_client_converter(converter)
                     payload = self.clientConverter.get_payload()
                     text = self.clientConverter.parse_body()
                     self.handle_client_traffic(text, payload)
@@ -705,9 +777,11 @@ def get_header(line, headers):
             return header
 
 if __name__ == "__main__":
-    fmt = "<2Bq2Ii$I3Bi$i$Bi$Ii$i$i[i$]"
-    fmt = "<i[i$i[i$]i$Ii$i$i$B]"
-    fmt = "<q3Ii[i$]BHIBHIdi$i$Ii[i$i$i$Bi$Ii$i$i[i$]i$Ii$i$i$B]i[i$]i$i$I"
+    #fmt = "<2Bq2Ii$I3Bi$i$Bi$Ii$i$i[i$]"
+    #fmt = "<i[i$i[i$]i$Ii$i$i$B]"
+    #fmt = "<q3Ii[i$]BHIBHIdi$i$Ii[i$i$i$Bi$Ii$i$i[i$]i$Ii$i$i$B]i[i$]i$i$I"
+    #fmt = "<q3Ii[i$]i[B(x|B(x|?|b|B|h|H|i|I|q|Q|f|d|i$|128=i[])|I|B(x|?|b|B|h|H|i|I|q|Q|f|d|i$|128=i[])I)]i[B]"
+    fmt = "<i[B(1=B(|?|b|B|h|H|i|I|q|Q|f|d|i$|128=i[])|2=I|4=q|8=H|16=q|32=H)]"
     # fmt = "<5Ii$"
     # fmt = "<Ii$i$i$2I2BH"
     # fmt = "<4I2BH2Bq2Ii$I3Bi$i$Bi$Ii$i$i[i$]i$i$i$i$i$dI"
@@ -715,9 +789,9 @@ if __name__ == "__main__":
     # rawBytes = b'HELFK\x00\x00\x00'
     # rawBytes = b'\x00\x00\x00\x00/\x00\x00\x00http://opcfoundation.org/UA/SecurityPolicy#None\xff\xff\xff\xff\xff\xff\xff\xff\x01\x00\x00\x00\x01\x00\x00\x00\x01\x00\xbe\x01\x00\x00@\x10\xd0\x02\x8es\xd9\x01\x01\x00\x00\x00\x00\x00\x00\x00\xff\xff\xff\xff\xe8\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x80\xee6\x00'
     # rawBytes = b'\x01\x00\x00\x00%\x00\x00\x00opc.tcp://0.0.0.0:0/freeopcua/server/'
-    print(BinaryMessageConverter.split_format(fmt))
     logger = logging.getLogger("main")
     logger.setLevel(logging.DEBUG)
+    print(BinaryMessageConverter.split_format(fmt))
     #print(BinaryMessageConverter.unpack(fmt, rawBytes, logger))
     # from capturemock import config
     # rc = r"D:\texttest_repos\tone\capturemock-any-systemmanager.rc"
