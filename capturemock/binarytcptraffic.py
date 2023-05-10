@@ -210,12 +210,20 @@ class StructConverter:
 
     def get_data_size(self):
         size = 0
-        for ix, char in enumerate(self.fmt[1:]):
-            if char.isdigit():
-                nextChar = self.fmt[ix + 1]
+        skip_indices = 0
+        fmtToUse = self.fmt[1:]
+        for ix, char in enumerate(fmtToUse):
+            if skip_indices:
+                skip_indices -= 1
+            elif char.isdigit():
+                nextChar = fmtToUse[ix + 1]
                 if nextChar != "s":
-                    count = int(char)
-                    size += count - 1
+                    countStr = char
+                    if nextChar.isdigit():
+                        countStr += nextChar
+                    count = int(countStr)
+                    skip_indices = len(countStr)
+                    size += count
             else:
                 size += 1
         return size
@@ -383,6 +391,7 @@ class BinaryMessageConverter:
         self.rcHandler = rcHandler
         self.fields = rcHandler.getList("fields", sections)
         self.formats = rcHandler.getList("format", sections)
+        self.padding = rcHandler.getboolean("tcp_padding", [ "general" ], False)
         self.assume = self.readDictionary(rcHandler, "assume", sections)
         self.enforce = self.readDictionary(rcHandler, "enforce", sections)
         self.assume.update(self.enforce)
@@ -411,7 +420,7 @@ class BinaryMessageConverter:
         msgType = fields.get("type")
         filtered_fields = {}
         for key, value in fields.items():
-            if key not in [ "type", "length", "msg_size" ] and self.assume.get(key) != toString(value):
+            if key not in [ "type", "length" ] and (self.padding or key != "msg_size") and self.assume.get(key) != toString(value):
                 filtered_fields[key] = value
         return toString(msgType) + " " + repr(filtered_fields)
 
