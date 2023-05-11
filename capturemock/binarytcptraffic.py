@@ -55,6 +55,20 @@ class BinaryTrafficConverter:
         while not rawBytes.endswith(b"\n"):
             rawBytes += self.socket.recv(1)
         return rawBytes.decode()
+    
+    def receive_data(self, length):
+        data = self.socket.recv(length)
+        if len(data) >= length:
+            return data
+        self.diag.debug("Received partial data of length %s", len(data))
+        remaining = length - len(data)
+        while remaining > 0:
+            curr_data = self.socket.recv(remaining)
+            data += curr_data
+            remaining -= len(curr_data)
+            self.diag.debug("Received additional data, still need %d bytes", remaining)
+
+        return data
 
     def read_header_or_text(self):
         header = self.socket.recv(self.headerConverter.getLength())
@@ -73,7 +87,7 @@ class BinaryTrafficConverter:
                 if success:
                     length = self.get_body_length()
                     if length:
-                        self.body = self.socket.recv(length)
+                        self.body = self.receive_data(length)
                     self.diag.debug("Got body of size %s %s", length, self.body)
                 else:
                     self.diag.debug("Failed to parse incoming header %s", header)
@@ -85,23 +99,22 @@ class BinaryTrafficConverter:
 
     def get_body_length(self):
         msg_size = self.header_fields.get("msg_size")
-        if msg_size is not None and msg_size % 2 == 1: # ACI format does not allow odd message size...
+        # ACI format does not allow odd message size...
+        if self.headerConverter.padding and msg_size is not None and msg_size % 2 == 1: 
             msg_size += 1
-        header_size = int(self.header_fields.get("header_size"))
+        header_size = int(self.header_fields.get("header_size", 0))
         if msg_size and header_size:
             msg_already_read = self.headerConverter.getLength() - header_size
             return msg_size - msg_already_read
-        elif header_size:
-            return self.header_fields.get("length") - header_size
         else:
-            return self.header_fields.get("length")
+            return self.get_given_length()
 
     def get_given_length(self):
         length = self.header_fields.get("length")
         if length:
             return length
         else:
-            return self.header_fields.get("msg_size") - int(self.header_fields.get("header_size"))
+            return self.header_fields.get("msg_size") - self.headerConverter.getLength()
 
     def get_body_to_parse(self):
         length = self.get_given_length()
@@ -161,11 +174,12 @@ class BinaryTrafficConverter:
         self.header_fields["length"] = len(payload)
         if "msg_size" not in self.header_fields:
             body_length = self.header_fields["length"]
-            self.header_fields["msg_size"] = body_length + self.header_fields["header_size"]
+            self.header_fields["msg_size"] = body_length + self.headerConverter.getLength()
         else:
             body_length = self.get_body_length()
-            while(len(payload)) < body_length:
-                payload += b"\x00"
+            if self.headerConverter.padding:
+                while(len(payload)) < body_length:
+                    payload += b"\x00"
         self.diag.debug("Header fields %s", self.header_fields)
         header_payload = self.headerConverter.fields_to_payload(self.header_fields, self.diag)
         self.diag.debug("Header payload %s", header_payload)
