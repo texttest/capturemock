@@ -453,8 +453,9 @@ class BinaryMessageConverter:
         for field in self.fields:
             if field in values:
                 diag.debug("Packing field %s %s", field, values[field])
-                data.append(self.try_enum_to_payload(field, values[field]))
+                data.append(self.try_deconvert(field, values[field]))
             else:
+                diag.debug("No data for field %s, packing None", field)
                 data.append(None)
 
         if "additional_params" in values:
@@ -598,7 +599,7 @@ class BinaryMessageConverter:
         field_values = {}
         for i, field in enumerate(self.fields):
             if i < len(data):
-                value = self.try_convert_enum(field, data[i])
+                value = self.try_convert(field, data[i])
                 if value is not None:
                     field_values[field] = value
         parameters = list(data[len(self.fields):])
@@ -614,10 +615,15 @@ class BinaryMessageConverter:
                 field_values[key] = value
         return ok, field_values
 
-    def try_convert_enum(self, field, value):
-        if not isinstance(value, int):
+    def try_convert(self, field, value):
+        if isinstance(value, int):
+            return self.try_convert_enum(field, value)
+        elif isinstance(value, list):
+            return self.try_convert_list(field, value)
+        else:
             return value
 
+    def try_convert_enum(self, field, value):
         if field == "Time":
             return datetime.fromtimestamp(value).isoformat()
 
@@ -628,10 +634,30 @@ class BinaryMessageConverter:
         else:
             return value
 
-    def try_enum_to_payload(self, field, value):
-        if isinstance(value, int):
+    def try_convert_list(self, field, listvalue):
+        element_names = self.rcHandler.getList(field, [ "list_elements"])
+        count = len(element_names)
+        if count == 0 or not all((len(element) == count for element in listvalue)):
+            return listvalue
+
+        new_list = []
+        for element in listvalue:
+            new_element = {}
+            for name, value in zip(element_names, element):
+                if value is not None:
+                    new_element[name] = self.try_convert(name, value)
+            new_list.append(new_element)
+        return new_list
+
+    def try_deconvert(self, field, value):
+        if isinstance(value, str):
+            return self.try_deconvert_enum(field, value)
+        elif isinstance(value, list):
+            return self.try_deconvert_list(field, value)
+        else:
             return value
 
+    def try_deconvert_enum(self, field, value):
         if field == "Time":
             return int(datetime.fromisoformat(value).timestamp())
 
@@ -640,6 +666,21 @@ class BinaryMessageConverter:
             return enum_list.index(value) + 1
         else:
             return value
+        
+    def try_deconvert_list(self, field, listvalue):
+        element_names = self.rcHandler.getList(field, [ "list_elements"])
+        if len(element_names) == 0 or not all((isinstance(element, dict) for element in listvalue)):
+            return listvalue
+
+        new_list = []
+        for element in listvalue:
+            new_element = []
+            for name in element_names:
+                value = element.get(name)
+                new_element.append(self.try_deconvert(name, value))
+            new_list.append(tuple(new_element))
+        return new_list
+
 
 class TcpHeaderTrafficServer:
     connection_timeout = 0.2
