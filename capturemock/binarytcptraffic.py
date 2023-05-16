@@ -21,15 +21,19 @@ def toString(data):
     if isinstance(data, tuple): # produced by variable types, assume the key data is at the end
         return toString(data[-1])
     elif isinstance(data, bytes):
-        return data.decode()
+        try:
+            return data.decode()
+        except UnicodeDecodeError:
+            return data
     else:
         return str(data)
 
 def fromString(data):
-    if data.isdigit():
-        return int(data)
-    elif isinstance(data, str):
-        return data.encode()
+    if isinstance(data, str):
+        if data.isdigit():
+            return int(data)
+        else:
+            return data.encode()
     else:
         return data
 
@@ -283,12 +287,12 @@ class StringConverter(SequenceConverter):
         str_length = struct.unpack_from(self.lengthFmt, rawBytes, offset=offset)[0]
         if str_length > 0:
             string_data = struct.unpack_from(self.elementFmt % str_length, rawBytes, offset=offset+self.extraLength)
-            return string_data, str_length + self.extraLength
+            return tuple(toString(rawBytes) for rawBytes in string_data), str_length + self.extraLength
         else:
-            return [ b"" ] if str_length == 0 else [ None ], self.extraLength
+            return [ "" ] if str_length == 0 else [ None ], self.extraLength
 
     def pack(self, data, index, diag):
-        toPack = data[index]
+        toPack = fromString(data[index])
         diag.debug("packing string %s", toPack)
         length = len(toPack) if toPack is not None else -1
         rawBytes = struct.pack(self.lengthFmt, length)
