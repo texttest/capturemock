@@ -50,8 +50,9 @@ class AMQPConnector:
         self.connection.close()
         
     def replay(self, routing_key, body, msgType, headers):
-        properties = pika.BasicProperties(headers=headers, type=msgType)
-        self.channel.basic_publish(self.exchange, routing_key, body, properties=properties)
+        if routing_key or self.exchange_type != "topic":
+            properties = pika.BasicProperties(headers=headers, type=msgType)
+            self.channel.basic_publish(self.exchange, routing_key, body, properties=properties)
         
     def try_forward_with_prefix(self, routing_key, body, msgType, headers):
         if self.exchange_forward_prefix:
@@ -130,10 +131,10 @@ class AMQPTraffic(traffic.Traffic):
         self.headers = {}
         record_timestamps = rcHandler and rcHandler.getboolean("record_timestamps", [ "general" ], False)
         if not self.replay:
-            self.routing_key = routing_key
+            self.routing_key = routing_key or self.exchange_routing_key(rcHandler)
             self.body = body
             self.msgType = props.type
-            text = routing_key + sep + self.msgType +"\n"
+            text = self.routing_key + sep + self.msgType +"\n"
             text += encodingutils.decodeBytes(body)
             if record_timestamps:
                 timestamp = props.headers.get("timestamp")
@@ -150,10 +151,15 @@ class AMQPTraffic(traffic.Traffic):
         self.text = self.applyAlterations(self.text)
         if self.replay:
             lines = self.text.splitlines()
-            self.routing_key, self.msgType = lines[0].split(sep)
+            routing_key, self.msgType = lines[0].split(sep)
+            self.routing_key = routing_key if not routing_key.startswith("exchange=") else "" 
             bodyStr = self.extractHeaders("\n".join(lines[1:]))
             self.body = encodingutils.encodeString(bodyStr)
             self.rcHandler = rcHandler
+            
+    def exchange_routing_key(self, rcHandler):
+        exchange_record = rcHandler.get("exchange_record", [ "amqp" ])
+        return "exchange=" + exchange_record if exchange_record else ""
             
     def extractHeaders(self, textStr):
         if self.headerStr in textStr:
