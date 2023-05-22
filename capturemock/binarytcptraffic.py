@@ -633,8 +633,8 @@ class BinaryMessageConverter:
 
         enum_list = self.rcHandler.getList(field, [ "enums"])
         size = len(enum_list)
-        if size and value <= size:
-            return enum_list[value - 1]
+        if size and value < size:
+            return enum_list[value]
         else:
             return value
 
@@ -667,7 +667,7 @@ class BinaryMessageConverter:
 
         enum_list = self.rcHandler.getList(field, [ "enums"])
         if value in enum_list:
-            return enum_list.index(value) + 1
+            return enum_list.index(value)
         else:
             return value
         
