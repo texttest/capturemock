@@ -256,7 +256,7 @@ class HTTPClientTraffic(ClientSocketTraffic):
         currFileName, currFileWritten, fileContents = None, False, b""
         for line in payload.split(linesep):
             hitBoundary = currFileName and line.startswith(boundary)
-            if line and currFileName and not hitBoundary and not line.startswith(b"Content-"):
+            if (line or currFileWritten) and currFileName and not hitBoundary and not line.startswith(b"Content-"):
                 if currFileWritten:
                     fileContents += linesep
                 fileContents += line
