@@ -107,8 +107,11 @@ class XmlRpcClientTraffic(ClientSocketTraffic):
 class HTTPClientTraffic(ClientSocketTraffic):
     headerStr = "--HEA:"
     fileContentsStr = "<File Contents for %s>"
-    defaultIgnoreHeaders = [ "Content-Length", "Host", "User-Agent", "Connection", "Referer", "Date"] # provided automatically, or not usable when recorded
-    defaultValues = {"Content-Type": "application/x-www-form-urlencoded", "Accept-Encoding": "identity"}
+    # Copied from https://developer.mozilla.org/en-US/docs/Glossary/Forbidden_header_name
+    defaultIgnoreHeaders = [ "Accept-Charset", "Accept-Encoding", "Access-Control-Request-Headers", "Access-Control-Request-Method",
+                             "Connection", "Content-Length", "Cookie", "Date", "DNT", "Expect", "Host", "Keep-Alive", "Origin",
+                             "Permissions-Policy", "Referer", "TE", "Trailer", "Transfer-Encoding", "Upgrade", "User-Agent", "Via" ]
+    defaultValues = {"Content-Type": "application/x-www-form-urlencoded"}
     repeatCache = {}
     def __init__(self, text=None, responseFile=None, rcHandler=None, method="GET", path="/", headers={}, handler=None, **kw):
         self.handler = handler
@@ -153,7 +156,8 @@ class HTTPClientTraffic(ClientSocketTraffic):
         text = ""
         for header, value in sorted(headers, key=lambda item: item[0].lower()):
             if header not in self.ignoreHeaders and self.defaultValues.get(header) != value and \
-                not header.lower().startswith("sec-") and not header.lower().startswith("x-forwarded"):
+                not header.lower().startswith("sec-") and not header.lower().startswith("proxy-") and \
+                not header.lower().startswith("x-forwarded"):
                 text += "\n" + self.headerStr + header + "=" + value
         return text
     
