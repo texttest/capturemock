@@ -110,7 +110,7 @@ class HTTPClientTraffic(ClientSocketTraffic):
     # Copied from https://developer.mozilla.org/en-US/docs/Glossary/Forbidden_header_name
     defaultIgnoreHeaders = [ "Accept-Charset", "Accept-Encoding", "Access-Control-Request-Headers", "Access-Control-Request-Method",
                              "Connection", "Content-Length", "Cookie", "Date", "DNT", "Expect", "Host", "Keep-Alive", "Origin",
-                             "Permissions-Policy", "Referer", "TE", "Trailer", "Transfer-Encoding", "Upgrade", "User-Agent", "Via" ]
+                             "Permissions-Policy", "Referer", "TE", "Trailer", "Upgrade", "User-Agent", "Via" ]
     defaultValues = {"Content-Type": "application/x-www-form-urlencoded"}
     repeatCache = {}
     def __init__(self, text=None, responseFile=None, rcHandler=None, method="GET", path="/", headers={}, handler=None, **kw):
