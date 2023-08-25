@@ -11,7 +11,8 @@ from collections import OrderedDict, namedtuple
 from urllib.request import urlopen
 from urllib.parse import urlparse, urlunparse
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from socketserver import TCPServer, StreamRequestHandler
+from socketserver import TCPServer, StreamRequestHandler, UDPServer,\
+    BaseRequestHandler
 from xmlrpc.client import Fault, ServerProxy
 from xmlrpc.server import SimpleXMLRPCServer
 import re
@@ -83,21 +84,15 @@ def stopServer(servAddr, protocol):
         AMQPTrafficServer.sendTerminateMessage(servAddr)
     else:
         try:
-            ClassicTrafficServer.sendTerminateMessage(servAddr)
+            protocol = socket.SOCK_DGRAM if protocol == "classic_udp" else socket.SOCK_STREAM
+            ClassicTrafficServer.sendTerminateMessage(servAddr, protocol)
         except socket.error: # pragma: no cover - should be unreachable, just for robustness
             print("Could not send terminate message to CaptureMock server at " + servAddr + \
                   ", seemed not to be running anyway.", file=sys.stderr)
 
 
-class ClassicTrafficServer(TCPServer):
-    @classmethod
-    def createServer(cls, address, dispatcher):
-        ClassicTrafficRequestHandler.dispatcher = dispatcher
-        return cls((address, 0), ClassicTrafficRequestHandler, dispatcher.useThreads)
-    
-    def __init__(self, addrinfo, handlerClass, useThreads):
-        TCPServer.__init__(self, addrinfo, handlerClass)
-        self.useThreads = useThreads
+class ClassicTrafficServer:    
+    def __init__(self):
         self.terminate = False
         self.requestCount = 0
 
@@ -110,27 +105,6 @@ class ClassicTrafficServer(TCPServer):
             if t.name == "request":
                 t.join()
 
-    @classmethod
-    def sendTerminateMessage(cls, serverAddressStr):
-        clientservertraffic.ClientSocketTraffic.sendTerminateMessage(serverAddressStr)
-        
-    @staticmethod
-    def getTrafficClasses(incoming):
-        if incoming:
-            return [ clientservertraffic.ClassicServerStateTraffic, clientservertraffic.ClientSocketTraffic ]
-        else:
-            return [ clientservertraffic.ServerTraffic, clientservertraffic.ClientSocketTraffic ]
-
-    def shutdown(self):
-        if self.useThreads:
-            # Setting terminate will only work if we do it in the main thread:
-            # otherwise the main thread might be in a blocking call at the time
-            # So we reset the thread flag and send a new message
-            self.useThreads = False
-            clientservertraffic.ClientSocketTraffic._sendTerminateMessage(self.socket.getsockname())
-        else:
-            self.terminate = True
-
     def process_request_thread(self, request, client_address, requestCount):
         # Copied from ThreadingMixin, more or less
         # We store the order things appear in so we know what order they should go in the file
@@ -141,6 +115,35 @@ class ClassicTrafficServer(TCPServer):
             self.handle_error(request, client_address)
             self.close_request(request)
 
+    @classmethod
+    def sendTerminateMessage(cls, *args):
+        clientservertraffic.ClientSocketTraffic.sendTerminateMessage(*args)
+        
+    @staticmethod
+    def getTrafficClasses(incoming):
+        if incoming:
+            return [ clientservertraffic.ClassicServerStateTraffic, clientservertraffic.ClientSocketTraffic ]
+        else:
+            return [ clientservertraffic.ServerTraffic, clientservertraffic.ClientSocketTraffic ]
+
+    def shutdown(self):
+        self.terminate = True
+
+    def getAddress(self):
+        host, port = self.socket.getsockname()
+        return host + ":" + str(port)
+    
+class ClassicTcpTrafficServer(ClassicTrafficServer, TCPServer):
+    @classmethod
+    def createServer(cls, address, dispatcher):
+        ClassicTcpTrafficRequestHandler.dispatcher = dispatcher
+        return cls((address, 0), ClassicTcpTrafficRequestHandler, dispatcher.useThreads)
+
+    def __init__(self, addrinfo, handlerClass, useThreads):
+        ClassicTrafficServer.__init__(self)
+        TCPServer.__init__(self, addrinfo, handlerClass)
+        self.useThreads = useThreads
+
     def process_request(self, request, client_address):
         self.requestCount += 1
         if self.useThreads:
@@ -150,13 +153,35 @@ class ClassicTrafficServer(TCPServer):
             t.start()
         else:
             self.process_request_thread(request, client_address, self.requestCount)
+            
+    def shutdown(self):
+        if self.useThreads:
+            # Setting terminate will only work if we do it in the main thread:
+            # otherwise the main thread might be in a blocking call at the time
+            # So we reset the thread flag and send a new message
+            self.useThreads = False
+            clientservertraffic.ClientSocketTraffic._sendTerminateMessage(self.socket.getsockname())
+        else:
+            self.terminate = True
+         
+    
+class ClassicUdpTrafficServer(ClassicTrafficServer, UDPServer):
+    @classmethod
+    def createServer(cls, address, dispatcher):
+        ClassicUdpTrafficRequestHandler.dispatcher = dispatcher
+        return cls((address, 0), ClassicUdpTrafficRequestHandler, dispatcher.useThreads)
 
-    def getAddress(self):
-        host, port = self.socket.getsockname()
-        return host + ":" + str(port)            
+    def __init__(self, addrinfo, handlerClass, *args):
+        ClassicTrafficServer.__init__(self)
+        UDPServer.__init__(self, addrinfo, handlerClass)
+        clientservertraffic.ClientSocketTraffic.socketType = socket.SOCK_DGRAM
+        
+    def process_request(self, request, client_address):
+        self.requestCount += 1
+        self.process_request_thread(request, client_address, self.requestCount)
     
 
-class ClassicTrafficRequestHandler(StreamRequestHandler):
+class ClassicTcpTrafficRequestHandler(StreamRequestHandler):
     dispatcher = None
     def __init__(self, requestNumber, *args):
         self.requestNumber = requestNumber
@@ -167,12 +192,41 @@ class ClassicTrafficRequestHandler(StreamRequestHandler):
         self.handleText(text)
         
     def handleText(self, text):
-        self.dispatcher.diag.debug("Received incoming request...\n" + text)
+        self.dispatcher.diag.debug("Received incoming TCP request...\n" + text)
         try:
             self.dispatcher.processText(text, self.wfile, self.requestNumber)
         except config.CaptureMockReplayError as e:
             self.wfile.write(("CAPTUREMOCK MISMATCH: " + str(e)).encode())
     
+class UdpSocketFile:
+    def __init__(self, sock, address):
+        self.socket = sock
+        self.address = address
+        
+    def write(self, data):
+        self.socket.sendto(data, self.address)
+        
+    def close(self):
+        self.socket.close()
+    
+class ClassicUdpTrafficRequestHandler(BaseRequestHandler):
+    dispatcher = None
+    def __init__(self, requestNumber, *args):
+        self.requestNumber = requestNumber
+        BaseRequestHandler.__init__(self, *args)
+
+    def handle(self):
+        text = self.request[0].strip().decode()
+        self.handleText(text)
+        
+    def handleText(self, text):
+        self.dispatcher.diag.debug("Received incoming UDP request...\n" + text)
+        wfile = UdpSocketFile(self.request[1], self.client_address)
+        try:
+            self.dispatcher.processText(text, wfile, self.requestNumber)
+        except config.CaptureMockReplayError as e:
+            wfile.write(("CAPTUREMOCK MISMATCH: " + str(e)).encode())
+
 
 class HTTPTrafficHandler(BaseHTTPRequestHandler):
     dispatcher = None
@@ -441,8 +495,10 @@ class ServerDispatcherBase:
         
     def getServerClass(self):
         protocol = self.rcHandler.get("server_protocol", [ "general" ], "classic")
-        if protocol == "classic":
-            return ClassicTrafficServer
+        if protocol in [ "classic", "classic_tcp" ]:
+            return ClassicTcpTrafficServer
+        elif protocol == "classic_udp":
+            return ClassicUdpTrafficServer
         elif protocol == "tcp_header":
             from capturemock.binarytcptraffic import TcpHeaderTrafficServer
             return TcpHeaderTrafficServer

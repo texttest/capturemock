@@ -15,6 +15,7 @@ class ClientSocketTraffic(traffic.Traffic):
     destination = None
     direction = "<-"
     socketId = ""
+    socketType = socket.SOCK_STREAM
     typeId = "CLI"
     @classmethod
     def isClientClass(cls):
@@ -38,13 +39,13 @@ class ClientSocketTraffic(traffic.Traffic):
             ServerTraffic.direction = "<-"
             
     @classmethod
-    def sendTerminateMessage(cls, serverAddressStr):
+    def sendTerminateMessage(cls, serverAddressStr, *args):
         host, port = serverAddressStr.split(":")
-        cls._sendTerminateMessage((host, int(port)))
+        cls._sendTerminateMessage((host, int(port)), *args)
 
-    @staticmethod
-    def _sendTerminateMessage(serverAddress):
-        sendSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    @classmethod
+    def _sendTerminateMessage(cls, serverAddress, socketType=None):
+        sendSocket = socket.socket(socket.AF_INET, socketType or cls.socketType)
         sendSocket.connect(serverAddress)
         sendSocket.sendall("TERMINATE_SERVER\n".encode())
         sendSocket.shutdown(2)
@@ -53,7 +54,7 @@ class ClientSocketTraffic(traffic.Traffic):
         return not self.connectionFailed and traffic.Traffic.shouldBeRecorded(self, *args)
 
     def forwardToServer(self):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock = socket.socket(socket.AF_INET, self.socketType)
         try:
             sock.connect(self.destination)
         except OSError as e:
