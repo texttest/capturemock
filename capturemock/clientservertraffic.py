@@ -117,11 +117,12 @@ class HTTPClientTraffic(ClientSocketTraffic):
     def __init__(self, text=None, responseFile=None, rcHandler=None, method="GET", path="/", headers={}, handler=None, **kw):
         self.handler = handler
         self.ignoreHeaders = self.defaultIgnoreHeaders + rcHandler.getList("ignore_http_headers", [ "general" ])
+        self.headers = rcHandler.getSection("default_http_headers")
         if responseFile is not None: # record
             self.method = method
             self.path = path
             self.payload = text
-            self.headers = headers
+            self.headers.update(headers)    
             textStr = self.decodePayload(self.payload)
             mainText = self.method + " " + self.path
             if self.payload is not None:
@@ -132,7 +133,6 @@ class HTTPClientTraffic(ClientSocketTraffic):
         ClientSocketTraffic.__init__(self, text, responseFile, rcHandler, **kw)
         if responseFile is None: # replay
             parts = self.text.split(None, 2)
-            self.headers = rcHandler.getSection("http_headers_replay")            
             self.method = parts[0]
             if len(parts) > 2:
                 self.path = parts[1]
@@ -156,7 +156,8 @@ class HTTPClientTraffic(ClientSocketTraffic):
     def getHeaderText(self, headers):
         text = ""
         for header, value in sorted(headers, key=lambda item: item[0].lower()):
-            if header not in self.ignoreHeaders and self.defaultValues.get(header) != value and \
+            if header not in self.ignoreHeaders and header.capitalize() not in self.ignoreHeaders and \
+                self.defaultValues.get(header) != value and \
                 not header.lower().startswith("sec-") and not header.lower().startswith("proxy-") and \
                 not header.lower().startswith("x-forwarded"):
                 text += "\n" + self.headerStr + header + "=" + value
