@@ -17,6 +17,7 @@ from xmlrpc.client import Fault, ServerProxy
 from xmlrpc.server import SimpleXMLRPCServer
 import re
 import json
+from http.cookies import SimpleCookie
 
 def getPython():
     if os.name == "nt":
@@ -231,8 +232,8 @@ class ClassicUdpTrafficRequestHandler(BaseRequestHandler):
 class HTTPTrafficHandler(BaseHTTPRequestHandler):
     dispatcher = None
     redirects = {}
-    redirectAuthMapping = {}
     requestCount = 0
+    redirectLock = threading.Lock()
     def read_data(self):
         content_length = int(self.headers['Content-Length']) # <--- Gets the size of data
         return self.rfile.read(content_length)
@@ -245,29 +246,35 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
         urldata = urldata._replace(scheme="", netloc="")
         return urlunparse(urldata)
     
-    def get_auth_tag(self):
-        bearer = "Bearer "
-        authTag = self.headers.get("Authorization")
-        if authTag.startswith(bearer):
-            return authTag[len(bearer):]
-        else:
-            return authTag
-    
     def find_redirect_target_id(self):
-        # avoid race conditions, if the auth mapping isn't in yet, wait a bit and try again
-        for _ in range(20):
-            if len(self.redirectAuthMapping) > 0:
-                authTag = self.get_auth_tag()
-                return self.redirectAuthMapping.get(authTag)
-            time.sleep(0.1)
-    
+        cookie_header = self.headers.get('Cookie')
+        if cookie_header:
+            cookie = SimpleCookie(cookie_header)
+            morsel = cookie.get("capturemock_proxy_target")
+            if morsel:
+                return morsel.value
+        
     def find_redirect_target(self, targetData):
-        if len(targetData) == 1:
-            return list(targetData.values())[0]
+        return self.find_redirect_server(targetData) + self.find_redirect_path(targetData)
+
+    def find_redirect_path(self, targetData):
+        replace = targetData.get("replace")
+        if not replace:
+            return self.path
+        
+        path = self.path
+        for regexp, repl in replace.items():
+            path = re.sub(regexp, repl.replace("$", "\\"), path)
+        return path
+            
+    def find_redirect_server(self, targetData):
+        matcher = targetData.get("matcher")
+        if len(matcher) == 1:
+            return list(matcher.values())[0]
 
         targetId = self.find_redirect_target_id()
         if targetId:
-            return targetData.get(targetId)
+            return matcher.get(targetId)
         
     def get_redirect_target_data(self):
         for givenPath, targetData in self.redirects.items():
@@ -280,10 +287,8 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
             target = self.find_redirect_target(targetData)
             if target:
                 self.send_response(307)
-                self.send_header('Location', target + self.path)
-            elif len(self.redirectAuthMapping) == 0:
-                # no redirect, try to use directly
-                return False
+                self.log_message("Redirecting! %s -> %s", self.path, target)
+                self.send_header('Location', target)
             else:
                 # with redirect by auth, assume we are redirect-only, return 404 without match
                 print("FAILED to redirect!", file=sys.stderr)
@@ -308,20 +313,17 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
             self.dispatcher.process(traffic, self.requestCount)
 
     def do_POST(self):
-        rawbytes = self.read_data()
-        if self.path.startswith("/capturemock/sendAuthMapping"):
-            data = rawbytes.decode(getpreferredencoding())
-            mapping = json.loads(data)
-            self.redirectAuthMapping.update(mapping)
-            self.send_response(200)
-            self.end_headers()
-            return
-        
+        rawbytes = self.read_data()        
         if self.path.startswith("/capturemock/sendPathRedirect/"):
             redirectKey = "/".join(self.path.split("/")[3:])
             target = rawbytes.decode(getpreferredencoding())
             mapping = json.loads(target)
-            self.redirects.setdefault(redirectKey, {}).update(mapping)
+            self.log_message("got path redirect %s -> %s", redirectKey, mapping)
+            with self.redirectLock:
+                if redirectKey in self.redirects and "matcher" in mapping:
+                    self.redirects[redirectKey]["matcher"].update(mapping.get("matcher"))
+                else:
+                    self.redirects[redirectKey] = mapping
             self.send_response(200)
             self.end_headers()
             return
