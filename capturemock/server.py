@@ -350,10 +350,11 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
         self.dispatcher.process(traffic, self.requestCount)
         
     def do_method_with_payload(self, method):
+        # Must always read the request, even if redirecting
+        rawbytes = self.read_data()
         if self.try_redirect():
             return
         HTTPTrafficHandler.requestCount += 1
-        rawbytes = self.read_data()
         traffic = clientservertraffic.HTTPClientTraffic(rawbytes, self.wfile, method=method, path=self.get_local_path(), headers=self.headers, 
                                                         rcHandler=self.dispatcher.rcHandler, handler=self)
         self.dispatcher.process(traffic, self.requestCount)
