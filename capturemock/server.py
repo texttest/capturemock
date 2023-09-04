@@ -255,7 +255,9 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
                 return morsel.value
         
     def find_redirect_target(self, targetData):
-        return self.find_redirect_server(targetData) + self.find_redirect_path(targetData)
+        server = self.find_redirect_server(targetData)
+        if server is not None:
+            return server + self.find_redirect_path(targetData)
 
     def find_redirect_path(self, targetData):
         replace = targetData.get("replace")
@@ -293,7 +295,7 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
                 # with redirect by auth, assume we are redirect-only, return 404 without match
                 print("FAILED to redirect!", file=sys.stderr)
                 print(self.path, file=sys.stderr)
-                print(self.get_auth_tag(), file=sys.stderr)
+                print("target_id=", self.find_redirect_target_id(), file=sys.stderr)
                 self.send_response(404)
             self.end_headers()
             return True
