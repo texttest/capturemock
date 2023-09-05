@@ -228,9 +228,13 @@ class HTTPClientTraffic(ClientSocketTraffic):
                 self.payload = newPayload + currPayload
          
     def getAttachmentFileName(self, headers):
-        disposition = dict(headers).get("Content-Disposition", "")
+        headerDict = dict(headers)
+        disposition = headerDict.get("Content-Disposition", "")
         if disposition.startswith("attachment;"):
             return self.parseVariable(disposition, "filename")
+        
+        if headerDict.get("Content-Type") == "application/zip" and self.path.endswith(".zip"):
+            return self.path.rsplit("/", 1)[-1]
                 
     def decodeResponsePayload(self, payload, headers):
         attachmentFn = self.getAttachmentFileName(headers)
