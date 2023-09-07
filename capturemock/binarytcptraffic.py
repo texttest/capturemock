@@ -24,13 +24,15 @@ def toString(data):
         try:
             return data.decode()
         except UnicodeDecodeError:
-            return data
+            return "0x" + data.hex()
     else:
         return str(data)
 
 def fromString(data):
     if isinstance(data, str):
-        if data.isdigit():
+        if data.startswith("0x"):
+            return bytes.fromhex(data[2:])
+        elif data.isdigit():
             return int(data)
         else:
             return data.encode()
