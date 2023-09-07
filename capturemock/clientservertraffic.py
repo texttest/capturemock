@@ -3,7 +3,7 @@
 import socket, sys, os
 from capturemock import traffic, encodingutils
 from urllib.request import urlopen, Request
-from urllib.error import HTTPError, URLError
+from urllib.error import HTTPError
 from capturemock.fileedittraffic import FileEditTraffic
 
 try:
@@ -321,7 +321,7 @@ class HTTPClientTraffic(ClientSocketTraffic):
             headers = e.getheaders()
             text, body = self.decodeResponsePayload(payload, headers)
             return [ HTTPServerTraffic(e.code, text, body, headers, self.responseFile, handler=self.handler) ]
-        except URLError as e:
+        except OSError as e:
             sys.stderr.write("Failed to forward http traffic to server " + self.destination + " : " + str(e) + "\n")
             return []
         
