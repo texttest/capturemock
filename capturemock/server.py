@@ -758,14 +758,26 @@ class ServerDispatcher(ServerDispatcherBase):
 
     def getIpAddress(self):
         # Code below can cause complications with VPNs etc. Default is local access only, sufficient in 99.9% of cases
-        if not self.rcHandler.getboolean("server_remote_access", [ "general" ], False):
+        access = self.rcHandler.get("server_remote_access", [ "general" ], "false")
+        if access == "false":
             return "127.0.0.1"
-        try:
-            # Doesn't always work, sometimes not available
-            return socket.gethostbyname(socket.gethostname())
-        except socket.error:
-            # Most of the time we only need to be able to talk locally, fall back to that
-            return socket.gethostbyname("localhost")
+        elif access == "true":
+            # return the IP address of the host as best we can
+            try:
+                # Doesn't always work, sometimes not available
+                return socket.gethostbyname(socket.gethostname())
+            except socket.error:
+                # Most of the time we only need to be able to talk locally, fall back to that
+                return socket.gethostbyname("localhost")
+        else:
+            # specific network interface, find the IP address of that as best we can
+            # psutil is not a dependency, need to install it if you want this code to work!
+            import psutil
+            interface_addrs = psutil.net_if_addrs().get(access) or []
+            for snicaddr in interface_addrs:
+                if snicaddr.family == socket.AF_INET:
+                    return snicaddr.address
+            raise RuntimeError("Failed to find IP address for interface", repr(access), ", which is configured in your server_remote_access setting")
 
     def run(self):
         self.diag.debug("Starting capturemock server at " + self.server.getAddress())
