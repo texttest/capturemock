@@ -235,7 +235,7 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
     requestCount = 0
     redirectLock = threading.Lock()
     def read_data(self):
-        content_length = int(self.headers['Content-Length']) # <--- Gets the size of data
+        content_length = int(self.headers.get('Content-Length', 0)) # <--- Gets the size of data
         return self.rfile.read(content_length)
     
     def log_message(self, format, *args):
