@@ -235,8 +235,26 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
     requestCount = 0
     redirectLock = threading.Lock()
     def read_data(self):
-        content_length = int(self.headers.get('Content-Length', 0)) # <--- Gets the size of data
-        return self.rfile.read(content_length)
+        # Lifted from https://stackoverflow.com/questions/60895110/how-to-handle-chunked-encoding-in-python-basehttprequesthandler
+        # Weird that there is no builtin way to handle this
+        if 'Content-Length' in self.headers:
+            content_length = int(self.headers.get('Content-Length')) # <--- Gets the size of data
+            return self.rfile.read(content_length)
+        elif "chunked" in self.headers.get("Transfer-Encoding", ""):
+            data = b""
+            while True:
+                line = self.rfile.readline().strip()
+                chunk_length = int(line, 16)
+                if chunk_length != 0:
+                    data += self.rfile.read(chunk_length)
+
+                # Each chunk is followed by an additional empty newline
+                # that we have to consume.
+                self.rfile.readline()
+
+                # Finally, a chunk size of 0 is an end indication
+                if chunk_length == 0:
+                    return data
     
     def log_message(self, format, *args):
         self.dispatcher.diag.debug(format % args)
