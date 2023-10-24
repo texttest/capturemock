@@ -49,14 +49,14 @@ class AMQPConnector:
             self.channel.stop_consuming()
         self.connection.close()
         
-    def replay(self, routing_key, body, msgType, headers):
+    def replay(self, routing_key, body, props, headers):
         if routing_key or self.exchange_type != "topic":
-            properties = pika.BasicProperties(headers=headers, type=msgType)
+            properties = pika.BasicProperties(headers=headers, **props)
             self.channel.basic_publish(self.exchange, routing_key, body, properties=properties)
         
-    def try_forward_with_prefix(self, routing_key, body, msgType, headers):
+    def try_forward_with_prefix(self, routing_key, body, props, headers):
         if self.exchange_forward_prefix:
-            properties = pika.BasicProperties(headers=headers, type=msgType)
+            properties = pika.BasicProperties(headers=headers, **props)
             self.channel.basic_publish(self.exchange_forward, self.exchange_forward_prefix + "." + routing_key, body, properties=properties)
         
     def sendTerminateMessage(self):
@@ -123,18 +123,20 @@ class AMQPTraffic(traffic.Traffic):
     typeId = "RMQ"
     headerStr = "\n--HEA:"
     connector = None
+    default_props = { "delivery_mode": 2, "priority": 0 }
     def __init__(self, text=None, responseFile=None, rcHandler=None, routing_key=None, body=b"", origin=None, props=None):
         self.replay = routing_key is None
         self.origin = origin
-        sep = " : type="
+        sep = " : "
         timestamp = None
         self.headers = {}
+        self.props = {}
         record_timestamps = rcHandler and rcHandler.getboolean("record_timestamps", [ "general" ], False)
         if not self.replay:
             self.routing_key = routing_key or self.exchange_routing_key(rcHandler)
             self.body = body
-            self.msgType = props.type
-            text = self.routing_key + sep + self.msgType +"\n"
+            self.props = self.make_props_dict(props)
+            text = self.routing_key + sep + ",".join((k + "=" + v for k, v in self.props.items())) + "\n"
             text += encodingutils.decodeBytes(body)
             if record_timestamps:
                 timestamp = props.headers.get("timestamp")
@@ -151,11 +153,22 @@ class AMQPTraffic(traffic.Traffic):
         self.text = self.applyAlterations(self.text)
         if self.replay:
             lines = self.text.splitlines()
-            routing_key, self.msgType = lines[0].split(sep)
+            routing_key, propText = lines[0].split(sep)
+            self.props.update(self.default_props)
+            for part in propText.split(","):
+                key, value = part.split("=")
+                self.props[key] = value
             self.routing_key = routing_key if not routing_key.startswith("exchange=") else "" 
             bodyStr = self.extractHeaders("\n".join(lines[1:]))
             self.body = encodingutils.encodeString(bodyStr)
             self.rcHandler = rcHandler
+            
+    def make_props_dict(self, basic_properties):
+        props = {}
+        for key, value in sorted(basic_properties.__dict__.items()):
+            if key not in [ "timestamp", "headers" ] and value != self.default_props.get(key):
+                props[key] = str(value)
+        return props
             
     def exchange_routing_key(self, rcHandler):
         exchange_record = rcHandler.get("exchange_record", [ "amqp" ])
@@ -182,11 +195,11 @@ class AMQPTraffic(traffic.Traffic):
                 
             if self.origin:
                 self.headers["originfile"] = self.origin
-            self.connector.replay(self.routing_key, self.body, self.msgType, self.headers)
+            self.connector.replay(self.routing_key, self.body, self.props, self.headers)
         return []
     
     def try_forward_with_prefix(self, connector):
-        connector.try_forward_with_prefix(self.routing_key, self.body, self.msgType, self.headers)
+        connector.try_forward_with_prefix(self.routing_key, self.body, self.props, self.headers)
     
     def shouldBeRecorded(self, *args):
         return not self.replay and self.origin != "norecord" # never record these when replaying, must do it in one place
