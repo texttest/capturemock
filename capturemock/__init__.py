@@ -121,7 +121,6 @@ class CaptureMockManager:
                 from .server import stopServer
                 stopServer(self.serverAddress, self.serverProtocol)
             self.writeServerErrors()
-            self.serverProcess.wait()
             self.serverProcess = None
 
     def writeServerErrors(self):
