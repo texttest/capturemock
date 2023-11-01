@@ -124,11 +124,15 @@ class CaptureMockManager:
             self.serverProcess = None
 
     def writeServerErrors(self):
-        out, err = self.serverProcess.communicate()
-        if out:
-            sys.stdout.write("Output from CaptureMock Server :\n" + out)
-        if err:
-            sys.stderr.write("Error from CaptureMock Server :\n" + err)
+        try:
+            out, err = self.serverProcess.communicate(timeout=30)
+            if out:
+                sys.stdout.write("Output from CaptureMock Server :\n" + out)
+            if err:
+                sys.stderr.write("Error from CaptureMock Server :\n" + err)
+        except subprocess.TimeoutExpired:
+            print("CaptureMock Server did not terminate after 30 seconds, killing hard!", file=sys.stderr)
+            self.serverProcess.kill()
 
 
 def setUpPython(mode, recordFile, replayFile=None,
