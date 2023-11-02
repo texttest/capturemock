@@ -320,14 +320,15 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
         return False
 
     def do_GET(self):
-        if self.try_redirect():
-            return
-        HTTPTrafficHandler.requestCount += 1
         if self.path == "/capturemock/shutdownServer":
             self.send_response(200)
             self.end_headers()
             self.dispatcher.server.setShutdownFlag()
         else:
+            if self.try_redirect():
+                return
+            
+            HTTPTrafficHandler.requestCount += 1
             traffic = clientservertraffic.HTTPClientTraffic(responseFile=self.wfile, method="GET", path=self.get_local_path(), headers=self.headers, 
                                                             rcHandler=self.dispatcher.rcHandler, handler=self)
             self.dispatcher.process(traffic, self.requestCount)
