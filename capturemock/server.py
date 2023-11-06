@@ -8,7 +8,7 @@ from capturemock import commandlinetraffic, fileedittraffic, clientservertraffic
 from locale import getpreferredencoding
 from collections import OrderedDict, namedtuple
 
-from urllib.request import urlopen
+from urllib.request import urlopen, Request
 from urllib.parse import urlparse, urlunparse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import TCPServer, StreamRequestHandler, UDPServer,\
@@ -304,8 +304,23 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
     def try_redirect(self):
         targetData = self.get_redirect_target_data()
         if targetData:
-            target = self.find_redirect_target(targetData)
-            if target:
+            server = self.find_redirect_server(targetData)
+            if server is not None:
+                redirect_path = self.find_redirect_path(targetData)
+                target = server + redirect_path
+                # Authorization headers get remove by default so cannot just redirect. 
+                # Need to send them as a new default
+                auth = self.headers.get("Authorization")
+                if auth:
+                    fn = redirect_path.split("?")[0].replace("/", "_") + ".rc"
+                    if not os.path.isfile(fn):
+                        url = server + "/capturemock/addAlterations"
+                        with open(fn, "w") as f:
+                            f.write("[default_http_headers]\n")
+                            f.write("Authorization = " + auth + "\n")
+                        urlopen(url, data=os.path.abspath(fn).encode()).read()
+                        self.log_message("Forwarded auth to target %s, written file %s", target, fn)
+
                 self.send_response(307)
                 self.log_message("Redirecting! %s -> %s", self.path, target)
                 self.send_header('Location', target)
