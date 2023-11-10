@@ -735,8 +735,12 @@ class TcpHeaderTrafficServer:
         traffic = BinaryClientSocketTraffic(text, None, rcHandler=self.dispatcher.rcHandler)
         responses = self.dispatcher.process(traffic, self.requestCount)
         if self.serverConverter and payload is not None:
-            self.diag.debug("Forward client payload to server %s", payload)
-            self.serverConverter.socket.sendall(payload)
+            if traffic.text == text:
+                self.diag.debug("Forward client payload to server %s", payload)
+                self.serverConverter.socket.sendall(payload)
+            else:
+                self.diag.debug("Alteration applied, reconverting payload %s", traffic.text)
+                self.serverConverter.send_payload(traffic.text)
         elif self.clientConverter:
             for response in responses:
                 self.clientConverter.send_payload(response.text)
