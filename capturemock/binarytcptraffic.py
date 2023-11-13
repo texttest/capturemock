@@ -311,6 +311,8 @@ class ListConverter(SequenceConverter):
         list_length = struct.unpack_from(self.lengthFmt, rawBytes, offset=offset)[0]
         if list_length == 0:
             return [[]], self.extraLength
+        
+        diag.debug("Found list of length %d", list_length)
         data = []
         element_offset = offset + self.extraLength
         for ix in range(list_length):
@@ -354,28 +356,34 @@ class OptionConverter(SequenceConverter):
         self.optionConverters = optionConverters
         self.bitTemplates = bitTemplates
 
-    def find_converters(self, optionType):
+    def find_converters(self, optionType, diag, warn=True):
         if optionType < len(self.optionConverters):
             return self.optionConverters[optionType]
+        remainingOptionType = optionType
+        allBitConverters = []
         for bit, bitConverters in self.bitTemplates.items():
-            if optionType & bit:
-                subOptionType = optionType - bit
-                if not subOptionType:
-                    return bitConverters
-                remainder = self.find_converters(subOptionType)
-                for bitConverter in bitConverters:
-                    combined = bitConverter.combine_converters(remainder)
-                    if combined:
-                        return [ combined ]
-                return bitConverters + remainder
-        print("WARNING: failed to find option converter for value", optionType, "in format", self.elementFmt, file=sys.stderr)
+            if remainingOptionType & bit:
+                remainingOptionType -= bit
+                allBitConverters += bitConverters
+        if len(allBitConverters):
+            remainder = self.find_converters(remainingOptionType, diag, warn=False)
+            if len(remainder) == 1 and isinstance(remainder[0], NullConverter):
+                return allBitConverters
+            for bitConverter in allBitConverters:
+                combined = bitConverter.combine_converters(remainder)
+                if combined:
+                    return [ combined ]
+            return remainder + allBitConverters
+        if warn:
+            print("WARNING: failed to find option converter for value", optionType, "in format", self.elementFmt, file=sys.stderr)
+            diag.debug("Failed to find option converter for value %s in format %s", optionType, self.elementFmt)
         return []
 
     def unpack(self, rawBytes, offset, diag):
         optionType = struct.unpack_from(self.lengthFmt, rawBytes, offset=offset)[0]
         data = []
         data_offset = offset + self.extraLength
-        for converter in self.find_converters(optionType):
+        for converter in self.find_converters(optionType, diag):
             diag.debug("option converting with type %s, %s", optionType, converter)
             diag.debug("current option data is %s", rawBytes[data_offset:])
             curr_data, curr_dataLength = converter.unpack(rawBytes, data_offset, diag)
@@ -390,7 +398,7 @@ class OptionConverter(SequenceConverter):
         optionType, element = toPack
         rawBytes = struct.pack(self.lengthFmt, optionType)
         elementIndex = 0
-        converters = self.find_converters(optionType)
+        converters = self.find_converters(optionType, diag)
         for converter in converters:
             diag.debug("option converting with type %s, %s %s %d", optionType, converter, element, elementIndex)
             curr_bytes = converter.pack(self.from_element(element, converters), elementIndex, diag)
@@ -534,6 +542,8 @@ class BinaryMessageConverter:
                                 if indent == 0:
                                     optionFmtToUse = currSubFmt + optionFmt
                                     currSubFmt = ""
+                                else:
+                                    currSubFmt += optionFmt + "|"
                             else:
                                 currSubFmt += optionFmt + "|"
                         else:
@@ -541,8 +551,10 @@ class BinaryMessageConverter:
                         if optionFmtToUse is not None:                        
                             if "=" in optionFmtToUse:
                                 bit, template = optionFmtToUse.split("=", 1)
-                                bitTemplates[int(bit)] = cls.split_format(endianchar + template)
-                            elif optionFmtToUse:
+                                if bit.isdigit():
+                                    bitTemplates[int(bit)] = cls.split_format(endianchar + template)
+                                    continue
+                            if optionFmtToUse:
                                 optionConverters.append(cls.split_format(endianchar + optionFmtToUse))
                             else:
                                 optionConverters.append([ NullConverter() ])
@@ -863,8 +875,10 @@ if __name__ == "__main__":
     # rawBytes = b'HELFK\x00\x00\x00'
     # rawBytes = b'\x00\x00\x00\x00/\x00\x00\x00http://opcfoundation.org/UA/SecurityPolicy#None\xff\xff\xff\xff\xff\xff\xff\xff\x01\x00\x00\x00\x01\x00\x00\x00\x01\x00\xbe\x01\x00\x00@\x10\xd0\x02\x8es\xd9\x01\x01\x00\x00\x00\x00\x00\x00\x00\xff\xff\xff\xff\xe8\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x80\xee6\x00'
     # rawBytes = b'\x01\x00\x00\x00%\x00\x00\x00opc.tcp://0.0.0.0:0/freeopcua/server/'
-    logger = logging.getLogger("main")
-    logger.setLevel(logging.DEBUG)
+    #logger = logging.getLogger("main")
+    #logger.setLevel(logging.DEBUG)
+    #handler = logging.StreamHandler(sys.stdout)
+    #logger.addHandler(handler)
     print(BinaryMessageConverter.split_format(fmt))
     #print(BinaryMessageConverter.unpack(fmt, rawBytes, logger))
     # from capturemock import config
