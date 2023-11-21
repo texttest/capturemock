@@ -48,13 +48,18 @@ class BinaryTrafficConverter:
             sock.settimeout(self.header_timeout)
         self.headerConverter = BinaryMessageConverter(rcHandler, "tcp_header")
         self.text = None
-        self.header = None
-        self.header_fields = None
-        self.body = None
+        self.headers = []
+        self.header_fields_list = []
+        self.bodies = []
         self.diag = diag
 
     def get_payload(self):
-        return self.header + self.body
+        payload = b""
+        for i, header in enumerate(self.headers):
+            payload += header
+            if i < len(self.bodies):
+                payload += self.bodies[i]
+        return payload
 
     def read_text_until_newline(self, header):
         rawBytes = header
@@ -87,14 +92,21 @@ class BinaryTrafficConverter:
                 self.text = self.read_text_until_newline(header)
                 self.diag.debug("Got message %s", self.text)
             else:
-                self.header = header
-                success, self.header_fields = self.headerConverter.parse(header, self.diag)
-                self.diag.debug("Got header %s %s", header, self.header_fields)
+                self.headers.append(header)
+                success, header_fields = self.headerConverter.parse(header, self.diag)
+                self.diag.debug("Got header %s %s", header, header_fields)
                 if success:
-                    length = self.get_body_length()
+                    length = self.get_body_length(header_fields)
                     if length:
-                        self.body = self.receive_data(length)
-                    self.diag.debug("Got body of size %s %s", length, self.body)
+                        body = self.receive_data(length)
+                        self.diag.debug("Got body of size %s %s", length, body)
+                        self.bodies.append(body)
+                    else:
+                        self.bodies.append(b"")
+                    self.header_fields_list.append(header_fields)
+                    if self.headerConverter.is_incomplete(header_fields):
+                        self.diag.debug("Message is not complete, fetching next part")
+                        return False
                 else:
                     self.diag.debug("Failed to parse incoming header %s", header)
                     print("FAILED to parse incoming header", header, file=sys.stderr)
@@ -103,56 +115,77 @@ class BinaryTrafficConverter:
             self.socket.settimeout(self.header_timeout)
         return True
 
-    def get_body_length(self):
-        msg_size = self.header_fields.get("msg_size")
+    def get_body_length(self, header_fields):
+        msg_size = header_fields.get("msg_size")
         # ACI format does not allow odd message size...
-        if self.headerConverter.padding and msg_size is not None and msg_size % 2 == 1: 
+        if self.headerConverter.padding and msg_size is not None and msg_size % 2 == 1:
             msg_size += 1
-        header_size = int(self.header_fields.get("header_size", 0))
+        header_size = int(header_fields.get("header_size", 0))
         if msg_size and header_size:
             msg_already_read = self.headerConverter.getLength() - header_size
             return msg_size - msg_already_read
         else:
-            return self.get_given_length()
+            return self.get_given_length(header_fields)
 
-    def get_given_length(self):
-        length = self.header_fields.get("length")
+    def get_given_length(self, header_fields):
+        length = header_fields.get("length")
         if length:
             return length
         else:
-            return self.header_fields.get("msg_size") - self.headerConverter.getLength()
+            return header_fields.get("msg_size") - self.headerConverter.getLength()
 
-    def get_body_to_parse(self):
-        length = self.get_given_length()
-        if len(self.body) > length:
-            return self.body[:length]
+    def get_body_to_parse(self, index):
+        length = self.get_given_length(self.header_fields_list[index])
+        body = self.bodies[index]
+        if len(body) > length:
+            return body[:length]
         else:
-            return self.body
+            return body
 
     def parse_body(self):
-        body = self.get_body_to_parse()
-        body_type = toString(self.header_fields.get("type"))
+        body = self.get_body_to_parse(0)
+        body_type = toString(self.header_fields_list[0].get("type"))
         subHeaderReader = BinaryMessageConverter(self.rcHandler, body_type + "_header")
+        intermHeaderType = body_type + "_intermediate"
         if subHeaderReader.hasData():
             _, subheader_values = subHeaderReader.parse(body, self.diag)
             self.diag.debug("Found subheader values %s", repr(subheader_values))
-            self.header_fields.update(subheader_values)
+            self.header_fields_list[0].update(subheader_values)
             subHeaderLength = subHeaderReader.getLength()
             body = body[subHeaderLength:]
             subtype = toString(subheader_values.get("subtype"))
             if subtype:
                 body_type += "." + subtype
                 self.diag.debug("using subtype %s", body_type)
+        if len(self.bodies) > 1:
+            intermHeaderReader = BinaryMessageConverter(self.rcHandler, intermHeaderType)
+            if intermHeaderReader.hasData():
+                for i in range(1, len(self.bodies)):
+                    extraBody = self.get_body_to_parse(i)
+                    _, interm_values = intermHeaderReader.parse(extraBody, self.diag)
+                    self.diag.debug("Found intermediate header values %s", repr(interm_values))
+                    self.header_fields_list[i].update(interm_values)
+                    intermHeaderLength = intermHeaderReader.getLength()
+                    body += extraBody[intermHeaderLength:]
+                
         bodyReader = BinaryMessageConverter(self.rcHandler, body_type)
         _, body_values = bodyReader.parse(body, self.diag)
         self.diag.debug("Got body %s", body_values)
         self.diag.debug("assume %s", repr(self.headerConverter.assume))
-        self.diag.debug("hf %s", repr(self.header_fields))
-        self.text = self.headerConverter.getHeaderDescription(self.header_fields) + "\n" + pformat(body_values, sort_dicts=False, width=200)
+        self.diag.debug("hf %s", repr(self.header_fields_list))
+        textParts = [ self.headerConverter.getHeaderDescription(header_fields) for header_fields in self.header_fields_list ]
+        textParts.append(pformat(body_values, sort_dicts=False, width=200))
+        self.text = "\n".join(textParts)
         self.diag.debug("Recording %s", self.text)
         return self.text
 
+    def clear(self):
+        self.headers.clear()
+        self.bodies.clear()
+        self.header_fields_list.clear()
+
     def read_and_parse(self):
+        self.clear()
         # If we can't read the header, ignore it and try the next one
         while not self.read_header_or_text():
             pass
@@ -160,36 +193,67 @@ class BinaryTrafficConverter:
         return self.text, self.get_payload()
 
     def convert_to_payload(self, text):
-        header_line, remainder = text.split("\n", 1)
-        self.header_fields = self.headerConverter.parseHeaderDescription(header_line)
-        body_type = toString(self.header_fields.get("type"))
+        final = False
+        self.header_fields_list = []
+        while not final:
+            header_line, text = text.split("\n", 1)
+            final = text.startswith("{")
+            self.header_fields_list.append(self.headerConverter.parseHeaderDescription(header_line, final))
+        body_type = toString(self.header_fields_list[0].get("type"))
         subHeaderConv = BinaryMessageConverter(self.rcHandler, body_type + "_header")
-        payload = b""
+        intermHeaderType = body_type + "_intermediate"
+        header_payloads = []
         if subHeaderConv.hasData():
-            payload = subHeaderConv.fields_to_payload(self.header_fields, self.diag)
+            payload = subHeaderConv.fields_to_payload(self.header_fields_list[0], self.diag)
             self.diag.debug("Found subheader payload %s", repr(payload))
-            subtype = toString(self.header_fields.get("subtype"))
+            header_payloads.append(payload)
+            subtype = toString(self.header_fields_list[0].get("subtype"))
             if subtype:
                 body_type += "." + subtype
                 self.diag.debug("using subtype %s", body_type)
-        bodyConv = BinaryMessageConverter(self.rcHandler, body_type)
-        body_values = eval(remainder)
-        self.diag.debug("Body fields %s", body_values)
-        payload += bodyConv.fields_to_payload(body_values, self.diag)
-        self.diag.debug("Body payload %s", payload)
-        self.header_fields["length"] = len(payload)
-        if "msg_size" not in self.header_fields:
-            body_length = self.header_fields["length"]
-            self.header_fields["msg_size"] = body_length + self.headerConverter.getLength()
         else:
-            body_length = self.get_body_length()
-            if self.headerConverter.padding:
-                while(len(payload)) < body_length:
-                    payload += b"\x00"
-        self.diag.debug("Header fields %s", self.header_fields)
-        header_payload = self.headerConverter.fields_to_payload(self.header_fields, self.diag)
-        self.diag.debug("Header payload %s", header_payload)
-        return header_payload + payload
+            header_payloads.append(b"")
+        if len(self.header_fields_list) > 1:
+            intermConv = BinaryMessageConverter(self.rcHandler, intermHeaderType)
+            if intermConv.hasData():
+                for header_fields in self.header_fields_list[1:]:
+                    payload = intermConv.fields_to_payload(header_fields, self.diag)
+                    self.diag.debug("Found intermediate payload %s", repr(payload))
+                    header_payloads.append(payload)
+        bodyConv = BinaryMessageConverter(self.rcHandler, body_type)
+        body_values = eval(text)
+        self.diag.debug("Body fields %s", body_values)
+        body_payload = bodyConv.fields_to_payload(body_values, self.diag)
+        body_payloads = self.split_body(body_payload, len(self.header_fields_list))
+        payload = b""
+        for i, (header_fields, header_payload, body_payload) in enumerate(zip(self.header_fields_list, header_payloads, body_payloads)):
+            curr_payload = header_payload + body_payload
+            self.diag.debug("Current payload %s", curr_payload)
+            header_fields["length"] = len(curr_payload)
+            if "msg_size" not in header_fields:
+                body_length = header_fields["length"]
+                header_fields["msg_size"] = body_length + self.headerConverter.getLength()
+            else:
+                body_length = self.get_body_length(header_fields)
+                if self.headerConverter.padding:
+                    while(len(curr_payload)) < body_length:
+                        curr_payload += b"\x00"
+            self.diag.debug("Header fields %s", header_fields)
+            header_payload = self.headerConverter.fields_to_payload(header_fields, self.diag)
+            self.diag.debug("Header payload %s", header_payload)
+            payload += header_payload + curr_payload
+        return payload
+
+    def split_body(self, payload, part_count):
+        if part_count == 1:
+            return [ payload ]
+        part_size = 4096
+        if len(payload) > part_size * part_count or len(payload) < part_size * (part_count - 1):
+            part_size = len(payload) // part_count + 1
+        parts = []
+        for i in range(part_count):
+            parts.append(payload[i * part_size:(i + 1) * part_size])
+        return parts
 
     def send_payload(self, text):
         self.diag.debug("Payload text %s", text)
@@ -203,7 +267,7 @@ class NullConverter:
 
     def combine_converters(self, converters):
         pass
-    
+
     def unpack(self, *args):
         return (None,), 0
 
@@ -212,7 +276,7 @@ class NullConverter:
 
     def pack(self, *args):
         return b""
-    
+
 
 class StructConverter:
     def __init__(self, fmt):
@@ -224,7 +288,7 @@ class StructConverter:
 
     def combine_converters(self, converters):
         pass
-    
+
     def unpack(self, rawBytes, offset, *args):
         return struct.unpack_from(self.fmt, rawBytes, offset=offset), self.length
 
@@ -258,7 +322,7 @@ class SequenceConverter:
         self.lengthFmt = lengthFmt
         self.elementFmt = fmt
         self.extraLength = struct.calcsize(lengthFmt)
-        
+
     def combine_converters(self, converters):
         pass
 
@@ -267,16 +331,16 @@ class SequenceConverter:
             return element_data[0]
         else:
             return tuple(element_data)
-        
+
     def from_element(self, element, converters):
         if len(converters) > 1 or converters[0].get_data_size() > 1:
             return element
         else:
             return (element,)
-        
+
     def get_data_size(self):
         return 1
-    
+
     def __repr__(self):
         return self.__class__.__name__ + "(" + self.lengthFmt + ", " + self.elementFmt + ")"
 
@@ -309,6 +373,7 @@ class ListConverter(SequenceConverter):
 
     def unpack(self, rawBytes, offset, diag):
         list_length = struct.unpack_from(self.lengthFmt, rawBytes, offset=offset)[0]
+        diag.debug("Found list of length %d", list_length)
         if list_length == 0:
             return [[]], self.extraLength
         
@@ -342,7 +407,7 @@ class ListConverter(SequenceConverter):
                 rawBytes += curr_bytes
                 elementIndex += converter.get_data_size()
         return rawBytes
-    
+
     def combine_converters(self, converters):
         if len(self.elementConverters) == 0:
             return ListConverter(self.lengthFmt, self.elementFmt, converters)
@@ -423,6 +488,7 @@ class BinaryMessageConverter:
         self.assume = self.readDictionary(rcHandler, "assume", sections)
         self.enforce = self.readDictionary(rcHandler, "enforce", sections)
         self.assume.update(self.enforce)
+        self.incompleteMarkers = self.readDictionary(rcHandler, "incomplete", sections)
         self.length = None
 
     def hasData(self):
@@ -444,21 +510,30 @@ class BinaryMessageConverter:
             ret[key] = value
         return ret
 
+    def is_incomplete(self, fields):
+        return any((toString(fields.get(key)) == value for key, value in self.incompleteMarkers.items()))
+
     def getHeaderDescription(self, fields):
         msgType = fields.get("type")
         filtered_fields = {}
         for key, value in fields.items():
-            if key not in [ "type", "length" ] and (self.padding or key != "msg_size") and self.assume.get(key) != toString(value):
+            strval = toString(value)
+            if key not in [ "type", "length" ] and (self.padding or key != "msg_size") and \
+                self.assume.get(key) != strval and self.incompleteMarkers.get(key) != strval:
                 filtered_fields[key] = value
         return toString(msgType) + " " + repr(filtered_fields)
 
-    def parseHeaderDescription(self, text):
+    def parseHeaderDescription(self, text, final):
         typeText, fieldText = text.split(" ", 1)
         fields = eval(fieldText)
         fields["type"] = typeText.encode()
         for key, value in self.assume.items():
             if key not in fields:
                 fields[key] = fromString(value)
+        if not final:
+            for key, value in self.incompleteMarkers.items():
+                fields[key] = fromString(value)
+                
         return fields
 
     def fields_to_payload(self, values, diag):
@@ -548,7 +623,7 @@ class BinaryMessageConverter:
                                 currSubFmt += optionFmt + "|"
                         else:
                             optionFmtToUse = optionFmt
-                        if optionFmtToUse is not None:                        
+                        if optionFmtToUse is not None:
                             if "=" in optionFmtToUse:
                                 bit, template = optionFmtToUse.split("=", 1)
                                 if bit.isdigit():
@@ -684,7 +759,7 @@ class BinaryMessageConverter:
             return enum_list.index(value)
         else:
             return value
-        
+
     def try_deconvert_list(self, field, listvalue):
         element_names = self.rcHandler.getList(field, [ "list_elements"])
         if len(element_names) == 0 or not all((isinstance(element, dict) for element in listvalue)):
