@@ -90,8 +90,10 @@ class AMQPTrafficServer:
     def on_message(self, channel, method_frame, header_frame, body):
         self.count += 1
         routing_key = method_frame.routing_key
+        self.dispatcher.diag.debug("Received AMQP message with routing key %s", routing_key)
         channel.basic_ack(delivery_tag=method_frame.delivery_tag)
         if self.connector.isTermination(routing_key, body):
+            self.dispatcher.diag.debug("Message is termination, stop recording and clean up...")
             self.connector.terminate()
         else:
             traffic = AMQPTraffic(rcHandler=self.dispatcher.rcHandler, routing_key=routing_key, body=body, props=header_frame)
