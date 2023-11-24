@@ -60,7 +60,7 @@ class AMQPConnector:
             self.channel.basic_publish(self.exchange_forward, self.exchange_forward_prefix + "." + routing_key, body, properties=properties)
         
     def sendTerminateMessage(self):
-        self.channel.basic_publish(self.exchange, self.own_routing_key, self.terminate_body)
+        self.channel.basic_publish(self.exchange, self.own_routing_key, self.terminate_body, mandatory=True)
 
     def isTermination(self, routing_key, body):
         return routing_key == self.own_routing_key and body == self.terminate_body
