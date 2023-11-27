@@ -2,6 +2,7 @@
 import pika
 from capturemock import traffic, encodingutils
 from datetime import datetime
+import sys
 
 class AMQPConnector:
     own_routing_key = "CaptureMock"
@@ -60,8 +61,12 @@ class AMQPConnector:
             self.channel.basic_publish(self.exchange_forward, self.exchange_forward_prefix + "." + routing_key, body, properties=properties)
         
     def sendTerminateMessage(self):
-        self.channel.basic_publish(self.exchange, self.own_routing_key, self.terminate_body, mandatory=True)
-
+        try:
+            properties = pika.BasicProperties(content_type='text/plain', delivery_mode=pika.spec.TRANSIENT_DELIVERY_MODE)
+            self.channel.basic_publish(self.exchange, self.own_routing_key, self.terminate_body, properties=properties, mandatory=True)
+        except pika.exceptions.UnroutableError as e:
+            print("Failed to send terminate message to CaptureMock!\n", e, file=sys.stderr)
+        
     def isTermination(self, routing_key, body):
         return routing_key == self.own_routing_key and body == self.terminate_body
     
