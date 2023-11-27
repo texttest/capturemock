@@ -28,11 +28,11 @@ def toString(data):
     else:
         return str(data)
 
-def fromString(data):
+def fromString(data, stringOnly=False):
     if isinstance(data, str):
         if data.startswith("0x"):
             return bytes.fromhex(data[2:])
-        elif data.isdigit():
+        elif not stringOnly and data.isdigit():
             return int(data)
         else:
             return data.encode()
@@ -358,7 +358,7 @@ class StringConverter(SequenceConverter):
             return [ "" ] if str_length == 0 else [ None ], self.extraLength
 
     def pack(self, data, index, diag):
-        toPack = fromString(data[index])
+        toPack = fromString(data[index], stringOnly=True)
         diag.debug("packing string %s", toPack)
         length = len(toPack) if toPack is not None else -1
         rawBytes = struct.pack(self.lengthFmt, length)
