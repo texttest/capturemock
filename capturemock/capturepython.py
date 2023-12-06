@@ -1,8 +1,7 @@
 
 """ Generic front end module to all forms of Python interception"""
 
-import sys, os, logging, inspect, types
-from distutils.sysconfig import get_python_lib
+import sys, os, logging, inspect, types, sysconfig
 from . import pythonclient, config
 
 class CallStackChecker:
@@ -30,9 +29,8 @@ class CallStackChecker:
                 self.inCallback = False
                 
     def findStandardLibDirs(self):
-        dirs = [ get_python_lib(standard_lib=True, prefix=sys.prefix) ]
-        if hasattr(sys, "real_prefix"): # virtualenv
-            dirs.append(get_python_lib(standard_lib=True, prefix=sys.real_prefix))
+        # might be the same path
+        dirs = { sysconfig.get_path("stdlib"), sysconfig.get_path("platstdlib") }
         return [ os.path.normcase(os.path.realpath(d)) for d in dirs ]
         
     def callerExcluded(self, stackDistance=1, callback=False):
