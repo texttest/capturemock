@@ -5,8 +5,40 @@ import sys, struct, socket
 from pprint import pformat
 import logging
         
+def get_logger():
+    return logging.getLogger("Binary TCP Traffic")
+        
 class BinaryClientSocketTraffic(clientservertraffic.ClientSocketTraffic):
+    serverConverter = None
+    @classmethod
+    def getServerConverter(cls, rcHandler, reset=False):
+        if (reset or cls.serverConverter is None) and cls.destination is not None:
+            sock = cls.connectServerSocket()
+            diag = get_logger()
+            if sock:
+                diag.debug("Connected server %s", cls.destination)
+                if cls.serverConverter is not None:
+                    cls.serverConverter.update_socket(sock)
+                else:
+                    cls.serverConverter = BinaryTrafficConverter(rcHandler, sock)
+            else:
+                diag.debug("Failed to connect server %s", cls.destination)
+        return cls.serverConverter
+    
+    def __init__(self, text, responseFile, rcHandler=None, payload=None, internal=False, **kw):
+        clientservertraffic.ClientSocketTraffic.__init__(self, text, responseFile, rcHandler=rcHandler, **kw)
+        self.payload = payload if text == self.text else None
+        self.rcHandler = rcHandler
+        self.internal = internal
+        
     def forwardToServer(self):
+        if not self.internal:
+            conv = self.getServerConverter(self.rcHandler)
+            if conv:
+                if self.payload is None:
+                    conv.convert_and_send(self.text)
+                else:
+                    conv.send_payload(self.payload)
         return []
     
 class BinaryServerSocketTraffic(clientservertraffic.ServerTraffic):
@@ -41,17 +73,22 @@ def fromString(data, stringOnly=False):
 
 class BinaryTrafficConverter:
     header_timeout = 0.5
-    def __init__(self, rcHandler, sock, diag):
+    def __init__(self, rcHandler, sock):
         self.rcHandler = rcHandler
-        self.socket = sock
-        if sock:
-            sock.settimeout(self.header_timeout)
+        self.update_socket(sock)
         self.headerConverter = BinaryMessageConverter(rcHandler, "tcp_header")
+        self.footerConverter = BinaryMessageConverter(rcHandler, "tcp_footer")
         self.text = None
+        self.footer = None
         self.headers = []
         self.header_fields_list = []
         self.bodies = []
-        self.diag = diag
+        self.diag = get_logger()
+
+    def update_socket(self, sock):
+        self.socket = sock
+        if sock:
+            sock.settimeout(self.header_timeout)
 
     def get_payload(self):
         payload = b""
@@ -59,6 +96,8 @@ class BinaryTrafficConverter:
             payload += header
             if i < len(self.bodies):
                 payload += self.bodies[i]
+        if self.footer:
+            payload += self.footer
         return payload
 
     def read_text_until_newline(self, header):
@@ -81,14 +120,47 @@ class BinaryTrafficConverter:
 
         return data
 
+    def is_capturemock_header(self, header):
+        lengthCheck = min(len(header), 8)
+        for msg in [ b"SUT_SERV", b"TERMINAT" ]:
+            if msg[:lengthCheck] == header[:lengthCheck]:
+                return True
+        return False
+    
+    def receive_body_until_footer(self, footer_length):
+        body = b""
+        while True:
+            data = self.receive_data(footer_length)
+            success, _ = self.footerConverter.parse(data, self.diag)
+            if success:
+                self.footer = data
+                self.diag.debug("Found footer, got body %s", body)
+                return body
+            else:
+                body += data
+
+    def receive_body(self, header_fields):
+        footer_length = self.footerConverter.getLength()
+        if footer_length:
+            return self.receive_body_until_footer(footer_length)
+            
+        length = self.get_body_length(header_fields)
+        if length:
+            body = self.receive_data(length)
+            self.diag.debug("Got body of size %s %s", length, body)
+            return body
+        else:
+            return b""
+
     def read_header_or_text(self):
-        header = self.socket.recv(self.headerConverter.getLength())
+        header_length = self.headerConverter.getLength()
+        header = self.socket.recv(header_length)
         if len(header) == 0:
             raise TimeoutError("no data received")
         # go to blocking mode once we have a header, need to make sure we read the rest
         self.socket.settimeout(None)
         try:
-            if header.startswith(b"SUT_SERV") or header.startswith(b"TERMINAT"):
+            if header_length >= 4 and self.is_capturemock_header(header):
                 self.text = self.read_text_until_newline(header)
                 self.diag.debug("Got message %s", self.text)
             else:
@@ -96,17 +168,14 @@ class BinaryTrafficConverter:
                 success, header_fields = self.headerConverter.parse(header, self.diag)
                 self.diag.debug("Got header %s %s", header, header_fields)
                 if success:
-                    length = self.get_body_length(header_fields)
-                    if length:
-                        body = self.receive_data(length)
-                        self.diag.debug("Got body of size %s %s", length, body)
-                        self.bodies.append(body)
-                    else:
-                        self.bodies.append(b"")
+                    self.bodies.append(self.receive_body(header_fields))
                     self.header_fields_list.append(header_fields)
                     if self.headerConverter.is_incomplete(header_fields):
                         self.diag.debug("Message is not complete, fetching next part")
                         return False
+                elif header_length < 4 and self.is_capturemock_header(header):
+                    self.text = self.read_text_until_newline(header)
+                    self.diag.debug("Got message %s", self.text)
                 else:
                     self.diag.debug("Failed to parse incoming header %s", header)
                     print("FAILED to parse incoming header", header, file=sys.stderr)
@@ -132,12 +201,14 @@ class BinaryTrafficConverter:
         if length:
             return length
         else:
-            return header_fields.get("msg_size") - self.headerConverter.getLength()
+            msg_size = header_fields.get("msg_size")
+            if msg_size:
+                return msg_size - self.headerConverter.getLength()
 
     def get_body_to_parse(self, index):
         length = self.get_given_length(self.header_fields_list[index])
-        body = self.bodies[index]
-        if len(body) > length:
+        body = self.bodies[index]            
+        if length is not None and len(body) > length:
             return body[:length]
         else:
             return body
@@ -169,13 +240,16 @@ class BinaryTrafficConverter:
                     body += extraBody[intermHeaderLength:]
                 
         bodyReader = BinaryMessageConverter(self.rcHandler, body_type)
-        _, body_values = bodyReader.parse(body, self.diag)
-        self.diag.debug("Got body %s", body_values)
-        self.diag.debug("assume %s", repr(self.headerConverter.assume))
-        self.diag.debug("hf %s", repr(self.header_fields_list))
-        textParts = [ self.headerConverter.getHeaderDescription(header_fields) for header_fields in self.header_fields_list ]
-        textParts.append(pformat(body_values, sort_dicts=False, width=200))
-        self.text = "\n".join(textParts)
+        if bodyReader.hasData():
+            _, body_values = bodyReader.parse(body, self.diag)
+            self.diag.debug("Got body %s", body_values)
+            self.diag.debug("assume %s", repr(self.headerConverter.assume))
+            self.diag.debug("hf %s", repr(self.header_fields_list))
+            textParts = [ self.headerConverter.getHeaderDescription(header_fields) for header_fields in self.header_fields_list ]
+            textParts.append(pformat(body_values, sort_dicts=False, width=200))
+            self.text = "\n".join(textParts)
+        else:
+            self.text = toString(body)
         self.diag.debug("Recording %s", self.text)
         return self.text
 
@@ -192,12 +266,18 @@ class BinaryTrafficConverter:
         self.parse_body()
         return self.text, self.get_payload()
 
+    def extract_header(self, text):
+        if "\n" in text:
+            return text.split("\n", 1)
+        else:
+            return "", text
+
     def convert_to_payload(self, text):
         final = False
         self.header_fields_list = []
         while not final:
-            header_line, text = text.split("\n", 1)
-            final = text.startswith("{")
+            header_line, text = self.extract_header(text)
+            final = text.startswith("{") or not header_line
             self.header_fields_list.append(self.headerConverter.parseHeaderDescription(header_line, final))
         body_type = toString(self.header_fields_list[0].get("type"))
         subHeaderConv = BinaryMessageConverter(self.rcHandler, body_type + "_header")
@@ -221,9 +301,12 @@ class BinaryTrafficConverter:
                     self.diag.debug("Found intermediate payload %s", repr(payload))
                     header_payloads.append(payload)
         bodyConv = BinaryMessageConverter(self.rcHandler, body_type)
-        body_values = eval(text)
-        self.diag.debug("Body fields %s", body_values)
-        body_payload = bodyConv.fields_to_payload(body_values, self.diag)
+        if bodyConv.hasData():
+            body_values = eval(text)
+            self.diag.debug("Body fields %s", body_values)
+            body_payload = bodyConv.fields_to_payload(body_values, self.diag)
+        else:
+            body_payload = text.encode()
         body_payloads = self.split_body(body_payload, len(self.header_fields_list))
         payload = b""
         for i, (header_fields, header_payload, body_payload) in enumerate(zip(self.header_fields_list, header_payloads, body_payloads)):
@@ -242,6 +325,10 @@ class BinaryTrafficConverter:
             header_payload = self.headerConverter.fields_to_payload(header_fields, self.diag)
             self.diag.debug("Header payload %s", header_payload)
             payload += header_payload + curr_payload
+            if self.footerConverter.getLength():
+                # Don't expect variable footer
+                footer_fields = self.footerConverter.parseHeaderDescription("")
+                payload += self.footerConverter.fields_to_payload(footer_fields, self.diag)
         return payload
 
     def split_body(self, payload, part_count):
@@ -255,11 +342,17 @@ class BinaryTrafficConverter:
             parts.append(payload[i * part_size:(i + 1) * part_size])
         return parts
 
-    def send_payload(self, text):
+    def convert_and_send(self, text):
         self.diag.debug("Payload text %s", text)
         payload = self.convert_to_payload(text)
+        self.send_payload(payload)
+     
+    def send_payload(self, payload):
         self.diag.debug("Sending payload %s", payload)
-        self.socket.sendall(payload)
+        try:
+            self.socket.sendall(payload)
+        except OSError as e:
+            self.diag.debug("Sending payload had error %s", str(e))
 
 class NullConverter:
     def __repr__(self):
@@ -523,10 +616,13 @@ class BinaryMessageConverter:
                 filtered_fields[key] = value
         return toString(msgType) + " " + repr(filtered_fields)
 
-    def parseHeaderDescription(self, text, final):
-        typeText, fieldText = text.split(" ", 1)
-        fields = eval(fieldText)
-        fields["type"] = typeText.encode()
+    def parseHeaderDescription(self, text, final=True):
+        if " " in text:
+            typeText, fieldText = text.split(" ", 1)
+            fields = eval(fieldText)
+            fields["type"] = typeText.encode()
+        else:
+            fields = {}
         for key, value in self.assume.items():
             if key not in fields:
                 fields[key] = fromString(value)
@@ -672,9 +768,7 @@ class BinaryMessageConverter:
             diag.debug("Packed to %s", curr_bytes)
             rawBytes += curr_bytes
             index += converter.get_data_size()
-        diag.debug("Packed to %s", rawBytes)
         return rawBytes
-        #struct.pack(fmt, *data)
 
     def parse(self, rawBytes, diag):
         data = None
@@ -787,7 +881,7 @@ class TcpHeaderTrafficServer:
         self.socket.settimeout(self.connection_timeout)
         self.socket.bind((address, 0))
         self.socket.listen(2)
-        self.diag = logging.getLogger("Binary TCP Traffic")
+        self.diag = get_logger()
         self.clientConverter = None
         self.serverConverter = None
         self.serverTrafficCache = []
@@ -806,31 +900,19 @@ class TcpHeaderTrafficServer:
         except socket.timeout:
             self.diag.debug("Timeout accepting new connection")
 
-    def tryConnectServer(self):
-        dest = clientservertraffic.ClientSocketTraffic.destination
-        if dest is not None and self.serverConverter is None:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            try:
-                sock.connect(dest)
-                self.serverConverter = BinaryTrafficConverter(self.dispatcher.rcHandler, sock, self.diag)
-                self.diag.debug("Connected server %s", dest)
-            except OSError:
-                self.diag.debug("Connecting server failed %s", dest)
+    def tryConnectServer(self, reset=False):
+        if reset or self.serverConverter is None:
+            self.serverConverter = BinaryClientSocketTraffic.getServerConverter(self.dispatcher.rcHandler, reset)
 
     def handle_client_traffic(self, text, payload=None):
         self.requestCount += 1
-        traffic = BinaryClientSocketTraffic(text, None, rcHandler=self.dispatcher.rcHandler)
+        internal = payload is None
+        traffic = BinaryClientSocketTraffic(text, None, rcHandler=self.dispatcher.rcHandler, 
+                                            serverConverter=self.serverConverter, payload=payload, internal=internal)
         responses = self.dispatcher.process(traffic, self.requestCount)
-        if self.serverConverter and payload is not None:
-            if traffic.text == text:
-                self.diag.debug("Forward client payload to server %s", payload)
-                self.serverConverter.socket.sendall(payload)
-            else:
-                self.diag.debug("Alteration applied, reconverting payload %s", traffic.text)
-                self.serverConverter.send_payload(traffic.text)
-        elif self.clientConverter:
+        if (not self.serverConverter or internal) and self.clientConverter:
             for response in responses:
-                self.clientConverter.send_payload(response.text)
+                self.clientConverter.convert_and_send(response.text)
 
     def handle_server_traffic(self, text, payload):
         if self.clientConverter:
@@ -843,7 +925,7 @@ class TcpHeaderTrafficServer:
         traffic = BinaryServerSocketTraffic(text, None, rcHandler=self.dispatcher.rcHandler)
         self.requestCount += 1
         self.dispatcher.process(traffic, self.requestCount)
-        self.clientConverter.socket.sendall(payload)
+        self.clientConverter.send_payload(payload)
 
     def try_client(self):
         if self.clientConverter:
@@ -869,8 +951,7 @@ class TcpHeaderTrafficServer:
                 self.diag.debug("Read from server timed out")
             except ConnectionAbortedError:
                 self.diag.debug("Server connection aborted, resetting!")
-                self.serverConverter = None
-                self.tryConnectServer()
+                self.tryConnectServer(reset=True)
             except OSError as e:
                 self.diag.debug("Read from server had other error %s", str(e))
         return False
@@ -883,9 +964,8 @@ class TcpHeaderTrafficServer:
 
     def set_client_converter(self, converter):
         if self.clientConverter is not None:
-            # Second connection from client, we should do a new connection to the server
-            self.serverConverter = None
-            self.tryConnectServer()
+            self.diag.debug("Second connection from client, resetting connection to the server")
+            self.tryConnectServer(reset=True)
         self.clientConverter = converter
 
     def run(self):
@@ -898,7 +978,7 @@ class TcpHeaderTrafficServer:
             connSocket = self.acceptSocket()
             if connSocket:
                 self.diag.debug("Accepted new connection from client")
-                converter = BinaryTrafficConverter(self.dispatcher.rcHandler, connSocket, self.diag)
+                converter = BinaryTrafficConverter(self.dispatcher.rcHandler, connSocket)
                 try:
                     converter.read_header_or_text()
                 except socket.timeout:

@@ -53,15 +53,22 @@ class ClientSocketTraffic(traffic.Traffic):
     def shouldBeRecorded(self, *args):
         return not self.connectionFailed and traffic.Traffic.shouldBeRecorded(self, *args)
 
+    @classmethod
+    def connectServerSocket(cls):
+        if cls.destination:
+            sock = socket.socket(socket.AF_INET, cls.socketType)
+            try:
+                sock.connect(cls.destination)
+                return sock
+            except OSError as e:
+                sys.stderr.write("WARNING: Could not forward to server " + str(cls.destination) + "\n")
+                sys.stderr.write(str(e) + "\n")
+                sock.close()
+            
     def forwardToServer(self):
-        sock = socket.socket(socket.AF_INET, self.socketType)
-        try:
-            sock.connect(self.destination)
-        except OSError as e:
-            sys.stderr.write("WARNING: Could not forward to server " + str(self.destination) + "\n")
-            sys.stderr.write(str(e) + "\n")
+        sock = self.connectServerSocket()
+        if not sock:
             sys.stderr.write("-- " + self.text + "\n")
-            sock.close()
             self.connectionFailed = True
             return []
         sock.sendall(self.text.encode())
