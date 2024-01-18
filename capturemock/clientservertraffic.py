@@ -403,7 +403,7 @@ class HTTPServerTraffic(ServerTraffic):
                 self.responseFile.flush()
                 self.handler.request.shutdown(socket.SHUT_WR)
                 self.handler.request.close()
-            except ConnectionError:
+            except OSError:
                 # The service that sent the original request is no longer listening for answers
                 # This is not necessarily a problem - we don't want to raise exceptions here
                 pass
