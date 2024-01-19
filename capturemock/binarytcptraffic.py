@@ -240,16 +240,17 @@ class BinaryTrafficConverter:
                     body += extraBody[intermHeaderLength:]
                 
         bodyReader = BinaryMessageConverter(self.rcHandler, body_type)
+        textParts = [ self.headerConverter.getHeaderDescription(header_fields) for header_fields in self.header_fields_list ]
         if bodyReader.hasData():
             _, body_values = bodyReader.parse(body, self.diag)
             self.diag.debug("Got body %s", body_values)
             self.diag.debug("assume %s", repr(self.headerConverter.assume))
             self.diag.debug("hf %s", repr(self.header_fields_list))
-            textParts = [ self.headerConverter.getHeaderDescription(header_fields) for header_fields in self.header_fields_list ]
             textParts.append(pformat(body_values, sort_dicts=False, width=200))
-            self.text = "\n".join(textParts)
         else:
-            self.text = toString(body)
+            self.diag.debug("Config section not found: %s", body_type)
+            textParts.append(toString(body))
+        self.text = "\n".join(textParts)
         self.diag.debug("Recording %s", self.text)
         return self.text
 
