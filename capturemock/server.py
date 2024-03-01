@@ -1,14 +1,14 @@
 import os, stat, sys, socket, threading, time, subprocess
 from copy import copy
 
-from capturemock import config
-from capturemock.replayinfo import ReplayInfo, IdFinder
+from capturemock import config, id_mapping
+from capturemock.replayinfo import ReplayInfo
 from capturemock import recordfilehandler, cmdlineutils
 from capturemock import commandlinetraffic, fileedittraffic, clientservertraffic, customtraffic
 from locale import getpreferredencoding
 from collections import OrderedDict, namedtuple
 
-from urllib.request import urlopen, Request
+from urllib.request import urlopen
 from urllib.parse import urlparse, urlunparse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import TCPServer, StreamRequestHandler, UDPServer,\
@@ -829,7 +829,7 @@ class ReplayOnlyDispatcher(ServerDispatcherBase):
         # don't read into ReplayInfo as normal, optimised for responses
         options = ReplayOptions(mode=config.RECORD, replay=None, record=recordFile, rcfiles=rcFile)
         ServerDispatcherBase.__init__(self, options)
-        self.idFinder = IdFinder(self.rcHandler, "id_pattern_server")
+        self.idFinder = id_mapping.IdFinder(self.rcHandler, "id_pattern_server")
         self.clientTrafficStrings = []
         self.replay_ids = []
         self.diag.debug("Replaying everything as client from " + replayFile)
@@ -880,7 +880,8 @@ class ReplayOnlyDispatcher(ServerDispatcherBase):
                     alterations[replay_id] = currId
                     self.add_id_mapping(traffic, replay_id, currId)
         self.diag.debug("Replaying all now complete")
-        return alterations
+        if alterations:
+            id_mapping.make_id_alterations_rc_file(alterations)
     
     def parseClientTraffic(self, text, **kw):
         for cls in self.serverClass.getTrafficClasses(incoming=True):

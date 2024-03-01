@@ -1,6 +1,7 @@
 from .capturepython import interceptPython
 from .capturecommand import interceptCommand
 from .fileedittraffic import FileEditTraffic
+from .id_mapping import ID_ALTERATIONS_RC_FILE
 from .config import CaptureMockReplayError, RECORD, REPLAY, REPLAY_OLD_RECORD_NEW
 from . import config, cmdlineutils
 import os, sys, shutil, filecmp, subprocess, tempfile, types
@@ -216,27 +217,6 @@ def commandline():
         shutil.rmtree(interceptDir)
     terminate()
 
-def read_alterations_line(fn):
-    with open(fn) as f:
-        for line in f:
-            if line.startswith("alterations ="):
-                return line.strip() + ","
-
-def make_id_alterations_rc_file(id_mapping):
-    fn = "id_alterations.rc"
-    if os.path.isfile(fn):
-        alterations_line = read_alterations_line(fn)
-    else:
-        alterations_line = "alterations = "
-    with open(fn, "a") as f:
-        f.write("[general]\n")
-        f.write(alterations_line + ",".join(id_mapping) + "\n\n")
-        for old_id, new_id in id_mapping.items():
-            f.write("[" + old_id + "]\n")
-            f.write('match_pattern = ' + old_id + '\n')
-            f.write('replacement = ' + new_id + '\n')
-    return fn    
-
 def texttest_is_recording():
     return int(os.getenv("TEXTTEST_CAPTUREMOCK_MODE", "0")) == RECORD or os.getenv("TEXTTEST_CAPTUREMOCK_REPLAY") is None
 
@@ -260,10 +240,8 @@ def replay_for_server(rcFile=None, replayFile=None, recordFile=None, serverAddre
     if serverAddress:
         from .clientservertraffic import ClientSocketTraffic
         ClientSocketTraffic.setServerLocation(serverAddress, True)
-    id_mapping = dispatcher.replay_all(**kw)
-    if id_mapping:
-        return make_id_alterations_rc_file(id_mapping)
-
+    dispatcher.replay_all(**kw)
+    
 def add_timestamp_data(data_by_timestamp, given_ts, fn, currText, fn_timestamps):
     if currText.startswith("->"): # it's a reply, must match with best client traffic
         index = bisect.bisect(fn_timestamps, given_ts)

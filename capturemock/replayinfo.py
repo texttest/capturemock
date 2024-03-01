@@ -1,35 +1,13 @@
 """ Module to manage the information in the file and return appropriate matches """
 
-import logging, difflib, re, os
+import logging, difflib, re
 from pprint import pformat
 try: # Python 2.7, Python 3.x
     from collections import OrderedDict
 except ImportError: # Python 2.6 and earlier
     from ordereddict import OrderedDict
 
-from capturemock import config
-
-class IdFinder:
-    def __init__(self, rcHandler, pattern_key):
-        idPatternStr = rcHandler.get(pattern_key, [ "general"], "")
-        self.idPattern = None
-        if idPatternStr:
-            self.idPattern = re.compile(idPatternStr, re.DOTALL)
-            
-    def __bool__(self):
-        return bool(self.idPattern)
-            
-    def extractIdFromText(self, text):
-        idMatch = self.idPattern.match(text)
-        if idMatch is not None:
-            groups = idMatch.groups()
-            if len(groups) > 0:
-                for group in reversed(groups):
-                    if group is not None:
-                        return group
-            else:
-                return idMatch.group(0)
-
+from capturemock import config, id_mapping
 
 class ReplayInfo:
     def __init__(self, mode, replayFile, rcHandler):
@@ -39,9 +17,10 @@ class ReplayInfo:
         self.replayAll = mode == config.REPLAY
         self.exactMatching = rcHandler.getboolean("use_exact_matching", [ "general" ], False)
         self.idFinder = None
+        self.idMap = {}
         self.prevResponseMapKeys = set()
         if replayFile:
-            self.idFinder = IdFinder(rcHandler, "id_pattern_client")
+            self.idFinder = id_mapping.IdFinder(rcHandler, "id_pattern_client")
             trafficList = self.readIntoList(replayFile)
             self.parseTrafficList(trafficList)
             items = self.makeCommandItems(rcHandler.getIntercepts("command line")) + \
@@ -169,6 +148,10 @@ class ReplayInfo:
             if recordId:
                 replayTrafficText = replayTrafficDesc.split(":", 1)[-1]
                 replayId = self.idFinder.extractIdFromText(replayTrafficText)
+                if replayId not in self.idMap:
+                    new_map = { replayId: recordId }
+                    id_mapping.make_id_alterations_rc_file(new_map)
+                    self.idMap.update(new_map)
         
         return replayId, recordId
 
