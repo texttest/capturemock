@@ -96,6 +96,9 @@ class ClassicTrafficServer:
     def __init__(self):
         self.terminate = False
         self.requestCount = 0
+        # Default value of 5 isn't very much...
+        # There doesn't seem to be any disadvantage of allowing a longer queue, so we will increase it by a lot...
+        self.request_queue_size = 500
 
     def run(self):
         while not self.terminate:
@@ -426,6 +429,9 @@ class HTTPTrafficServer(HTTPServer):
         return cls((address, 0))
     
     def __init__(self, address):
+        # Default value of 5 isn't very much...
+        # There doesn't seem to be any disadvantage of allowing a longer queue, so we will increase it by a lot...
+        self.request_queue_size = 500
         HTTPServer.__init__(self, address, HTTPTrafficHandler)
     
     def run(self):
@@ -777,9 +783,6 @@ class ServerDispatcher(ServerDispatcherBase):
     def __init__(self, options):
         ServerDispatcherBase.__init__(self, options)
         self.terminate = False
-        # Default value of 5 isn't very much...
-        # There doesn't seem to be any disadvantage of allowing a longer queue, so we will increase it by a lot...
-        self.request_queue_size = 500
         self.server = self.makeServer()
         address = self.server.getAddress()
         self.rcHandler.address = address
