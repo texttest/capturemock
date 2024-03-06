@@ -300,6 +300,8 @@ class PrefixContext:
         servers = set()
         clients = set()
         for _, client, server in self.fns.values():
+            if client in self.strictOrderClients:
+                return False
             servers.add(server)
             clients.add(client)
         return len(servers) == 1 and len(clients) > 1
