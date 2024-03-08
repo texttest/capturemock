@@ -149,7 +149,7 @@ class AMQPTraffic(traffic.Traffic):
                 timestamp = props.headers.get("timestamp")
                 if timestamp is None:
                     timestamp = datetime.now().isoformat()
-            for header, value in props.headers.items():
+            for header, value in sorted(props.headers.items()):
                 if header != "timestamp":
                     text += self.headerStr + header + "=" + value
                 if header == "originfile":
