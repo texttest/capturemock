@@ -1,6 +1,5 @@
 #!/usr/bin/env python
-from distutils.core import setup
-from distutils.command.install_scripts import install_scripts
+from setuptools import setup
 import os, shutil
 
 if os.name == "nt":
