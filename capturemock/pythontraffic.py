@@ -457,7 +457,7 @@ class PythonFunctionCallTraffic(PythonModuleTraffic):
                     
     def makePythonName(self, arg):
         # Swiped from http://stackoverflow.com/questions/3303312/how-do-i-convert-a-string-to-a-valid-variable-name-in-python
-        return re.sub('\W|^(?=\d)','_', arg.strip().lower())
+        return re.sub(r'\W|^(?=\d)','_', arg.strip().lower())
 
     def getNamingHint(self):
         def isSuitable(arg):

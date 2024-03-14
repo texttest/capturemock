@@ -3,6 +3,7 @@
 
 import sys, os, logging, inspect, types, sysconfig
 from . import pythonclient, config
+import importlib.util
 
 class CallStackChecker:
     def __init__(self, rcHandler):
@@ -150,9 +151,9 @@ class ImportHandler:
                     return True
         return False
         
-    def find_module(self, name, *args):
+    def find_spec(self, name, *args):
         if self.shouldIntercept(name):
-            return self
+            return importlib.util.spec_from_loader(name, self)
 
     def load_module(self, name):
         self.interceptedNames.add(name)
