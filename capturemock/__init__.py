@@ -319,11 +319,14 @@ class PrefixContext:
             if len(self.fns) > 0:
                 currClient, currServer = self.find_most_recent()
             if currClient is not None:
-                if client == currClient and client not in self.strictOrderClients:
-                    self.remove_non_matching(client, 1)
-                elif server == currServer:
-                    removed = self.remove_non_matching(server, 2)
-                    self.sort_clients(removed)
+                if client not in self.strictOrderClients:
+                    if client == currClient:
+                        self.remove_non_matching(client, 1)
+                    elif server == currServer:
+                        removed = self.remove_non_matching(server, 2)
+                        self.sort_clients(removed)
+                    else:
+                        self.clear()
                 else:
                     self.clear()
 
