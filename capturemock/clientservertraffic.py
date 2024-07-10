@@ -116,14 +116,15 @@ class HTTPClientTraffic(ClientSocketTraffic):
     headerStr = "--HEA:"
     fileContentsStr = "<File Contents for %s>"
     # Copied from https://developer.mozilla.org/en-US/docs/Glossary/Forbidden_header_name
-    defaultIgnoreHeaders = [ "Accept-Charset", "Accept-Encoding", "Access-Control-Request-Headers", "Access-Control-Request-Method",
-                             "Connection", "Content-Length", "Cookie", "Date", "DNT", "Expect", "Host", "Keep-Alive", "Origin",
-                             "Permissions-Policy", "Referer", "TE", "Trailer", "Upgrade", "User-Agent", "Via" ]
-    defaultValues = {"Content-Type": "application/x-www-form-urlencoded"}
+    defaultIgnoreHeaders = [ "accept-charset", "accept-encoding", "access-control-request-headers", "access-control-request-method",
+                             "connection", "content-length", "cookie", "date", "dnt", "expect", "host", "keep-alive", "origin",
+                             "permissions-policy", "referer", "te", "trailer", "upgrade", "user-agent", "via" ]
+    defaultValues = {"content-type": "application/x-www-form-urlencoded"}
     repeatCache = {}
     def __init__(self, text=None, responseFile=None, rcHandler=None, method="GET", path="/", headers={}, handler=None, **kw):
         self.handler = handler
-        self.ignoreHeaders = self.defaultIgnoreHeaders + rcHandler.getList("ignore_http_headers", [ "general" ])
+        ignoreFromConfig = [ h.lower() for h in rcHandler.getList("ignore_http_headers", [ "general" ]) ]
+        self.ignoreHeaders = self.defaultIgnoreHeaders + ignoreFromConfig
         self.headers = rcHandler.getSection("default_http_headers")
         if responseFile is not None: # record
             self.method = method
@@ -163,10 +164,10 @@ class HTTPClientTraffic(ClientSocketTraffic):
     def getHeaderText(self, headers):
         text = ""
         for header, value in sorted(headers, key=lambda item: item[0].lower()):
-            if header not in self.ignoreHeaders and header.capitalize() not in self.ignoreHeaders and \
-                self.defaultValues.get(header) != value and \
-                not header.lower().startswith("sec-") and not header.lower().startswith("proxy-") and \
-                not header.lower().startswith("x-forwarded"):
+            low_header = header.lower()
+            if low_header not in self.ignoreHeaders and self.defaultValues.get(low_header) != value.lower() and \
+                not low_header.startswith("sec-") and not low_header.startswith("proxy-") and \
+                not low_header.startswith("x-forwarded"):
                 text += "\n" + self.headerStr + header + "=" + value
         return text
     
