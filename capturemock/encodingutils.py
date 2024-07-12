@@ -10,5 +10,8 @@ def decodeBytes(rawBytes):
         return "0x" + rawBytes.hex()
 
 def encodeString(textStr):
-    rawBytes = textStr.encode(getpreferredencoding())
-    return rawBytes.replace(b"\n", b"\r\n")
+    if textStr.startswith("0x"):
+        return bytes.fromhex(textStr[2:])
+    else:
+        rawBytes = textStr.encode(getpreferredencoding())
+        return rawBytes.replace(b"\n", b"\r\n")
