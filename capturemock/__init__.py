@@ -18,6 +18,14 @@ class CaptureMockManager:
         self.serverProcess = None
         self.serverAddress = None
 
+
+    def readServerAddress(self):
+        address = self.serverProcess.stdout.readline().strip()
+        while self.serverProtocol == "amqp" and address and not "/" in address:
+            # pika connection setup seems to write errors to stdout sometimes, throw them away
+            address = self.serverProcess.stdout.readline().strip()
+        return address
+
     def startServer(self,
                     mode,
                     recordFile,
@@ -50,8 +58,8 @@ class CaptureMockManager:
                                                     sutDirectory,
                                                     environment,
                                                     stderrFn)
-            self.serverAddress = self.serverProcess.stdout.readline().strip()
             self.serverProtocol = rcHandler.get("server_protocol", [ "general" ], "classic")
+            self.serverAddress = self.readServerAddress()
 
             # And environment it shouldn't get...
             environment["CAPTUREMOCK_SERVER"] = self.serverAddress

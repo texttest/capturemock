@@ -82,7 +82,11 @@ def stopServer(servAddr, protocol):
         s.shutdownCaptureMockServer()
     elif protocol == "amqp":
         from .amqptraffic import AMQPTrafficServer
-        AMQPTrafficServer.sendTerminateMessage(servAddr)
+        if servAddr and "/" in servAddr:
+            AMQPTrafficServer.sendTerminateMessage(servAddr)
+        else:
+            print("AMQP CaptureMock server had invalid address at " + servAddr + \
+                  ", probably did not start.", file=sys.stderr)
     else:
         try:
             protocol = socket.SOCK_DGRAM if protocol == "classic_udp" else socket.SOCK_STREAM

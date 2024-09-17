@@ -27,28 +27,37 @@ class AMQPConnector:
         params = pika.URLParameters(self.url)
         if connName:
             params.client_properties = { 'connection_name' : connName }
-        self.connection = pika.BlockingConnection(params)
-        self.channel = self.connection.channel()
-        if self.exchange_type:
-            self.channel.exchange_declare(self.exchange, exchange_type=self.exchange_type, durable=self.durable, auto_delete=self.auto_delete)
-        if self.exchange_forward and not self.exchange_forward_prefix:
-            self.channel.exchange_bind(self.exchange_forward, self.exchange, routing_key="#")
+        try:
+            self.connection = pika.BlockingConnection(params)
+            self.channel = self.connection.channel()
+            if self.exchange_type:
+                self.channel.exchange_declare(self.exchange, exchange_type=self.exchange_type, durable=self.durable, auto_delete=self.auto_delete)
+            if self.exchange_forward and not self.exchange_forward_prefix:
+                self.channel.exchange_bind(self.exchange_forward, self.exchange, routing_key="#")
+        except pika.exceptions.AMQPConnectionError as e:
+            print("Failed to connect to RabbitMQ at", self.url, file=sys.stderr)
+            print(e.args, file=sys.stderr)
+            self.connection = None
+            self.channel = None
         
     def get_queue_name(self):
         return self.exchange + ".capturemock"
 
     def setup_recording(self, on_message):
-        queue = self.get_queue_name()
-        self.channel.queue_declare(queue, durable=True, auto_delete=True)
-        self.channel.queue_bind(queue, self.exchange, routing_key="#")
-        self.channel.basic_consume(queue, on_message)        
+        if self.channel:
+            queue = self.get_queue_name()
+            self.channel.queue_declare(queue, durable=True, auto_delete=True)
+            self.channel.queue_bind(queue, self.exchange, routing_key="#")
+            self.channel.basic_consume(queue, on_message)        
     
     def record_from_queue(self):
-        try:
-            self.channel.start_consuming()
-        except KeyboardInterrupt:
-            self.channel.stop_consuming()
-        self.connection.close()
+        if self.channel:
+            try:
+                self.channel.start_consuming()
+            except KeyboardInterrupt:
+                self.channel.stop_consuming()
+        if self.connection:
+            self.connection.close()
         
     def replay(self, routing_key, body, props, headers):
         if routing_key or self.exchange_type != "topic":
@@ -62,8 +71,9 @@ class AMQPConnector:
         
     def sendTerminateMessage(self):
         try:
-            properties = pika.BasicProperties(content_type='text/plain', delivery_mode=pika.spec.TRANSIENT_DELIVERY_MODE)
-            self.channel.basic_publish(self.exchange, self.own_routing_key, self.terminate_body, properties=properties, mandatory=True)
+            if self.channel:
+                properties = pika.BasicProperties(content_type='text/plain', delivery_mode=pika.spec.TRANSIENT_DELIVERY_MODE)
+                self.channel.basic_publish(self.exchange, self.own_routing_key, self.terminate_body, properties=properties, mandatory=True)
         except pika.exceptions.UnroutableError as e:
             print("Failed to send terminate message to CaptureMock!\n", e, file=sys.stderr)
         
@@ -89,7 +99,9 @@ class AMQPTrafficServer:
     def __init__(self, dispatcher):
         self.count = 0
         self.dispatcher = dispatcher
+        self.dispatcher.diag.debug("Starting AMQP Connector for recording...")
         self.connector = AMQPConnector(self.dispatcher.rcHandler, connName="CaptureMock recorder")
+        self.dispatcher.diag.debug("Setting up recording")
         self.connector.setup_recording(self.on_message)
         
     def on_message(self, channel, method_frame, header_frame, body):
