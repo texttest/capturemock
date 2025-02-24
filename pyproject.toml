@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "CaptureMock"
+dynamic = ["version"]
+description = "A tool for creating mocks via a capture-replay style approach"
+readme = "README.txt"
+license = { file="LICENSE" }
+requires-python = ">=3.9"
+authors = [
+    { name = "Geoff Bache", email = "geoff.bache@pobox.com" },
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: GNU Library or Lesser General Public License (LGPL)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: Testing",
+]
+
+[project.urls]
+Homepage = "http://www.texttest.org/index.php?page=capturemock"
+Documentation = "http://www.texttest.org/index.php?page=capturemock"
+Repository = "https://github.com/texttest/capturemock"
+Issues = "https://github.com/texttest/capturemock/issues/"
+
+[project.scripts]
+capturemock = "capturemock:commandline"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["capturemock"]
+namespaces = false
+
+[tool.setuptools.package-data]
+capturemock = ["*.exe"]
+
+[tool.setuptools.dynamic]
+version = {attr = "capturemock.version"}
