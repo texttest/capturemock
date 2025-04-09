@@ -240,7 +240,11 @@ class BinaryTrafficConverter:
                     body += extraBody[intermHeaderLength:]
                 
         bodyReader = BinaryMessageConverter(self.rcHandler, body_type)
-        textParts = [ self.headerConverter.getHeaderDescription(header_fields) for header_fields in self.header_fields_list ]
+        textParts = []
+        for header_fields in self.header_fields_list:
+            header = self.headerConverter.getHeaderDescription(header_fields)
+            if header:
+                textParts.append(header)
         if bodyReader.hasData():
             _, body_values = bodyReader.parse(body, self.diag)
             self.diag.debug("Got body %s", body_values)
@@ -615,7 +619,11 @@ class BinaryMessageConverter:
             if key not in [ "type", "length" ] and (self.padding or key != "msg_size") and \
                 self.assume.get(key) != strval and self.incompleteMarkers.get(key) != strval:
                 filtered_fields[key] = value
-        return toString(msgType) + " " + repr(filtered_fields)
+        parts = []
+        if msgType is not None:
+            return toString(msgType) + " " + repr(filtered_fields)
+        elif filtered_fields:
+            return repr(filtered_fields)
 
     def parseHeaderDescription(self, text, final=True):
         if " " in text:
