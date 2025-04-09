@@ -653,7 +653,7 @@ class CaptureMockDecorator(object):
                                              "or update the stored mock file by hand.")
 
     def getFileNameRoot(self, funcName, callingFile):
-        dirName = os.path.join(os.path.dirname(callingFile), "capturemock")
+        dirName = os.path.join(os.path.dirname(callingFile), "mocks")
         if not os.path.isdir(dirName):
             os.makedirs(dirName)
         return os.path.join(dirName, funcName.replace("test_", "") + ".mock")
