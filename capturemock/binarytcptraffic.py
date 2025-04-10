@@ -72,9 +72,9 @@ def fromString(data, stringOnly=False):
         return data
 
 class BinaryTrafficConverter:
-    header_timeout = 0.5
     def __init__(self, rcHandler, sock):
         self.rcHandler = rcHandler
+        self.header_timeout = rcHandler.getfloat("header_timeout", [ "general" ], 0.5)
         self.update_socket(sock)
         self.headerConverter = BinaryMessageConverter(rcHandler, "tcp_header")
         self.footerConverter = BinaryMessageConverter(rcHandler, "tcp_footer")

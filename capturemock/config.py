@@ -49,6 +49,12 @@ class RcFileHandler:
     def getboolean(self, *args):
         return self._get(self.parser.getboolean, *args)
 
+    def getfloat(self, *args):
+        return self._get(self.parser.getfloat, *args)
+
+    def getint(self, *args):
+        return self._get(self.parser.getint, *args)
+
     def _get(self, getMethod, setting, sections, defaultVal=None):
         for section in sections:
             if self.parser.has_section(section) and self.parser.has_option(section, setting):
