@@ -39,7 +39,7 @@ include = ["capturemock"]
 namespaces = false
 
 [tool.setuptools.package-data]
-capturemock = ["*.exe"]
+capturemock = ["*.exe", "log/logging.conf"]
 
 [tool.setuptools.dynamic]
 version = {attr = "capturemock.version"}

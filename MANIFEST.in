@@ -1,5 +1,5 @@
 include README.txt
 include capturemock/python_script.exe
+recursive-include capturemock/log *
 recursive-include doc *
-recursive-include log *
 recursive-include bin *
