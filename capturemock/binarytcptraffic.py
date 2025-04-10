@@ -49,12 +49,13 @@ class BinaryServerSocketTraffic(clientservertraffic.ServerTraffic):
     def forwardToDestination(self):
         return []
 
-def toString(data):
+def toString(data, fixNewLines=False):
     if isinstance(data, tuple): # produced by variable types, assume the key data is at the end
         return toString(data[-1])
     elif isinstance(data, bytes):
         try:
-            return data.decode()
+            text = data.decode()
+            return text.replace("\r", "<CR>").replace("\n", "<LF>") if fixNewLines else text
         except UnicodeDecodeError:
             return "0x" + data.hex()
     else:
@@ -252,8 +253,9 @@ class BinaryTrafficConverter:
             self.diag.debug("hf %s", repr(self.header_fields_list))
             textParts.append(pformat(body_values, sort_dicts=False, width=200))
         else:
-            self.diag.debug("Config section not found: %s", body_type)
-            textParts.append(toString(body))
+            if body_type != "None":
+                self.diag.debug("Config section not found: %s", body_type)
+            textParts.append(toString(body, fixNewLines=True))
         self.text = "\n".join(textParts)
         self.diag.debug("Recording %s", self.text)
         return self.text
@@ -311,7 +313,7 @@ class BinaryTrafficConverter:
             self.diag.debug("Body fields %s", body_values)
             body_payload = bodyConv.fields_to_payload(body_values, self.diag)
         else:
-            body_payload = text.encode()
+            body_payload = text.replace("<CR>", "\r").replace("<LF>", "\n").encode()
         body_payloads = self.split_body(body_payload, len(self.header_fields_list))
         payload = b""
         for i, (header_fields, header_payload, body_payload) in enumerate(zip(self.header_fields_list, header_payloads, body_payloads)):
