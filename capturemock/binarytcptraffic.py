@@ -659,13 +659,23 @@ class BinaryMessageConverter:
         elif "parameters" in values:
             data += values["parameters"]
 
+        return self.pack_data(data, diag)
+
+    def pack_data(self, data, diag):
         diag.debug("Formats %s", self.formats)
         for fmt in self.formats:
             try:
                 diag.debug("packing data %s", data)
                 return self.pack(fmt, data, diag)
             except struct.error as e:
-                diag.debug("Failed to pack due to %s", str(e))
+                errText = str(e)
+                diag.debug("Failed to pack due to %s", errText)
+                if "not an integer" in errText and "type" in self.fields:
+                    # The type can be an integer or a string, if we've got here it's probably an integer...
+                    ix = self.fields.index("type")
+                    if data[ix].isdigit():
+                        data[ix] = int(data[ix])
+                        return self.pack_data(data, diag)
 
     def get_parameter_key(self, values):
         return
