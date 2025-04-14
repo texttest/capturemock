@@ -77,6 +77,9 @@ def stopServer(servAddr, protocol):
         except socket.error:
             print("Could not send terminate message to CaptureMock server at " + servAddr + \
                   ", seemed not to be running anyway.", file=sys.stderr)
+    elif protocol == "ftp":
+        from .ftptraffic import FtpTrafficServer
+        FtpTrafficServer.sendTerminateMessage(servAddr)
     elif protocol == "xmlrpc":
         s = ServerProxy(servAddr)
         s.shutdownCaptureMockServer()
@@ -551,6 +554,9 @@ class ServerDispatcherBase:
         elif protocol == "tcp_header":
             from capturemock.binarytcptraffic import TcpHeaderTrafficServer
             return TcpHeaderTrafficServer
+        elif protocol == "ftp":
+            from capturemock.ftptraffic import FtpTrafficServer
+            return FtpTrafficServer
         elif protocol == "http":
             return HTTPTrafficServer
         elif protocol == "xmlrpc":
