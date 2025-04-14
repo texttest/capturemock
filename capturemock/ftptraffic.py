@@ -55,7 +55,7 @@ class FTPTrafficHandler(FTPHandler):
 class FtpTrafficServer:
     @classmethod
     def createServer(cls, address, dispatcher):
-        return cls((address.replace("127.0.0.1", "localhost"), 0), dispatcher)
+        return cls((address, 0), dispatcher)
     
     def __init__(self, address, dispatcher):
         self.count = 0
