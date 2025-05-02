@@ -690,6 +690,13 @@ class BinaryMessageConverter:
         return cls.find_close_bracket(fmt, next_close + 1, bracket_char, close_bracket_char)
 
     @classmethod
+    def find_length_format_index(cls, curr_fmt):
+        ix = -1
+        while curr_fmt[ix] == "x" or curr_fmt[ix].isdigit():
+            ix -= 1
+        return ix
+
+    @classmethod
     def split_format(cls, fmt):
         ix = 0
         endianchar = fmt[0]
@@ -699,12 +706,13 @@ class BinaryMessageConverter:
         while ix < len(fmt):
             currChar = fmt[ix]
             if currChar in specialChars:
-                prev = curr_fmt[:-1]
+                length_fmt_ix = cls.find_length_format_index(curr_fmt)
+                prev = curr_fmt[:length_fmt_ix]
                 if prev and prev != endianchar:
                     if not prev.startswith(endianchar):
                         prev = endianchar + prev
                     converters.append(StructConverter(prev))
-                lengthFmt = endianchar + curr_fmt[-1]
+                lengthFmt = endianchar + curr_fmt[length_fmt_ix:]
                 if currChar == "[":
                     closePos = cls.find_close_bracket(fmt, ix, "[", "]")
                     fmtPart = fmt[ix + 1:closePos]
@@ -821,6 +829,7 @@ class BinaryMessageConverter:
         for key, value in self.assume.items():
             if key not in field_values:
                 field_values[key] = value
+        self.transform_for_sigbytes(field_values)
         return ok, field_values
 
     def try_convert(self, field, value):
@@ -888,7 +897,68 @@ class BinaryMessageConverter:
                 new_element.append(self.try_deconvert(name, value))
             new_list.append(tuple(new_element))
         return new_list
+    
+    @classmethod
+    def transform_for_sigbytes(cls, field_values):
+        remove_keys = set()
+        sigbyte_data = {}
+        for key, value in field_values.items():
+            if key.endswith("_leastsig") or key.endswith("_mostsig"):
+                calc = SigByteCalculation(key, value)
+                curr_calc = sigbyte_data.get(calc.root)
+                if curr_calc:
+                    curr_calc.update(calc)
+                else:
+                    sigbyte_data[calc.root] = calc
+                remove_keys.add(key)
+            elif isinstance(value, dict):
+                cls.transform_for_sigbytes(value)
+            elif isinstance(value, list):
+                for item in value:
+                    cls.transform_for_sigbytes(item)
+        for key, calculation in sigbyte_data.items():
+            field_values[calculation.root] = calculation.value()
 
+        for key in remove_keys:
+            del field_values[key]
+
+        return field_values
+ 
+class SigByteCalculation:
+    def __init__(self, key, value):
+        self.leastsig, self.mostsig = None, None
+        self.root, num, least = self.parse_key(key)
+        if least:
+            self.leastsig = value
+            self.leastsize = num
+        else:
+            self.mostsig = value
+            self.leastsize = None
+
+    def parse_key(self, key):
+        parts = key.split("_")
+        least = parts[-1] == "leastsig"
+        if parts[-2].isdigit():
+            num = int(parts[-2])
+            root = "_".join(parts[:-2])
+        else:
+            num = 1
+            root = "_".join(parts[:-1])
+        return root, num, least
+    
+    def update(self, other):
+        if self.leastsig is None:
+            self.leastsig = other.leastsig
+        if self.mostsig is None:
+            self.mostsig = other.mostsig
+        if self.leastsize is None:
+            self.leastsize = other.leastsize
+
+    def value(self):
+        return (self.mostsig << (self.leastsize * 8)) | self.leastsig
+
+        
+        
 
 class TcpHeaderTrafficServer:
     connection_timeout = 0.2
@@ -1043,7 +1113,7 @@ if __name__ == "__main__":
     #fmt = "<i[i$i[i$]i$Ii$i$i$B]"
     #fmt = "<q3Ii[i$]BHIBHIdi$i$Ii[i$i$i$Bi$Ii$i$i[i$]i$Ii$i$i$B]i[i$]i$i$I"
     #fmt = "<q3Ii[i$]i[B(x|B(x|?|b|B|h|H|i|I|q|Q|f|d|i$|128=i[])|I|B(x|?|b|B|h|H|i|I|q|Q|f|d|i$|128=i[])I)]i[B]"
-    fmt = "<i[B(1=B(|?|b|B|h|H|i|I|q|Q|f|d|i$|128=i[])|2=I|4=q|8=H|16=q|32=H)]"
+    fmt = ">2I2HII4x[3I4B]"
     # fmt = "<5Ii$"
     # fmt = "<Ii$i$i$2I2BH"
     # fmt = "<4I2BH2Bq2Ii$I3Bi$i$Bi$Ii$i$i[i$]i$i$i$i$i$dI"
@@ -1124,4 +1194,41 @@ if __name__ == "__main__":
     #     text, _ = conv.read_and_parse()
     #     print("\nNew:", text)
     #
-
+    from pprint import pprint
+    data = {'frame_number': 0,
+ 'capture_time_4_leastsig': 985001002,
+ 'frame_status': 0,
+ 'capture_time_mostsig': 15,
+ 'subsamp_gain_exposure_smpte': 25600,
+ 'markers': [{'ypos_leastsig': 162,
+              'xpos_mostsig': 0,
+              'xpos_leastsig': 49884,
+              'xradius_leastsig': 159,
+              'ypos_mostsig': 8,
+              'yradius_mostsig': 0,
+              'yradius_leastsig': 94,
+              'xradius_mostsig': 0,
+              'quality2': 100,
+              'quality1': 40},
+             {'ypos_leastsig': 254,
+              'xpos_mostsig': 0,
+              'xpos_leastsig': 51967,
+              'xradius_leastsig': 108,
+              'ypos_mostsig': 8,
+              'yradius_mostsig': 0,
+              'yradius_leastsig': 166,
+              'xradius_mostsig': 0,
+              'quality2': 31,
+              'quality1': 53},
+             {'ypos_leastsig': 75,
+              'xpos_mostsig': 0,
+              'xpos_leastsig': 19349,
+              'xradius_leastsig': 272,
+              'ypos_mostsig': 12,
+              'yradius_mostsig': 0,
+              'yradius_leastsig': 221,
+              'xradius_mostsig': 0,
+              'quality2': 48,
+              'quality1': 18}]}
+    pprint(BinaryMessageConverter.transform_for_sigbytes(data))
+    pprint(data)
