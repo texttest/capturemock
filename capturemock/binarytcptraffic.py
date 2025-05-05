@@ -642,18 +642,37 @@ class BinaryMessageConverter:
                 fields[key] = fromString(value)
                 
         return fields
+    
+    def extract_sigbytes(self, field, values, fields):
+        root, num, least = SigByteCalculation.parse_key(field)
+        value = values.get(root)
+        if least:
+            bitshift = num * 8
+            return value & (2 ** bitshift - 1)
+        else:
+            leastsig_fields = [ field for field in fields if field.startswith(root) and field.endswith("_leastsig") ]
+            _, num, _ = SigByteCalculation.parse_key(leastsig_fields[0])
+            return value >> (num * 8)
 
-    def fields_to_payload(self, values, diag):
+    def fields_to_data(self, values, fields, diag):
         data = []
-        diag.debug("Fields %s", self.fields)
-        for field in self.fields:
+        diag.debug("Fields %s", fields)
+        for field in fields:
             if field in values:
-                diag.debug("Packing field %s %s", field, values[field])
-                data.append(self.try_deconvert(field, values[field]))
+                value = values[field]
+                diag.debug("Packing field %s %s", field, value)
+                data.append(self.try_deconvert(field, value, diag))
+            elif field.endswith("_leastsig") or field.endswith("_mostsig"):
+                value = self.extract_sigbytes(field, values, fields)
+                diag.debug("Extracted sigbyte field %s %s", field, value)
+                data.append(self.try_deconvert(field, value, diag))
             else:
                 diag.debug("No data for field %s, packing None", field)
                 data.append(None)
+        return data
 
+    def fields_to_payload(self, values, diag):
+        data = self.fields_to_data(values, self.fields, diag)
         if "additional_params" in values:
             data += values["additional_params"]
         elif "parameters" in values:
@@ -866,11 +885,11 @@ class BinaryMessageConverter:
             new_list.append(new_element)
         return new_list
 
-    def try_deconvert(self, field, value):
+    def try_deconvert(self, field, value, diag):
         if isinstance(value, str):
             return self.try_deconvert_enum(field, value)
         elif isinstance(value, list):
-            return self.try_deconvert_list(field, value)
+            return self.try_deconvert_list(field, value, diag)
         else:
             return value
 
@@ -884,17 +903,14 @@ class BinaryMessageConverter:
         else:
             return value
 
-    def try_deconvert_list(self, field, listvalue):
+    def try_deconvert_list(self, field, listvalue, diag):
         element_names = self.rcHandler.getList(field, [ "list_elements"])
         if len(element_names) == 0 or not all((isinstance(element, dict) for element in listvalue)):
             return listvalue
 
         new_list = []
         for element in listvalue:
-            new_element = []
-            for name in element_names:
-                value = element.get(name)
-                new_element.append(self.try_deconvert(name, value))
+            new_element = self.fields_to_data(element, element_names, diag)
             new_list.append(tuple(new_element))
         return new_list
     
@@ -935,7 +951,8 @@ class SigByteCalculation:
             self.mostsig = value
             self.leastsize = None
 
-    def parse_key(self, key):
+    @classmethod
+    def parse_key(cls, key):
         parts = key.split("_")
         least = parts[-1] == "leastsig"
         if parts[-2].isdigit():
@@ -1202,8 +1219,8 @@ if __name__ == "__main__":
  'subsamp_gain_exposure_smpte': 25600,
  'markers': [{'ypos_leastsig': 162,
               'xpos_mostsig': 0,
-              'xpos_leastsig': 49884,
-              'xradius_leastsig': 159,
+              'xpos_2_leastsig': 49884,
+              'xradius_2_leastsig': 159,
               'ypos_mostsig': 8,
               'yradius_mostsig': 0,
               'yradius_leastsig': 94,
@@ -1212,8 +1229,8 @@ if __name__ == "__main__":
               'quality1': 40},
              {'ypos_leastsig': 254,
               'xpos_mostsig': 0,
-              'xpos_leastsig': 51967,
-              'xradius_leastsig': 108,
+              'xpos_2_leastsig': 51967,
+              'xradius_2_leastsig': 108,
               'ypos_mostsig': 8,
               'yradius_mostsig': 0,
               'yradius_leastsig': 166,
@@ -1222,8 +1239,8 @@ if __name__ == "__main__":
               'quality1': 53},
              {'ypos_leastsig': 75,
               'xpos_mostsig': 0,
-              'xpos_leastsig': 19349,
-              'xradius_leastsig': 272,
+              'xpos_2_leastsig': 19349,
+              'xradius_2_leastsig': 272,
               'ypos_mostsig': 12,
               'yradius_mostsig': 0,
               'yradius_leastsig': 221,
@@ -1231,3 +1248,42 @@ if __name__ == "__main__":
               'quality2': 48,
               'quality1': 18}]}
     pprint(BinaryMessageConverter.transform_for_sigbytes(data), sort_dicts=False)
+    class FakeRcHandler:
+        def getList(self, key, sections):
+            if key == "fields":
+                return "frame_number,capture_time_4_leastsig,frame_status,capture_time_mostsig,subsamp_gain_exposure_smpte,markers".split(",")
+            elif key == "format":
+                return [">2I2HII4x[2B3HBHB2x2B]"]
+            elif "list_elements" in sections:
+                return "ypos_leastsig,xpos_mostsig,xpos_2_leastsig,xradius_2_leastsig,ypos_mostsig,yradius_mostsig,yradius_leastsig,xradius_mostsig,quality2,quality1".split(",")
+            else:
+                return []
+            
+        def getboolean(self, *args):
+            return False
+    bodyConv = BinaryMessageConverter(FakeRcHandler(), "18")
+    body_values = {'frame_number': 0,
+ 'capture_time': 65409510442,
+ 'frame_status': 0,
+ 'subsamp_gain_exposure_smpte': 25600,
+ 'markers': [{'ypos': 2210,
+              'xpos': 49884,
+              'xradius': 159,
+              'yradius': 94,
+              'quality2': 100,
+              'quality1': 40},
+             {'ypos': 2302,
+              'xpos': 51967,
+              'xradius': 108,
+              'yradius': 166,
+              'quality2': 31,
+              'quality1': 53},
+             {'ypos': 3147,
+              'xpos': 19349,
+              'xradius': 272,
+              'yradius': 221,
+              'quality2': 48,
+              'quality1': 18}]}
+    logging.basicConfig(level=logging.DEBUG)
+    diag = logging.getLogger()
+    pprint(bodyConv.fields_to_payload(body_values, diag))
