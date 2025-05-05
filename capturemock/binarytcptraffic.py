@@ -900,29 +900,29 @@ class BinaryMessageConverter:
     
     @classmethod
     def transform_for_sigbytes(cls, field_values):
-        remove_keys = set()
-        sigbyte_data = {}
+        if not any(key.endswith("sig") for key in field_values):
+            return field_values
+        new_field_values = {}
         for key, value in field_values.items():
             if key.endswith("_leastsig") or key.endswith("_mostsig"):
                 calc = SigByteCalculation(key, value)
-                curr_calc = sigbyte_data.get(calc.root)
+                curr_calc = new_field_values.get(calc.root)
                 if curr_calc:
                     curr_calc.update(calc)
                 else:
-                    sigbyte_data[calc.root] = calc
-                remove_keys.add(key)
+                    new_field_values[calc.root] = calc
             elif isinstance(value, dict):
-                cls.transform_for_sigbytes(value)
+                new_field_values[key] = cls.transform_for_sigbytes(value)
             elif isinstance(value, list):
-                for item in value:
-                    cls.transform_for_sigbytes(item)
-        for key, calculation in sigbyte_data.items():
-            field_values[calculation.root] = calculation.value()
+                new_field_values[key] = [ cls.transform_for_sigbytes(item) for item in value ]
+            else:
+                new_field_values[key] = value
+                    
+        for key, calcOrValue in new_field_values.items():
+            if isinstance(calcOrValue, SigByteCalculation):
+                new_field_values[key] = calcOrValue.value()
 
-        for key in remove_keys:
-            del field_values[key]
-
-        return field_values
+        return new_field_values
  
 class SigByteCalculation:
     def __init__(self, key, value):
@@ -1230,5 +1230,4 @@ if __name__ == "__main__":
               'xradius_mostsig': 0,
               'quality2': 48,
               'quality1': 18}]}
-    pprint(BinaryMessageConverter.transform_for_sigbytes(data))
-    pprint(data)
+    pprint(BinaryMessageConverter.transform_for_sigbytes(data), sort_dicts=False)
