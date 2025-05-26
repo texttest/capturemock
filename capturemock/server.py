@@ -620,11 +620,13 @@ class ServerDispatcherBase:
         self.diag.debug("Request text : " + text)
         if text.startswith("TERMINATE_SERVER"):
             self.shutdown()
+            return []
         else:
             traffic = self.parseTraffic(text, wfile)
-            self.process(traffic, reqNo)
+            responses = self.process(traffic, reqNo)
             self.diag.debug("Finished processing incoming request")
-
+            return responses
+        
     def parseTraffic(self, text, wfile):
         for cls in self.getTrafficClasses(incoming=True):
             prefix = cls.socketId + ":" if cls.socketId else ""
