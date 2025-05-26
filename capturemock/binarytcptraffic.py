@@ -123,7 +123,7 @@ class BinaryTrafficConverter:
 
     def is_capturemock_header(self, header):
         lengthCheck = min(len(header), 8)
-        for msg in [ b"SUT_SERV", b"TERMINAT" ]:
+        for msg in [ b"SUT_SERV", b"TERMINAT", b"CAPTUREM" ]:
             if msg[:lengthCheck] == header[:lengthCheck]:
                 return True
         return False
@@ -642,18 +642,37 @@ class BinaryMessageConverter:
                 fields[key] = fromString(value)
                 
         return fields
+    
+    def extract_sigbytes(self, field, values, fields):
+        root, num, least = SigByteCalculation.parse_key(field)
+        value = values.get(root)
+        if least:
+            bitshift = num * 8
+            return value & (2 ** bitshift - 1)
+        else:
+            leastsig_fields = [ field for field in fields if field.startswith(root) and field.endswith("_leastsig") ]
+            _, num, _ = SigByteCalculation.parse_key(leastsig_fields[0])
+            return value >> (num * 8)
 
-    def fields_to_payload(self, values, diag):
+    def fields_to_data(self, values, fields, diag):
         data = []
-        diag.debug("Fields %s", self.fields)
-        for field in self.fields:
+        diag.debug("Fields %s", fields)
+        for field in fields:
             if field in values:
-                diag.debug("Packing field %s %s", field, values[field])
-                data.append(self.try_deconvert(field, values[field]))
+                value = values[field]
+                diag.debug("Packing field %s %s", field, value)
+                data.append(self.try_deconvert(field, value, diag))
+            elif field.endswith("_leastsig") or field.endswith("_mostsig"):
+                value = self.extract_sigbytes(field, values, fields)
+                diag.debug("Extracted sigbyte field %s %s", field, value)
+                data.append(self.try_deconvert(field, value, diag))
             else:
                 diag.debug("No data for field %s, packing None", field)
                 data.append(None)
+        return data
 
+    def fields_to_payload(self, values, diag):
+        data = self.fields_to_data(values, self.fields, diag)
         if "additional_params" in values:
             data += values["additional_params"]
         elif "parameters" in values:
@@ -690,6 +709,13 @@ class BinaryMessageConverter:
         return cls.find_close_bracket(fmt, next_close + 1, bracket_char, close_bracket_char)
 
     @classmethod
+    def find_length_format_index(cls, curr_fmt):
+        ix = -1
+        while curr_fmt[ix] == "x" or curr_fmt[ix].isdigit():
+            ix -= 1
+        return ix
+
+    @classmethod
     def split_format(cls, fmt):
         ix = 0
         endianchar = fmt[0]
@@ -699,12 +725,13 @@ class BinaryMessageConverter:
         while ix < len(fmt):
             currChar = fmt[ix]
             if currChar in specialChars:
-                prev = curr_fmt[:-1]
+                length_fmt_ix = cls.find_length_format_index(curr_fmt)
+                prev = curr_fmt[:length_fmt_ix]
                 if prev and prev != endianchar:
                     if not prev.startswith(endianchar):
                         prev = endianchar + prev
                     converters.append(StructConverter(prev))
-                lengthFmt = endianchar + curr_fmt[-1]
+                lengthFmt = endianchar + curr_fmt[length_fmt_ix:]
                 if currChar == "[":
                     closePos = cls.find_close_bracket(fmt, ix, "[", "]")
                     fmtPart = fmt[ix + 1:closePos]
@@ -821,6 +848,7 @@ class BinaryMessageConverter:
         for key, value in self.assume.items():
             if key not in field_values:
                 field_values[key] = value
+        field_values = self.transform_for_sigbytes(field_values, diag)
         return ok, field_values
 
     def try_convert(self, field, value):
@@ -857,11 +885,11 @@ class BinaryMessageConverter:
             new_list.append(new_element)
         return new_list
 
-    def try_deconvert(self, field, value):
+    def try_deconvert(self, field, value, diag):
         if isinstance(value, str):
             return self.try_deconvert_enum(field, value)
         elif isinstance(value, list):
-            return self.try_deconvert_list(field, value)
+            return self.try_deconvert_list(field, value, diag)
         else:
             return value
 
@@ -875,23 +903,109 @@ class BinaryMessageConverter:
         else:
             return value
 
-    def try_deconvert_list(self, field, listvalue):
+    def try_deconvert_list(self, field, listvalue, diag):
         element_names = self.rcHandler.getList(field, [ "list_elements"])
         if len(element_names) == 0 or not all((isinstance(element, dict) for element in listvalue)):
             return listvalue
 
         new_list = []
         for element in listvalue:
-            new_element = []
-            for name in element_names:
-                value = element.get(name)
-                new_element.append(self.try_deconvert(name, value))
+            new_element = self.fields_to_data(element, element_names, diag)
             new_list.append(tuple(new_element))
         return new_list
+    
+    @classmethod
+    def transform_for_sigbytes(cls, field_values, diag):
+        if not any(key.endswith("sig") for key in field_values):
+            return field_values
+        diag.debug("Transforming for sigbytes...")
+        new_field_values = {}
+        for key, value in field_values.items():
+            if key.endswith("_leastsig") or key.endswith("_mostsig"):
+                diag.debug("sigbytes key %s", key)
+                calc = SigByteCalculation(key, value)
+                curr_calc = new_field_values.get(calc.root)
+                if curr_calc:
+                    curr_calc.update(calc)
+                else:
+                    new_field_values[calc.root] = calc
+            elif isinstance(value, dict):
+                new_field_values[key] = cls.transform_for_sigbytes(value, diag)
+            elif isinstance(value, list):
+                new_field_values[key] = [ cls.transform_for_sigbytes(item, diag) for item in value ]
+            else:
+                new_field_values[key] = value
+                    
+        for key, calcOrValue in new_field_values.items():
+            if isinstance(calcOrValue, SigByteCalculation):
+                new_field_values[key] = calcOrValue.value()
+
+        return new_field_values
+ 
+class SigByteCalculation:
+    def __init__(self, key, value):
+        self.leastsig, self.mostsig = None, None
+        self.root, num, least = self.parse_key(key)
+        if least:
+            self.leastsig = value
+            self.leastsize = num
+        else:
+            self.mostsig = value
+            self.leastsize = None
+
+    @classmethod
+    def parse_key(cls, key):
+        parts = key.split("_")
+        least = parts[-1] == "leastsig"
+        if parts[-2].isdigit():
+            num = int(parts[-2])
+            root = "_".join(parts[:-2])
+        else:
+            num = 1
+            root = "_".join(parts[:-1])
+        return root, num, least
+    
+    def update(self, other):
+        if self.leastsig is None:
+            self.leastsig = other.leastsig
+        if self.mostsig is None:
+            self.mostsig = other.mostsig
+        if self.leastsize is None:
+            self.leastsize = other.leastsize
+
+    def value(self):
+        return (self.mostsig << (self.leastsize * 8)) | self.leastsig    
+
+class SynchServerLocationTraffic(clientservertraffic.ClientSocketTraffic):
+    socketId = "CAPTUREMOCK_SYNCH"
+    def __init__(self, inText, *args):
+        lastWord = inText.strip().split()[-1]
+        self.set_data(lastWord)
+        clientservertraffic.ClientSocketTraffic.__init__(self, inText, *args)
+
+    def set_data(self, data):
+        if ":" in data:
+            host, port = data.split(":")
+            if port.isdigit():
+                dest = host, int(port)
+                TcpHeaderTrafficServer.synch_server_location = dest
+
+    def forwardToDestination(self):
+        return []
+
+    def record(self, *args):
+        pass
+
+
+class SynchStatusTraffic(clientservertraffic.ClientSocketTraffic):
+    socketId = "CAPTUREMOCK_STATUS"
+    def forwardToDestination(self):
+        return []
 
 
 class TcpHeaderTrafficServer:
     connection_timeout = 0.2
+    synch_server_location = None
     @classmethod
     def createServer(cls, address, dispatcher):
         return cls(address, dispatcher)
@@ -925,6 +1039,13 @@ class TcpHeaderTrafficServer:
         if reset or self.serverConverter is None:
             self.serverConverter = BinaryClientSocketTraffic.getServerConverter(self.dispatcher.rcHandler, reset)
 
+    def send_synch_status(self, text):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect(self.synch_server_location)
+        self.diag.debug("Sending synch status '" + text + "'")
+        sock.sendall((SynchStatusTraffic.socketId + ":" + text + "\n").encode())
+        sock.close()
+
     def handle_client_traffic(self, text, payload=None):
         self.requestCount += 1
         internal = payload is None
@@ -934,6 +1055,8 @@ class TcpHeaderTrafficServer:
         if (not self.serverConverter or internal) and self.clientConverter:
             for response in responses:
                 self.clientConverter.convert_and_send(response.text)
+        if self.synch_server_location and not internal:
+            self.send_synch_status(text)
 
     def handle_server_traffic(self, text, payload):
         if self.clientConverter:
@@ -1009,9 +1132,12 @@ class TcpHeaderTrafficServer:
                     self.diag.debug("Timeout client read, set socket")
                     continue
                 if converter.text: # complete message, i.e. special for CaptureMock
-                    self.dispatcher.processText(converter.text, None, self.requestCount)
+                    self.requestCount += 1
+                    responses = self.dispatcher.processText(converter.text, None, self.requestCount)
                     self.diag.debug("Got message %s", converter.text)
                     self.tryConnectServer()
+                    for response in responses:
+                        self.clientConverter.convert_and_send(response.text)
                 else:
                     self.set_client_converter(converter)
                     payload = self.clientConverter.get_payload()
@@ -1028,7 +1154,7 @@ class TcpHeaderTrafficServer:
     @staticmethod
     def getTrafficClasses(incoming):
         if incoming:
-            return [ clientservertraffic.ClassicServerStateTraffic, BinaryClientSocketTraffic ]
+            return [ clientservertraffic.ClassicServerStateTraffic, SynchServerLocationTraffic, SynchStatusTraffic, BinaryClientSocketTraffic ]
         else:
             return [ BinaryServerSocketTraffic, BinaryClientSocketTraffic ]
 
@@ -1043,7 +1169,7 @@ if __name__ == "__main__":
     #fmt = "<i[i$i[i$]i$Ii$i$i$B]"
     #fmt = "<q3Ii[i$]BHIBHIdi$i$Ii[i$i$i$Bi$Ii$i$i[i$]i$Ii$i$i$B]i[i$]i$i$I"
     #fmt = "<q3Ii[i$]i[B(x|B(x|?|b|B|h|H|i|I|q|Q|f|d|i$|128=i[])|I|B(x|?|b|B|h|H|i|I|q|Q|f|d|i$|128=i[])I)]i[B]"
-    fmt = "<i[B(1=B(|?|b|B|h|H|i|I|q|Q|f|d|i$|128=i[])|2=I|4=q|8=H|16=q|32=H)]"
+    fmt = ">2I2HII4x[3I4B]"
     # fmt = "<5Ii$"
     # fmt = "<Ii$i$i$2I2BH"
     # fmt = "<4I2BH2Bq2Ii$I3Bi$i$Bi$Ii$i$i[i$]i$i$i$i$i$dI"
@@ -1124,4 +1250,79 @@ if __name__ == "__main__":
     #     text, _ = conv.read_and_parse()
     #     print("\nNew:", text)
     #
-
+    from pprint import pprint
+    data = {'frame_number': 0,
+ 'capture_time_4_leastsig': 985001002,
+ 'frame_status': 0,
+ 'capture_time_mostsig': 15,
+ 'subsamp_gain_exposure_smpte': 25600,
+ 'markers': [{'ypos_leastsig': 162,
+              'xpos_mostsig': 0,
+              'xpos_2_leastsig': 49884,
+              'xradius_2_leastsig': 159,
+              'ypos_mostsig': 8,
+              'yradius_mostsig': 0,
+              'yradius_leastsig': 94,
+              'xradius_mostsig': 0,
+              'quality2': 100,
+              'quality1': 40},
+             {'ypos_leastsig': 254,
+              'xpos_mostsig': 0,
+              'xpos_2_leastsig': 51967,
+              'xradius_2_leastsig': 108,
+              'ypos_mostsig': 8,
+              'yradius_mostsig': 0,
+              'yradius_leastsig': 166,
+              'xradius_mostsig': 0,
+              'quality2': 31,
+              'quality1': 53},
+             {'ypos_leastsig': 75,
+              'xpos_mostsig': 0,
+              'xpos_2_leastsig': 19349,
+              'xradius_2_leastsig': 272,
+              'ypos_mostsig': 12,
+              'yradius_mostsig': 0,
+              'yradius_leastsig': 221,
+              'xradius_mostsig': 0,
+              'quality2': 48,
+              'quality1': 18}]}
+    logging.basicConfig(level=logging.DEBUG)
+    diag = logging.getLogger()
+    pprint(BinaryMessageConverter.transform_for_sigbytes(data, diag), sort_dicts=False)
+    class FakeRcHandler:
+        def getList(self, key, sections):
+            if key == "fields":
+                return "frame_number,capture_time_4_leastsig,frame_status,capture_time_mostsig,subsamp_gain_exposure_smpte,markers".split(",")
+            elif key == "format":
+                return [">2I2HII4x[2B3HBHB2x2B]"]
+            elif "list_elements" in sections:
+                return "ypos_leastsig,xpos_mostsig,xpos_2_leastsig,xradius_2_leastsig,ypos_mostsig,yradius_mostsig,yradius_2_leastsig,xradius_mostsig,quality2,quality1".split(",")
+            else:
+                return []
+            
+        def getboolean(self, *args):
+            return False
+    bodyConv = BinaryMessageConverter(FakeRcHandler(), "18")
+    body_values = {'frame_number': 0,
+ 'capture_time': 65409510442,
+ 'frame_status': 0,
+ 'subsamp_gain_exposure_smpte': 25600,
+ 'markers': [{'ypos': 2210,
+              'xpos': 49884,
+              'xradius': 159,
+              'yradius': 94,
+              'quality2': 100,
+              'quality1': 40},
+             {'ypos': 2302,
+              'xpos': 51967,
+              'xradius': 108,
+              'yradius': 166,
+              'quality2': 31,
+              'quality1': 53},
+             {'ypos': 3147,
+              'xpos': 19349,
+              'xradius': 272,
+              'yradius': 221,
+              'quality2': 48,
+              'quality1': 18}]}
+    pprint(bodyConv.fields_to_payload(body_values, diag))
