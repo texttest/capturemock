@@ -579,8 +579,8 @@ class OptionConverter(SequenceConverter):
 
 class BinaryMessageConverter:
     def __init__(self, rcHandler, rawSection):
-        section = toString(rawSection)
-        sections = [ section ]
+        self.message_type = toString(rawSection)
+        sections = [ self.message_type ]
         self.rcHandler = rcHandler
         self.fields = rcHandler.getList("fields", sections)
         self.formats = rcHandler.getList("format", sections)
@@ -791,18 +791,21 @@ class BinaryMessageConverter:
             converters.append(StructConverter(curr_fmt))
         return converters
 
-    @classmethod
-    def unpack(cls, fmt, rawBytes, diag):
+    def unpack(self, fmt, rawBytes, diag):
         offset = 0
         data = []
         diag.debug("splitting format %s", fmt)
-        for converter in cls.split_format(fmt):
+        for converter in self.split_format(fmt):
             diag.debug("converting with %s", converter)
             diag.debug("current data is %s", rawBytes[offset:])
             curr_data, curr_offset = converter.unpack(rawBytes, offset, diag)
             diag.debug("Unpacked to %s %d", curr_data, curr_offset)
             data += curr_data
             offset += curr_offset
+        # If we aren't a header, place the rest in a final field
+        if not self.message_type.endswith("_header") and offset < len(rawBytes):
+            data.append(rawBytes[offset:].hex())
+            offset = len(rawBytes)
         return data, offset
 
     @classmethod
