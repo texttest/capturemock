@@ -163,7 +163,7 @@ class FtpFileTraffic(clientservertraffic.ServerTraffic):
     typeId = "FIL"
     def __init__(self, fn, data=None):
         clientservertraffic.ServerTraffic.__init__(self, fn, None)
-        self.fn = fn
+        self.fn = os.path.basename(fn)
         self.data = data
     
     def forwardToDestination(self):
