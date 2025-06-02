@@ -47,8 +47,11 @@ class FTPTrafficHandler(FTPHandler):
             self.dispatcher.diag.debug("handle response " + cmd + " " + arg + " " + response)
             if cmd == "PASS":
                 ftp_dir = fileedittraffic.FileEditTraffic.replayFileEditDir or fileedittraffic.FileEditTraffic.recordFileEditDir
-                if not os.path.isdir(ftp_dir):
+                try:
+                    # make sure directory exists, don't have race conditions with other capturemock instances
                     os.makedirs(ftp_dir)
+                except FileExistsError:
+                    pass
                 self.authorizer.add_user(self.username, arg, ftp_dir, perm='elradfmwMT')
     
 
