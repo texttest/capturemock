@@ -991,7 +991,7 @@ class SynchServerLocationTraffic(clientservertraffic.ClientSocketTraffic):
             host, port = data.split(":")
             if port.isdigit():
                 dest = host, int(port)
-                TcpHeaderTrafficServer.synch_server_location = dest
+                TcpHeaderTrafficServer.synch_server_locations.append(dest)
 
     def forwardToDestination(self):
         return []
@@ -1007,7 +1007,7 @@ class SynchStatusTraffic(clientservertraffic.ClientSocketTraffic):
 
 
 class TcpHeaderTrafficServer:
-    synch_server_location = None
+    synch_server_locations = []
     @classmethod
     def createServer(cls, address, dispatcher):
         return cls(address, dispatcher)
@@ -1044,10 +1044,11 @@ class TcpHeaderTrafficServer:
 
     def send_synch_status(self, text):
         self.diag.debug("Sending synch status '" + text + "'")
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.connect(self.synch_server_location)
-        sock.sendall((SynchStatusTraffic.socketId + ":" + text + "\n").encode())
-        sock.close()
+        for synch_server in self.synch_server_locations:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.connect(synch_server)
+            sock.sendall((SynchStatusTraffic.socketId + ":" + text + "\n").encode())
+            sock.close()
         self.diag.debug("Sent synch status '" + text + "'")
         
     def handle_client_traffic(self, text, payload=None):
@@ -1059,7 +1060,7 @@ class TcpHeaderTrafficServer:
         if (not self.serverConverter or internal) and self.clientConverter:
             for response in responses:
                 self.clientConverter.convert_and_send(response.text)
-        if self.synch_server_location and not internal:
+        if len(self.synch_server_locations) > 0 and not internal:
             self.send_synch_status(text)
 
     def handle_server_traffic(self, text, payload):
