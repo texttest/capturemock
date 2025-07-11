@@ -166,13 +166,17 @@ class FtpFileTraffic(clientservertraffic.ServerTraffic):
     typeId = "FIL"
     def __init__(self, fn, data=None):
         clientservertraffic.ServerTraffic.__init__(self, fn, None)
-        self.fn = os.path.basename(fn)
+        self.fn = fn
         self.data = data
     
     def forwardToDestination(self):
         recordDir = fileedittraffic.FileEditTraffic.recordFileEditDir
         if recordDir and self.data:
-            with open(os.path.join(recordDir, self.fn), "wb") as f:
+            path = os.path.join(recordDir, self.fn.lstrip("/"))
+            dirname = os.path.dirname(path)
+            if not os.path.exists(dirname):
+                os.makedirs(dirname)
+            with open(path, "wb") as f:
                 f.write(self.data)
         return []
     
