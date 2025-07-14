@@ -13,6 +13,7 @@ except ImportError:
 
 class ClientSocketTraffic(traffic.Traffic):
     destination = None
+    broadcast = False
     direction = "<-"
     socketId = ""
     socketType = socket.SOCK_STREAM
@@ -31,8 +32,9 @@ class ClientSocketTraffic(traffic.Traffic):
         return self.forwardToServer() if self.destination is not None else []
 
     @classmethod
-    def setServerLocation(cls, location, clientRecord=False):
+    def setServerLocation(cls, location, clientRecord=False, broadcast=False):
         cls.destination = location
+        cls.broadcast = broadcast
         if not clientRecord:
             # If we get a server state message, switch the order around
             cls.direction = "->"
@@ -58,12 +60,29 @@ class ClientSocketTraffic(traffic.Traffic):
         if cls.destination:
             sock = socket.socket(socket.AF_INET, cls.socketType)
             try:
-                sock.connect(cls.destination)
+                if cls.broadcast:
+                    dstHost, dstPort = cls.destination
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                    sock.bind((dstHost, 0))
+                else:
+                    sock.connect(cls.destination)
                 return sock
             except OSError as e:
                 sys.stderr.write("WARNING: Could not forward to server " + str(cls.destination) + "\n")
                 sys.stderr.write(str(e) + "\n")
                 sock.close()
+
+    def readResponses(self, sock):
+        if self.broadcast:
+            sock.settimeout(0.5)
+            responses = []
+            try:
+                while True:
+                    responses.append(sock.recv(1024).decode())
+            except socket.timeout:
+                return responses
+        else:
+            return [ sock.makefile().read() ]
             
     def forwardToServer(self):
         sock = self.connectServerSocket()
@@ -71,12 +90,15 @@ class ClientSocketTraffic(traffic.Traffic):
             sys.stderr.write("-- " + self.text + "\n")
             self.connectionFailed = True
             return []
-        sock.sendall(self.text.encode())
+        if self.broadcast:
+            sock.sendto(self.text.encode(), ("255.255.255.255", self.destination[1]))
+        else:
+            sock.sendall(self.text.encode())
         try:
             sock.shutdown(socket.SHUT_WR)
-            response = sock.makefile().read()
+            responses = self.readResponses(sock)
             sock.close()
-            return [ ServerTraffic(response, self.responseFile) ]
+            return [ ServerTraffic(response, self.responseFile) for response in responses ]
         except socket.error:
             sys.stderr.write("WARNING: Server process reset the connection while TextTest's 'fake client' was trying to read a response from it!\n")
             sock.close()
@@ -413,8 +435,9 @@ class ServerStateTraffic(ServerTraffic):
     def __init__(self, inText, dest, responseFile, rcHandler):
         ServerTraffic.__init__(self, inText, responseFile, rcHandler)
         self.clientRecord = rcHandler.getboolean("record_for_client", [ "general" ], False)
+        broadcast = rcHandler.getboolean("broadcast", [ "general" ], False)
         if dest:
-            ClientSocketTraffic.setServerLocation(dest, self.clientRecord)
+            ClientSocketTraffic.setServerLocation(dest, self.clientRecord, broadcast)
 
     def forwardToDestination(self):
         return []

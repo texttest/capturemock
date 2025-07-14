@@ -218,7 +218,7 @@ class UdpSocketFile:
         self.socket.sendto(data, self.address)
         
     def close(self):
-        self.socket.close()
+        pass # don't close the socket!
     
 class ClassicUdpTrafficRequestHandler(BaseRequestHandler):
     dispatcher = None
