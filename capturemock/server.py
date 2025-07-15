@@ -181,6 +181,9 @@ class ClassicUdpTrafficServer(ClassicTrafficServer, UDPServer):
     def createServer(cls, ip, dispatcher):
         ClassicUdpTrafficRequestHandler.dispatcher = dispatcher
         broadcast = dispatcher.rcHandler.getboolean("broadcast", [ "general" ], False)
+        if broadcast:
+            # common pattern with UDP broadcasting
+            cls.allow_reuse_address = True
         return cls(ip, ClassicUdpTrafficRequestHandler, broadcast)
 
     def __init__(self, ip, handlerClass, broadcast):
