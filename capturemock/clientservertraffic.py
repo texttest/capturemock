@@ -32,9 +32,8 @@ class ClientSocketTraffic(traffic.Traffic):
         return self.forwardToServer() if self.destination is not None else []
 
     @classmethod
-    def setServerLocation(cls, location, clientRecord=False, broadcast=False):
+    def setServerLocation(cls, location, clientRecord=False):
         cls.destination = location
-        cls.broadcast = broadcast
         if not clientRecord:
             # If we get a server state message, switch the order around
             cls.direction = "->"
@@ -435,9 +434,8 @@ class ServerStateTraffic(ServerTraffic):
     def __init__(self, inText, dest, responseFile, rcHandler):
         ServerTraffic.__init__(self, inText, responseFile, rcHandler)
         self.clientRecord = rcHandler.getboolean("record_for_client", [ "general" ], False)
-        broadcast = rcHandler.getboolean("broadcast", [ "general" ], False)
         if dest:
-            ClientSocketTraffic.setServerLocation(dest, self.clientRecord, broadcast)
+            ClientSocketTraffic.setServerLocation(dest, self.clientRecord)
 
     def forwardToDestination(self):
         return []

@@ -178,18 +178,26 @@ class ClassicTcpTrafficServer(ClassicTrafficServer, TCPServer):
     
 class ClassicUdpTrafficServer(ClassicTrafficServer, UDPServer):
     @classmethod
-    def createServer(cls, address, dispatcher):
+    def createServer(cls, ip, dispatcher):
         ClassicUdpTrafficRequestHandler.dispatcher = dispatcher
-        return cls((address, 0), ClassicUdpTrafficRequestHandler, dispatcher.useThreads)
+        broadcast = dispatcher.rcHandler.getboolean("broadcast", [ "general" ], False)
+        return cls(ip, ClassicUdpTrafficRequestHandler, broadcast)
 
-    def __init__(self, addrinfo, handlerClass, *args):
+    def __init__(self, ip, handlerClass, broadcast):
         ClassicTrafficServer.__init__(self)
-        UDPServer.__init__(self, addrinfo, handlerClass)
+        bindHost = "0.0.0.0" if broadcast else ip
+        UDPServer.__init__(self, (bindHost, 0), handlerClass)
+        self.ip = ip
         clientservertraffic.ClientSocketTraffic.socketType = socket.SOCK_DGRAM
+        clientservertraffic.ClientSocketTraffic.broadcast = broadcast
         
     def process_request(self, request, client_address):
         self.requestCount += 1
         self.process_request_thread(request, client_address, self.requestCount)
+
+    def getAddress(self):
+        _, port = self.socket.getsockname()
+        return self.ip + ":" + str(port)
     
 
 class ClassicTcpTrafficRequestHandler(StreamRequestHandler):
