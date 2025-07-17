@@ -13,6 +13,8 @@ except ImportError:
 
 class BaseTraffic(object):
     alterationVariables = OrderedDict()
+    preserveCr = False
+    preserveLf = False
     def __init__(self, text, rcHandler=None, timestamp=None):
         self.text = text
         self.timestamp = timestamp
@@ -99,13 +101,31 @@ class BaseTraffic(object):
 
     def makesAsynchronousEdits(self):
         return False
+    
+    @classmethod
+    def fixNewlinesForRecord(cls, text):
+        result = text
+        if cls.preserveCr:
+            result = result.replace("\r", "<CR>")
+        if cls.preserveLf:
+            result = result.replace("\n", "<LF>")
+        if not result.endswith("\n"):
+            result += "\n"
+        return result
+
+    @classmethod
+    def fixNewlinesFromReplay(cls, text):
+        result = text.rstrip("\n")
+        if cls.preserveCr:
+            result = result.replace("<CR>", "\r")
+        if cls.preserveLf:
+            result = result.replace("<LF>", "\n")
+        return result
 
     def record(self, recordFileHandler, *args, **kw):
         if not self.hasInfo():
             return
-        desc = self.getDescription()
-        if not desc.endswith("\n"):
-            desc += "\n"
+        desc = self.fixNewlinesForRecord(self.getDescription())
         if self.timestamp:
             desc += "--TIM:" + self.timestamp + "\n"
         recordFileHandler.record(desc, *args, **kw)

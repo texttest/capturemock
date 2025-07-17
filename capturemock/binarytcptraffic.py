@@ -49,13 +49,12 @@ class BinaryServerSocketTraffic(clientservertraffic.ServerTraffic):
     def forwardToDestination(self):
         return []
 
-def toString(data, fixNewLines=False):
+def toString(data):
     if isinstance(data, tuple): # produced by variable types, assume the key data is at the end
         return toString(data[-1])
     elif isinstance(data, bytes):
         try:
-            text = data.decode()
-            return text.replace("\r", "<CR>").replace("\n", "<LF>") if fixNewLines else text
+            return data.decode()
         except UnicodeDecodeError:
             return "0x" + data.hex()
     else:
@@ -255,7 +254,7 @@ class BinaryTrafficConverter:
         else:
             if body_type != "None":
                 self.diag.debug("Config section not found: %s", body_type)
-            textParts.append(toString(body, fixNewLines=True))
+            textParts.append(toString(body))
         self.text = "\n".join(textParts)
         self.diag.debug("Recording %s", self.text)
         return self.text
@@ -275,9 +274,10 @@ class BinaryTrafficConverter:
 
     def extract_header(self, text):
         if "\n" in text:
-            return text.split("\n", 1)
-        else:
-            return "", text
+            header_line, body = text.split("\n", 1)
+            if body.startswith("{") or body.startswith("["):
+                return header_line, body
+        return "", text
 
     def convert_to_payload(self, text):
         final = False
@@ -313,7 +313,7 @@ class BinaryTrafficConverter:
             self.diag.debug("Body fields %s", body_values)
             body_payload = bodyConv.fields_to_payload(body_values, self.diag)
         else:
-            body_payload = text.replace("<CR>", "\r").replace("<LF>", "\n").encode()
+            body_payload = text.encode()
         body_payloads = self.split_body(body_payload, len(self.header_fields_list))
         payload = b""
         for i, (header_fields, header_payload, body_payload) in enumerate(zip(self.header_fields_list, header_payloads, body_payloads)):

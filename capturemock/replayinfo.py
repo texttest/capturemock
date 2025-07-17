@@ -2,11 +2,13 @@
 
 import logging, difflib, re
 from pprint import pformat
+
 try: # Python 2.7, Python 3.x
     from collections import OrderedDict
 except ImportError: # Python 2.6 and earlier
     from ordereddict import OrderedDict
 
+from capturemock.traffic import BaseTraffic
 from capturemock import config, id_mapping
 
 class ReplayInfo:
@@ -117,11 +119,11 @@ class ReplayInfo:
                 prefix = line.split(":")[0]
                 if len(prefix) < 10 and (prefix.startswith("<-") or prefix[-5:-3] == "->"):
                     if currTraffic:
-                        trafficList.append(currTraffic.rstrip("\n"))
+                        trafficList.append(BaseTraffic.fixNewlinesFromReplay(currTraffic))
                     currTraffic = ""
                 currTraffic += line
         if currTraffic:
-            trafficList.append(currTraffic.rstrip("\n"))
+            trafficList.append(BaseTraffic.fixNewlinesFromReplay(currTraffic))
         return trafficList
 
     def readReplayResponses(self, traffic, allClasses, exact=False):

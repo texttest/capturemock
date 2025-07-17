@@ -3,6 +3,7 @@ from copy import copy
 
 from capturemock import config, id_mapping
 from capturemock.replayinfo import ReplayInfo
+from capturemock.traffic import BaseTraffic
 from capturemock import recordfilehandler, cmdlineutils
 from capturemock import commandlinetraffic, fileedittraffic, clientservertraffic, customtraffic
 from locale import getpreferredencoding
@@ -549,6 +550,8 @@ class ServerDispatcherBase:
         self.diag = self.rcHandler.setUpLogging("Server")
         self.filesToIgnore = self.rcHandler.getList("ignore_edits", [ "command line" ])
         self.useThreads = self.rcHandler.getboolean("server_multithreaded", [ "general" ], True)
+        BaseTraffic.preserveCr = self.rcHandler.getboolean("preserve_cr", [ "general" ], False)
+        BaseTraffic.preserveLf = self.rcHandler.getboolean("preserve_lf", [ "general" ], False)
         self.replayInfo = ReplayInfo(options.mode, options.replay, self.rcHandler)
         self.recordFileHandler = RecordFileHandler(options.record)
         self.topLevelForEdit = [] # contains only paths explicitly given. Always present.
