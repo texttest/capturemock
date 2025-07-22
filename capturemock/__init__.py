@@ -12,7 +12,7 @@ from datetime import datetime
 import bisect
 from urllib.request import urlopen
 
-version = "2.7.2"
+version = "2.7.3"
 
 class CaptureMockManager:
     fileContents = "import capturemock; capturemock.interceptCommand()\n"
@@ -39,7 +39,8 @@ class CaptureMockManager:
                     sutDirectory=os.getcwd(),
                     environment=os.environ,
                     stderrFn=None,
-                    recordFromUrl=None):
+                    recordFromUrl=None, 
+                    port=0):
         if config.isActive(mode, replayFile):
             # Environment which the server should get
             environment["CAPTUREMOCK_MODE"] = str(mode)
@@ -59,7 +60,8 @@ class CaptureMockManager:
                                                     recordEditDir,
                                                     sutDirectory,
                                                     environment,
-                                                    stderrFn)
+                                                    stderrFn, 
+                                                    port)
             self.serverProtocol = rcHandler.get("server_protocol", [ "general" ], "classic")
             self.serverAddress = self.readServerAddress()
 

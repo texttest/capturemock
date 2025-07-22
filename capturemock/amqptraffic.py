@@ -93,7 +93,7 @@ class AMQPConnector:
 
 class AMQPTrafficServer:
     @classmethod
-    def createServer(cls, address, dispatcher):
+    def createServer(cls, address, port, dispatcher):
         return cls(dispatcher)
     
     def __init__(self, dispatcher):

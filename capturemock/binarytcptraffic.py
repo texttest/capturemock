@@ -1009,15 +1009,15 @@ class SynchStatusTraffic(clientservertraffic.ClientSocketTraffic):
 class TcpHeaderTrafficServer:
     synch_server_locations = []
     @classmethod
-    def createServer(cls, address, dispatcher):
-        return cls(address, dispatcher)
+    def createServer(cls, *args):
+        return cls(*args)
 
-    def __init__(self, address, dispatcher):
+    def __init__(self, address, port, dispatcher):
         self.dispatcher = dispatcher
         self.connection_timeout = dispatcher.rcHandler.getfloat("connection_timeout", [ "general" ], 0.2)
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.settimeout(self.connection_timeout)
-        self.socket.bind((address, 0))
+        self.socket.bind((address, port))
         self.socket.listen()
         self.diag = get_logger()
         self.clientConverter = None

@@ -19,4 +19,6 @@ CaptureMock command line program. Records and replays interaction defined by stu
     parser.add_option("-F", "--record-file-edits", 
                       help="store edited files under DIR.", metavar="DIR")
     parser.add_option("-R", "--rcfiles", help="Read configuration from given rc files, defaults to ~/.capturemock/config")
+    parser.add_option("-P", "--port", type="int", default=0,
+                      help="Port to run CaptureMock on", metavar="PORT")
     return parser

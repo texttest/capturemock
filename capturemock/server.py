@@ -49,7 +49,8 @@ def startServer(rcFiles,
                 recordEditDir,
                 sutDirectory,
                 environment,
-                stderrFn):
+                stderrFn, 
+                port):
     cmdArgs = getServer() + [ "-m", str(mode) ]
     if rcFiles:
         cmdArgs += [ "--rcfiles", ",".join(rcFiles) ]
@@ -63,13 +64,22 @@ def startServer(rcFiles,
         if replayEditDir:
             cmdArgs += [ "-f", replayEditDir ]
 
+    if port:
+        cmdArgs += [ "-P", str(port) ]
+
     stderr = open(stderrFn, "w") if stderrFn else subprocess.PIPE
+    # Platform-specific process isolation, to avoid Ctrl-C killing the server
+    if sys.platform == "win32":
+        platform_kw = { "creationflags": subprocess.CREATE_NEW_PROCESS_GROUP }
+    else:
+        platform_kw = { "preexec_fn": os.setpgrp }
     return subprocess.Popen(cmdArgs,
                             env=environment.copy(),
                             universal_newlines=True,
                             cwd=sutDirectory,
                             stdout=subprocess.PIPE,
-                            stderr=stderr)
+                            stderr=stderr,
+                            **platform_kw)
 
 def stopServer(servAddr, protocol):
     if protocol == "http":
@@ -147,9 +157,9 @@ class ClassicTrafficServer:
     
 class ClassicTcpTrafficServer(ClassicTrafficServer, TCPServer):
     @classmethod
-    def createServer(cls, address, dispatcher):
+    def createServer(cls, address, port, dispatcher):
         ClassicTcpTrafficRequestHandler.dispatcher = dispatcher
-        return cls((address, 0), ClassicTcpTrafficRequestHandler, dispatcher.useThreads)
+        return cls((address, port), ClassicTcpTrafficRequestHandler, dispatcher.useThreads)
 
     def __init__(self, addrinfo, handlerClass, useThreads):
         ClassicTrafficServer.__init__(self)
@@ -179,18 +189,18 @@ class ClassicTcpTrafficServer(ClassicTrafficServer, TCPServer):
     
 class ClassicUdpTrafficServer(ClassicTrafficServer, UDPServer):
     @classmethod
-    def createServer(cls, ip, dispatcher):
+    def createServer(cls, ip, port, dispatcher):
         ClassicUdpTrafficRequestHandler.dispatcher = dispatcher
         broadcast = dispatcher.rcHandler.getboolean("broadcast", [ "general" ], False)
         if broadcast:
             # common pattern with UDP broadcasting
             cls.allow_reuse_address = True
-        return cls(ip, ClassicUdpTrafficRequestHandler, broadcast)
+        return cls(ip, port, ClassicUdpTrafficRequestHandler, broadcast)
 
-    def __init__(self, ip, handlerClass, broadcast):
+    def __init__(self, ip, port, handlerClass, broadcast):
         ClassicTrafficServer.__init__(self)
         bindHost = "0.0.0.0" if broadcast else ip
-        UDPServer.__init__(self, (bindHost, 0), handlerClass)
+        UDPServer.__init__(self, (bindHost, port), handlerClass)
         self.ip = ip
         clientservertraffic.ClientSocketTraffic.socketType = socket.SOCK_DGRAM
         clientservertraffic.ClientSocketTraffic.broadcast = broadcast
@@ -443,9 +453,9 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
 
 class HTTPTrafficServer(HTTPServer):
     @classmethod
-    def createServer(cls, address, dispatcher):
+    def createServer(cls, address, port, dispatcher):
         HTTPTrafficHandler.dispatcher = dispatcher
-        return cls((address, 0))
+        return cls((address, port))
     
     def __init__(self, address):
         # Default value of 5 isn't very much...
@@ -484,8 +494,8 @@ class HTTPTrafficServer(HTTPServer):
 
 class XmlRpcTrafficServer(SimpleXMLRPCServer):
     @classmethod
-    def createServer(cls, address, dispatcher):
-        server = cls((address, 0), logRequests=False, use_builtin_types=True)
+    def createServer(cls, address, port, dispatcher):
+        server = cls((address, port), logRequests=False, use_builtin_types=True)
         server.register_instance(XmlRpcDispatchInstance(dispatcher))
         return server
 
@@ -809,15 +819,15 @@ class ServerDispatcher(ServerDispatcherBase):
     def __init__(self, options):
         ServerDispatcherBase.__init__(self, options)
         self.terminate = False
-        self.server = self.makeServer()
+        self.server = self.makeServer(options.port)
         address = self.server.getAddress()
         self.rcHandler.address = address
         sys.stdout.write(address + "\n") # Tell our caller, so they can tell the program being handled
         sys.stdout.flush()
     
-    def makeServer(self):
+    def makeServer(self, port):
         ipAddress = self.getIpAddress()
-        return self.serverClass.createServer(ipAddress, self)
+        return self.serverClass.createServer(ipAddress, port, self)
 
     def getIpAddress(self):
         # Code below can cause complications with VPNs etc. Default is local access only, sufficient in 99.9% of cases
