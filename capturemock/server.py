@@ -232,14 +232,12 @@ class ClassicTcpTrafficRequestHandler(StreamRequestHandler):
             self.wfile.write(("CAPTUREMOCK MISMATCH: " + str(e)).encode())
     
 class UdpSocketFile:
-    def __init__(self, local_ip, address):
-        self.local_ip = local_ip
+    def __init__(self, sock, address):
+        self.socket = sock
         self.address = address
         
     def write(self, data):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.bind((self.local_ip, 0))
-        sock.sendto(data, self.address)
+        self.socket.sendto(data, self.address)
         
     def close(self):
         pass # don't close the socket!
@@ -256,7 +254,7 @@ class ClassicUdpTrafficRequestHandler(BaseRequestHandler):
         
     def handleText(self, text):
         self.dispatcher.diag.debug("Received incoming UDP request...\n" + text)
-        wfile = UdpSocketFile(self.dispatcher.server.ip, self.client_address)
+        wfile = UdpSocketFile(self.request[1], self.client_address)
         try:
             self.dispatcher.processText(text, wfile, self.requestNumber)
         except config.CaptureMockReplayError as e:
