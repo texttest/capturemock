@@ -192,22 +192,25 @@ class ClassicUdpTrafficServer(ClassicTrafficServer, UDPServer):
     def createServer(cls, ip, port, dispatcher):
         ClassicUdpTrafficRequestHandler.dispatcher = dispatcher
         broadcast = dispatcher.rcHandler.getboolean("broadcast", [ "general" ], False)
+        connection_timeout = dispatcher.rcHandler.getfloat("connection_timeout", [ "general" ], 0.2)
         if broadcast:
             # common pattern with UDP broadcasting
             cls.allow_reuse_address = True
-        return cls(ip, port, ClassicUdpTrafficRequestHandler, broadcast)
+        return cls(ip, port, ClassicUdpTrafficRequestHandler, broadcast, connection_timeout)
 
-    def __init__(self, ip, port, handlerClass, broadcast):
+    def __init__(self, ip, port, handlerClass, broadcast, connection_timeout):
         ClassicTrafficServer.__init__(self)
         bindHost = "0.0.0.0" if broadcast else ip
         UDPServer.__init__(self, (bindHost, port), handlerClass)
         self.ip = ip
         clientservertraffic.ClientSocketTraffic.socketType = socket.SOCK_DGRAM
         clientservertraffic.ClientSocketTraffic.broadcast = broadcast
+        clientservertraffic.ClientSocketTraffic.broadcast_connection_timeout = connection_timeout
         
     def process_request(self, request, client_address):
-        self.requestCount += 1
-        self.process_request_thread(request, client_address, self.requestCount)
+        if client_address[0] == self.ip or not clientservertraffic.ClientSocketTraffic.broadcast:
+            self.requestCount += 1
+            self.process_request_thread(request, client_address, self.requestCount)
 
     def getAddress(self):
         _, port = self.socket.getsockname()
@@ -253,7 +256,7 @@ class ClassicUdpTrafficRequestHandler(BaseRequestHandler):
         self.handleText(text)
         
     def handleText(self, text):
-        self.dispatcher.diag.debug("Received incoming UDP request...\n" + text)
+        self.dispatcher.diag.debug(f"Received incoming UDP request from {self.client_address}...\n{text}")
         wfile = UdpSocketFile(self.request[1], self.client_address)
         try:
             self.dispatcher.processText(text, wfile, self.requestNumber)

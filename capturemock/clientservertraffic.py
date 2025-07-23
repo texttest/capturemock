@@ -14,6 +14,7 @@ except ImportError:
 class ClientSocketTraffic(traffic.Traffic):
     destination = None
     broadcast = False
+    broadcast_connection_timeout = 0.2
     direction = "<-"
     socketId = ""
     socketType = socket.SOCK_STREAM
@@ -73,7 +74,7 @@ class ClientSocketTraffic(traffic.Traffic):
 
     def readResponses(self, sock):
         if self.broadcast:
-            sock.settimeout(0.5)
+            sock.settimeout(self.broadcast_connection_timeout)
             responses = []
             try:
                 while True:
