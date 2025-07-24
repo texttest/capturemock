@@ -106,8 +106,11 @@ class ClientSocketTraffic(traffic.Traffic):
             return []
         
     def makeResponseTraffic(self, rawText, responseClass, rcHandler):
-        text = self.applyAlterations(rawText)
-        return super().makeResponseTraffic(text, responseClass, rcHandler)
+        if responseClass is ServerTraffic:
+            text = self.applyAlterations(rawText)
+            return super().makeResponseTraffic(text, responseClass, rcHandler)
+        else:
+            return super().makeResponseTraffic(rawText, responseClass, rcHandler)
 
 
 class XmlRpcClientTraffic(ClientSocketTraffic):
