@@ -98,12 +98,16 @@ class ClientSocketTraffic(traffic.Traffic):
             sock.shutdown(socket.SHUT_WR)
             responses = self.readResponses(sock)
             sock.close()
-            return [ ServerTraffic(response, self.responseFile) for response in responses ]
+            alteredResponses = [ self.applyAlterations(resp) for resp in responses ]
+            return [ ServerTraffic(response, self.responseFile) for response in alteredResponses ]
         except socket.error:
             sys.stderr.write("WARNING: Server process reset the connection while TextTest's 'fake client' was trying to read a response from it!\n")
             sock.close()
             return []
         
+    def makeResponseTraffic(self, rawText, responseClass, rcHandler):
+        text = self.applyAlterations(rawText)
+        return super().makeResponseTraffic(text, responseClass, rcHandler)
 
 
 class XmlRpcClientTraffic(ClientSocketTraffic):
