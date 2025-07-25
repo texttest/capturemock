@@ -1,9 +1,8 @@
 
 from capturemock import clientservertraffic
 from datetime import datetime
-import sys, struct, socket
+import sys, struct, socket, time, logging
 from pprint import pformat
-import logging
         
 def get_logger():
     return logging.getLogger("Binary TCP Traffic")
@@ -354,10 +353,12 @@ class BinaryTrafficConverter:
         payload = self.convert_to_payload(text)
         self.send_payload(payload)
      
-    def send_payload(self, payload):
+    def send_payload(self, payload, final=False):
         self.diag.debug("Sending payload %s", payload)
         try:
             self.socket.sendall(payload)
+            if final:
+                self.socket.close()
         except OSError as e:
             self.diag.debug("Sending payload had error %s", str(e))
 
@@ -1015,6 +1016,9 @@ class TcpHeaderTrafficServer:
     def __init__(self, address, port, dispatcher):
         self.dispatcher = dispatcher
         self.connection_timeout = dispatcher.rcHandler.getfloat("connection_timeout", [ "general" ], 0.2)
+        self.client_passive = dispatcher.rcHandler.getboolean("client_passive", [ "general" ], False)
+        self.replay_chain_pause = dispatcher.rcHandler.getfloat("replay_chain_pause", [ "general" ], 0.0)
+        self.replay_chain_min_length = dispatcher.rcHandler.getfloat("replay_chain_min_length", [ "general" ], 2)
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.settimeout(self.connection_timeout)
         self.socket.bind((address, port))
@@ -1048,20 +1052,31 @@ class TcpHeaderTrafficServer:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.connect(synch_server)
             sock.sendall((SynchStatusTraffic.socketId + ":" + text + "\n").encode())
+            if self.serverConverter:
+                # if we're recording from a server, need to know this has been processed to avoid racing
+                sock.shutdown(socket.SHUT_WR)
+                response = sock.makefile().read()
+                self.diag.debug(f"Got reply: {response}")
             sock.close()
         self.diag.debug("Sent synch status '" + text + "'")
-        
+
+    def send_replay_responses(self, responses):       
+        for i, response in enumerate(responses):
+            if self.replay_chain_pause and (i >= self.replay_chain_min_length - 1):
+                self.diag.debug(f"Sleeping for {self.replay_chain_pause} seconds between responses...")
+                time.sleep(self.replay_chain_pause)
+            self.clientConverter.convert_and_send(response.text)
+
     def handle_client_traffic(self, text, payload=None):
         self.requestCount += 1
         internal = payload is None
+        if len(self.synch_server_locations) > 0 and not internal:
+            self.send_synch_status(text)
         traffic = BinaryClientSocketTraffic(text, None, rcHandler=self.dispatcher.rcHandler, 
                                             serverConverter=self.serverConverter, payload=payload, internal=internal)
         responses = self.dispatcher.process(traffic, self.requestCount)
         if (not self.serverConverter or internal) and self.clientConverter:
-            for response in responses:
-                self.clientConverter.convert_and_send(response.text)
-        if len(self.synch_server_locations) > 0 and not internal:
-            self.send_synch_status(text)
+            self.send_replay_responses(responses)
 
     def handle_server_traffic(self, text, payload):
         if self.clientConverter:
@@ -1077,7 +1092,7 @@ class TcpHeaderTrafficServer:
         self.clientConverter.send_payload(payload)
 
     def try_client(self):
-        if self.clientConverter:
+        if self.clientConverter and not self.client_passive:
             try:
                 text, payload = self.clientConverter.read_and_parse()
                 self.handle_client_traffic(text, payload)
@@ -1132,12 +1147,14 @@ class TcpHeaderTrafficServer:
                 return False
             if converter.text: # complete message, i.e. special for CaptureMock
                 self.requestCount += 1
+                is_synch = converter.text.startswith("CAPTUREMOCK") # internal status, may be more
                 responses = self.dispatcher.processText(converter.text, None, self.requestCount)
                 self.diag.debug("Got message %s", converter.text)
+                if is_synch:
+                    converter.send_payload(b"ok", final=True)
                 self.tryConnectServer()
-                for response in responses:
-                    self.clientConverter.convert_and_send(response.text)
-                return converter.text.startswith("CAPTUREMOCK") # internal status, may be more
+                self.send_replay_responses(responses)
+                return is_synch
             else:
                 self.set_client_converter(converter)
                 payload = self.clientConverter.get_payload()
@@ -1147,8 +1164,10 @@ class TcpHeaderTrafficServer:
 
     def run(self):
         while not self.terminate:
-            while self.try_server():
-                pass
+            for _ in range(10):
+                # server might stream "continuously", don't make it impossible to interrupt if so...
+                if not self.try_server():
+                    break
 
             if self.try_client():
                 continue
