@@ -12,14 +12,13 @@ from datetime import datetime
 import bisect
 from urllib.request import urlopen
 
-version = "2.7.6"
+version = "2.8.0"
 
 class CaptureMockManager:
     fileContents = "import capturemock; capturemock.interceptCommand()\n"
     def __init__(self):
         self.serverProcess = None
         self.serverAddress = None
-
 
     def readServerAddress(self):
         address = self.serverProcess.stdout.readline().strip()

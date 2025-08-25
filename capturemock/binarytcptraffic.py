@@ -1,7 +1,7 @@
 
 from capturemock import clientservertraffic
 from datetime import datetime
-import sys, struct, socket, time, logging
+import sys, struct, socket, time, logging, re
 from pprint import pformat
         
 def get_logger():
@@ -988,11 +988,14 @@ class SynchServerLocationTraffic(clientservertraffic.ClientSocketTraffic):
         clientservertraffic.ClientSocketTraffic.__init__(self, inText, *args)
 
     def set_data(self, data):
+        filterData = None
+        if "," in data:
+            data, filterData = data.split(",", 1)
         if ":" in data:
             host, port = data.split(":")
             if port.isdigit():
                 dest = host, int(port)
-                TcpHeaderTrafficServer.synch_server_locations.append(dest)
+                TcpHeaderTrafficServer.add_synch_server(dest, filterData)
 
     def forwardToDestination(self):
         return []
@@ -1008,10 +1011,14 @@ class SynchStatusTraffic(clientservertraffic.ClientSocketTraffic):
 
 
 class TcpHeaderTrafficServer:
-    synch_server_locations = []
+    synch_server_locations = {}
     @classmethod
     def createServer(cls, *args):
         return cls(*args)
+    
+    @classmethod
+    def add_synch_server(cls, data, filterData):
+        cls.synch_server_locations[data] = re.compile(filterData) if filterData else None
 
     def __init__(self, address, port, dispatcher):
         self.dispatcher = dispatcher
@@ -1047,18 +1054,19 @@ class TcpHeaderTrafficServer:
             self.serverConverter = BinaryClientSocketTraffic.getServerConverter(self.dispatcher.rcHandler, reset)
 
     def send_synch_status(self, text):
-        self.diag.debug("Sending synch status '" + text + "'")
-        for synch_server in self.synch_server_locations:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.connect(synch_server)
-            sock.sendall((SynchStatusTraffic.socketId + ":" + text + "\n").encode())
-            if self.serverConverter:
-                # if we're recording from a server, need to know this has been processed to avoid racing
-                sock.shutdown(socket.SHUT_WR)
-                response = sock.makefile().read()
-                self.diag.debug(f"Got reply: {response}")
-            sock.close()
-        self.diag.debug("Sent synch status '" + text + "'")
+        for synch_server, filter_regex in self.synch_server_locations.items():
+            if filter_regex is None or filter_regex.match(text):
+                self.diag.debug(f"Sending synch status '{text}' to {synch_server}")
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.connect(synch_server)
+                sock.sendall((SynchStatusTraffic.socketId + ":" + text + "\n").encode())
+                if self.serverConverter:
+                    # if we're recording from a server, need to know this has been processed to avoid racing
+                    sock.shutdown(socket.SHUT_WR)
+                    response = sock.makefile().read()
+                    self.diag.debug(f"Got reply: {response}")
+                sock.close()
+                self.diag.debug(f"Sent synch status '{text}' to {synch_server}")
 
     def send_replay_responses(self, responses):       
         for i, response in enumerate(responses):
