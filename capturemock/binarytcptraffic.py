@@ -438,6 +438,9 @@ class SequenceConverter:
             return element
         else:
             return (element,)
+        
+    def get_sequence_length(self, rawBytes, offset):
+        return struct.unpack_from(self.lengthFmt, rawBytes, offset=offset)[0]
 
     def get_data_size(self):
         return 1
@@ -451,12 +454,15 @@ class StringConverter(SequenceConverter):
         SequenceConverter.__init__(self, lengthFmt, fmt)
 
     def unpack(self, rawBytes, offset, *args):
-        str_length = struct.unpack_from(self.lengthFmt, rawBytes, offset=offset)[0]
+        str_length = self.get_sequence_length(rawBytes, offset)
         if str_length > 0:
             string_data = struct.unpack_from(self.elementFmt % str_length, rawBytes, offset=offset+self.extraLength)
-            return tuple(toString(rawBytes) for rawBytes in string_data), str_length + self.extraLength
+            return tuple(self.decode_bytes(rawBytes) for rawBytes in string_data), str_length + self.extraLength
         else:
             return [ "" ] if str_length == 0 else [ None ], self.extraLength
+
+    def decode_bytes(self, rawBytes):
+        return toString(rawBytes)
 
     def pack(self, data, index, diag):
         toPack = fromString(data[index], stringOnly=True)
@@ -473,7 +479,7 @@ class ListConverter(SequenceConverter):
         self.elementConverters = elementConverters
 
     def unpack(self, rawBytes, offset, diag):
-        list_length = struct.unpack_from(self.lengthFmt, rawBytes, offset=offset)[0]
+        list_length = self.get_sequence_length(rawBytes, offset)
         diag.debug("Found list of length %d", list_length)
         if list_length == 0:
             return [[]], self.extraLength
@@ -546,7 +552,7 @@ class OptionConverter(SequenceConverter):
         return []
 
     def unpack(self, rawBytes, offset, diag):
-        optionType = struct.unpack_from(self.lengthFmt, rawBytes, offset=offset)[0]
+        optionType = self.get_sequence_length(rawBytes, offset) # somewhat repurposed in this class
         data = []
         data_offset = offset + self.extraLength
         for converter in self.find_converters(optionType, diag):
@@ -607,8 +613,8 @@ class BinaryMessageConverter:
     def readDictionary(self, rcHandler, key, sections):
         ret = {}
         for part in rcHandler.getList(key, sections):
-            key, value = part.split("=")
-            ret[key] = value
+            subkey, value = part.split("=")
+            ret[subkey] = value
         return ret
 
     def is_incomplete(self, fields):
@@ -616,17 +622,20 @@ class BinaryMessageConverter:
 
     def getHeaderDescription(self, fields):
         msgType = fields.get("type")
+        filtered_fields = self.filter_fields(fields)
+        if msgType is not None:
+            return toString(msgType) + " " + repr(filtered_fields)
+        elif filtered_fields:
+            return repr(filtered_fields)
+
+    def filter_fields(self, fields):
         filtered_fields = {}
         for key, value in fields.items():
             strval = toString(value)
             if key not in [ "type", "length" ] and (self.padding or key != "msg_size") and \
                 self.assume.get(key) != strval and self.incompleteMarkers.get(key) != strval:
                 filtered_fields[key] = value
-        parts = []
-        if msgType is not None:
-            return toString(msgType) + " " + repr(filtered_fields)
-        elif filtered_fields:
-            return repr(filtered_fields)
+        return filtered_fields
 
     def parseHeaderDescription(self, text, final=True):
         if " " in text:
@@ -717,12 +726,16 @@ class BinaryMessageConverter:
         return ix
 
     @classmethod
+    def get_special_string_chars(cls):
+        return "$"
+
+    @classmethod
     def split_format(cls, fmt):
         ix = 0
         endianchar = fmt[0]
         curr_fmt = ""
         converters = []
-        specialChars = "$[]()"
+        specialChars = "[]()" + cls.get_special_string_chars()
         while ix < len(fmt):
             currChar = fmt[ix]
             if currChar in specialChars:
@@ -781,7 +794,7 @@ class BinaryMessageConverter:
                     converters.append(OptionConverter(lengthFmt, allOptionFmt, optionConverters, bitTemplates))
                     ix = closePos
                 else:
-                    converters.append(StringConverter(lengthFmt))
+                    converters.append(cls.make_string_converter(lengthFmt, currChar))
                 curr_fmt = ""
             else:
                 curr_fmt += fmt[ix]
@@ -791,6 +804,10 @@ class BinaryMessageConverter:
                 curr_fmt = endianchar + curr_fmt
             converters.append(StructConverter(curr_fmt))
         return converters
+    
+    @classmethod
+    def make_string_converter(cls, lengthFmt, *args):
+        return StringConverter(lengthFmt)
 
     def unpack(self, fmt, rawBytes, diag):
         offset = 0
