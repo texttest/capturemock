@@ -377,6 +377,9 @@ class NullConverter:
 
     def pack(self, *args):
         return b""
+    
+    def is_padding(self):
+        return False
 
 
 class StructConverter:
@@ -386,6 +389,9 @@ class StructConverter:
 
     def __repr__(self):
         return self.__class__.__name__ + "(" + self.fmt + ")"
+    
+    def is_padding(self):
+        return all(c.isdigit() or c == "x" for c in self.fmt[1:])
 
     def combine_converters(self, converters):
         pass
@@ -424,6 +430,9 @@ class SequenceConverter:
         self.elementFmt = fmt
         self.extraLength = struct.calcsize(lengthFmt)
 
+    def is_padding(self):
+        return False
+
     def combine_converters(self, converters):
         pass
 
@@ -434,11 +443,13 @@ class SequenceConverter:
             return tuple(element_data)
 
     def from_element(self, element, converters):
-        if len(converters) > 1 or converters[0].get_data_size() > 1:
+        converters_with_data = [ conv for conv in converters if not conv.is_padding() ]
+        if len(converters_with_data) > 1 or converters_with_data[0].get_data_size() > 1:
             return element
         else:
             return (element,)
         
+    # Methods exists so it can be overriden - don't optimise away!
     def get_sequence_length(self, rawBytes, offset):
         return struct.unpack_from(self.lengthFmt, rawBytes, offset=offset)[0]
 
@@ -461,14 +472,21 @@ class StringConverter(SequenceConverter):
         else:
             return [ "" ] if str_length == 0 else [ None ], self.extraLength
 
+    # Following 3 methods exist so they can be overriden - don't optimise away!
     def decode_bytes(self, rawBytes):
         return toString(rawBytes)
 
+    def encode_bytes(self, stringData):
+        return fromString(stringData, stringOnly=True)
+
+    def get_length_to_pack(self, length):
+        return length
+
     def pack(self, data, index, diag):
-        toPack = fromString(data[index], stringOnly=True)
+        toPack = self.encode_bytes(data[index])
         diag.debug("packing string %s", toPack)
         length = len(toPack) if toPack is not None else -1
-        rawBytes = struct.pack(self.lengthFmt, length)
+        rawBytes = struct.pack(self.lengthFmt, self.get_length_to_pack(length))
         if length > 0:
             rawBytes += struct.pack(self.elementFmt % length, toPack)
         return rawBytes
