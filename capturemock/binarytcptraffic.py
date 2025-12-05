@@ -838,11 +838,14 @@ class BinaryMessageConverter:
             diag.debug("Unpacked to %s %d", curr_data, curr_offset)
             data += curr_data
             offset += curr_offset
-        # If we aren't a header, place the rest in a final field
-        if not self.message_type.endswith("_header") and offset < len(rawBytes):
+        if self.should_unpack_additional_data() and offset < len(rawBytes):
             data.append(rawBytes[offset:].hex())
             offset = len(rawBytes)
         return data, offset
+
+    def should_unpack_additional_data(self):
+        # If we aren't a header, place the rest in a final field
+        return not self.message_type.endswith("_header")
 
     @classmethod
     def pack(cls, fmt, data, diag):

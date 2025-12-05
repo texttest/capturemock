@@ -12,7 +12,7 @@ from datetime import datetime
 import bisect
 from urllib.request import urlopen
 
-version = "2.8.1"
+version = "2.8.2"
 
 class CaptureMockManager:
     fileContents = "import capturemock; capturemock.interceptCommand()\n"
