@@ -67,7 +67,7 @@ class RcFileHandler:
             if self.parser.has_section(section) and self.parser.has_option(section, setting):
                 listStr = self.parser.get(section, setting).strip()
                 if listStr:
-                    result += listStr.split(",")
+                    result += [ item.strip() for item in listStr.split(",") ]
         return result
     
     def getSection(self, section):
