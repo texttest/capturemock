@@ -107,7 +107,7 @@ class ImportHandler:
         if not hasattr(oldModule, "__file__"):
             return subModNames
         dirName = os.path.dirname(self.getModuleFile(oldModule))
-        for subModName, subMod in sys.modules.items():
+        for subModName, subMod in list(sys.modules.items()):
             if subModName.startswith(modName + ".") and hasattr(subMod, "__file__") and \
                    self.getModuleFile(subMod).startswith(dirName):
                 subModNames.append(subModName)
@@ -122,7 +122,7 @@ class ImportHandler:
     def modulesLoading(self, modName, interceptModName):
         modules = []
         oldModule = sys.modules.get(modName)
-        for otherName, otherMod in sys.modules.items():
+        for otherName, otherMod in list(sys.modules.items()):
             if not otherName.startswith("capturemock") and \
                not otherName.startswith(interceptModName + ".") and \
                not isinstance(otherMod, pythonclient.ModuleProxy) and \
