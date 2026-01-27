@@ -497,6 +497,11 @@ class PythonTrafficHandler:
         PythonCallbackWrapper.resetCaches()
         PythonAttributeTraffic.resetCaches()
 
+    def close(self):
+        if self.recordFileHandler is not None:
+            self.recordFileHandler.close()
+            self.recordFileHandler = None
+
     def importModule(self, name, proxy, loadModule):
         with self.lock:
             traffic = PythonImportTraffic(name, self.rcHandler)

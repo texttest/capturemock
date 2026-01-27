@@ -42,8 +42,8 @@ class CallStackChecker:
         # Don't intercept if we've been called from within the standard library
         self.excludeLevel += 1
         
-        framerecord = inspect.stack()[stackDistance]
-        fileName = framerecord[1]
+        frame = sys._getframe(stackDistance)
+        fileName = frame.f_code.co_filename
         dirName = self.getDirectory(fileName)
         moduleName = self.getModuleName(fileName)
         moduleNames = set([ moduleName, os.path.basename(dirName) ])
@@ -241,6 +241,7 @@ class InterceptHandler:
         self.replayInfo = replayinfo.ReplayInfo(mode, replayFile, self.rcHandler)
         self.recordFile = recordFile
         self.allAttrNames = self.findAttributeNames(mode, pythonAttrs)
+        self.trafficHandler = None
 
     def findAttributeNames(self, mode, pythonAttrs):
         rcAttrs = self.rcHandler.getIntercepts("python")
@@ -272,14 +273,14 @@ class InterceptHandler:
             return
         callStackChecker = CallStackChecker(self.rcHandler)
         from .pythontraffic import PythonTrafficHandler
-        trafficHandler = PythonTrafficHandler(self.replayInfo, self.recordFile, self.rcHandler,
-                                              callStackChecker, self.allAttrNames)
+        self.trafficHandler = PythonTrafficHandler(self.replayInfo, self.recordFile, self.rcHandler,
+                                                   callStackChecker, self.allAttrNames)
         if len(fullIntercepts):
-            import_handler = ImportHandler(fullIntercepts, callStackChecker, trafficHandler)
+            import_handler = ImportHandler(fullIntercepts, callStackChecker, self.trafficHandler)
             if import_handler not in sys.meta_path:
                 sys.meta_path.insert(0, import_handler)
         for moduleName, attributes in partialIntercepts.items():
-            self.interceptAttributes(moduleName, attributes, trafficHandler)
+            self.interceptAttributes(moduleName, attributes, self.trafficHandler)
 
     def splitByModule(self, attrName):
         if self.canImport(attrName):
@@ -338,3 +339,5 @@ class InterceptHandler:
                 item.reset()
         for realObj, attrName, origValue in self.attributesIntercepted:
             setattr(realObj, attrName, origValue)
+        if self.trafficHandler is not None:
+            self.trafficHandler.close()

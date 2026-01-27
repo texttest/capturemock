@@ -4,7 +4,7 @@ from .fileedittraffic import FileEditTraffic
 from .id_mapping import ID_ALTERATIONS_RC_FILE
 from .config import CaptureMockReplayError, RECORD, REPLAY, REPLAY_OLD_RECORD_NEW
 from . import config, cmdlineutils
-import os, sys, shutil, filecmp, subprocess, tempfile, types
+import os, sys, shutil, filecmp, subprocess, tempfile, types, time
 from functools import wraps
 from glob import glob
 from collections import namedtuple
@@ -12,7 +12,7 @@ from datetime import datetime
 import bisect
 from urllib.request import urlopen
 
-version = "2.8.3"
+version = "2.8.4"
 
 class CaptureMockManager:
     fileContents = "import capturemock; capturemock.interceptCommand()\n"
@@ -203,6 +203,30 @@ def terminate():
     if manager:
         manager.terminate()
 
+def remove_dir_with_retry(path, max_attempts=5, delay=0.5):
+    """
+    Safely remove a directory, with retries for Windows where files may still be in use.
+    
+    On Windows, executables that were recently run may still have file handles open,
+    causing PermissionError. This function retries with increasing delays.
+    """
+    for attempt in range(max_attempts):
+        try:
+            shutil.rmtree(path)
+            return
+        except PermissionError as e:
+            if attempt < max_attempts - 1:
+                # Wait before retrying, with exponential backoff
+                time.sleep(delay * (2 ** attempt))
+            else:
+                # Last attempt failed, log warning but don't crash
+                sys.stderr.write(f"WARNING: Could not remove temporary directory {path}: {e}\n")
+                sys.stderr.write("The directory may be removed later by the system.\n")
+        except Exception as e:
+            # For other errors, just log and continue
+            sys.stderr.write(f"WARNING: Could not remove temporary directory {path}: {e}\n")
+            break
+
 def commandline():
     parser = cmdlineutils.create_option_parser()
     parser.disable_interspersed_args()
@@ -225,7 +249,7 @@ def commandline():
                 rcFiles=rcFiles, interceptDir=interceptDir)
     subprocess.call(args)
     if os.path.exists(interceptDir):
-        shutil.rmtree(interceptDir)
+        remove_dir_with_retry(interceptDir)
     terminate()
 
 def texttest_is_recording():
@@ -248,10 +272,13 @@ def replay_for_server(rcFile=None, replayFile=None, recordFile=None, serverAddre
     FileEditTraffic.configure(foptions)
     from .server import ReplayOnlyDispatcher
     dispatcher = ReplayOnlyDispatcher(replayFile, recordFile, rcFile)
-    if serverAddress:
-        from .clientservertraffic import ClientSocketTraffic
-        ClientSocketTraffic.setServerLocation(serverAddress, True)
-    dispatcher.replay_all(**kw)
+    try:
+        if serverAddress:
+            from .clientservertraffic import ClientSocketTraffic
+            ClientSocketTraffic.setServerLocation(serverAddress, True)
+        dispatcher.replay_all(**kw)
+    finally:
+        dispatcher.shutdown()
     
 def add_timestamp_data(data_by_timestamp, given_ts, fn, currText, fn_timestamps):
     if currText.startswith("->"): # it's a reply, must match with best client traffic
@@ -617,9 +644,13 @@ class CaptureMockDecorator(object):
                 setUpPython(self.mode, recordFile, replayFile, self.rcFiles, self.pythonAttrs)
                 interceptor = interceptPython(self.mode, recordFile, replayFile, self.rcFiles, self.pythonAttrs)
                 result = func(*funcargs, **funckw)
+                # Close the file handlers before attempting file operations (needed for Windows)
+                if interceptor:
+                    interceptor.resetIntercepts()
+                    interceptor = None
                 if self.mode == config.REPLAY:
                     self.checkMatching(recordFile, replayFile)
-                elif os.path.isfile(recordFile):
+                elif os.path.isfile(recordFile) and os.path.getsize(recordFile) > 0:
                     shutil.move(recordFile, fileNameRoot)
                 return result
             finally:
@@ -643,7 +674,7 @@ class CaptureMockDecorator(object):
                     return True
 
     def checkMatching(self, recordFile, replayFile):
-        if os.path.isfile(recordFile):
+        if os.path.isfile(recordFile) and os.path.getsize(recordFile) > 0:
             if self.fileContentsEqual(recordFile, replayFile):
                 os.remove(recordFile)
             else:
@@ -652,6 +683,9 @@ class CaptureMockDecorator(object):
                 raise CaptureMockReplayError("Replayed calls do not match those recorded. " +
                                              "Either rerun with capturemock in record mode " +
                                              "or update the stored mock file by hand.")
+        elif os.path.isfile(recordFile):
+            # Empty record file - just clean it up
+            os.remove(recordFile)
 
     def getFileNameRoot(self, funcName, callingFile):
         dirName = os.path.join(os.path.dirname(callingFile), "mocks")
