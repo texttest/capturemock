@@ -593,7 +593,9 @@ class ServerDispatcherBase:
             return AMQPTrafficServer
         
     def shutdown(self):
-        pass
+        if self.recordFileHandler is not None:
+            self.recordFileHandler.close()
+            self.recordFileHandler = None
         
     def findFilesAndLinks(self, path):
         if not os.path.exists(path):
@@ -863,6 +865,7 @@ class ServerDispatcher(ServerDispatcherBase):
     def shutdown(self):
         self.diag.debug("Told to shut down!")
         self.server.shutdown()
+        super(ServerDispatcher, self).shutdown()
         
         
 class ReplayOnlyDispatcher(ServerDispatcherBase):
@@ -981,7 +984,10 @@ def main():
     fileedittraffic.FileEditTraffic.configure(options)
 
     server = ServerDispatcher(options)
-    server.run()
+    try:
+        server.run()
+    finally:
+        server.shutdown()
 
 
 if __name__ == "__main__":
