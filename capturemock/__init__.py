@@ -620,6 +620,10 @@ class CaptureMockDecorator(object):
                 setUpPython(self.mode, recordFile, replayFile, self.rcFiles, self.pythonAttrs)
                 interceptor = interceptPython(self.mode, recordFile, replayFile, self.rcFiles, self.pythonAttrs)
                 result = func(*funcargs, **funckw)
+                # Close the file handlers before attempting file operations (needed for Windows)
+                if interceptor:
+                    interceptor.resetIntercepts()
+                    interceptor = None
                 if self.mode == config.REPLAY:
                     self.checkMatching(recordFile, replayFile)
                 elif os.path.isfile(recordFile):
