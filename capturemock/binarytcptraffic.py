@@ -415,7 +415,7 @@ class StructConverter:
                     count = int(countStr)
                     skip_indices = len(countStr)
                     size += count
-            else:
+            elif not char.isspace():
                 size += 1
         return size
 
@@ -690,6 +690,12 @@ class BinaryMessageConverter:
                 value = values[field]
                 diag.debug("Packing field %s %s", field, value)
                 data.append(self.try_deconvert(field, value, diag))
+            elif field in self.assume:
+                value = self.assume[field]
+                if value.isdigit():
+                    value = int(value)
+                diag.debug(f"Using assumed value for field {field} {value}")
+                data.append(value)
             elif field.endswith("_leastsig") or field.endswith("_mostsig"):
                 value = self.extract_sigbytes(field, values, fields)
                 diag.debug("Extracted sigbyte field %s %s", field, value)
