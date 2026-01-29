@@ -12,7 +12,7 @@ from datetime import datetime
 import bisect
 from urllib.request import urlopen
 
-version = "2.8.3"
+version = "2.8.4"
 
 class CaptureMockManager:
     fileContents = "import capturemock; capturemock.interceptCommand()\n"
@@ -248,10 +248,13 @@ def replay_for_server(rcFile=None, replayFile=None, recordFile=None, serverAddre
     FileEditTraffic.configure(foptions)
     from .server import ReplayOnlyDispatcher
     dispatcher = ReplayOnlyDispatcher(replayFile, recordFile, rcFile)
-    if serverAddress:
-        from .clientservertraffic import ClientSocketTraffic
-        ClientSocketTraffic.setServerLocation(serverAddress, True)
-    dispatcher.replay_all(**kw)
+    try:
+        if serverAddress:
+            from .clientservertraffic import ClientSocketTraffic
+            ClientSocketTraffic.setServerLocation(serverAddress, True)
+        dispatcher.replay_all(**kw)
+    finally:
+        dispatcher.shutdown()
     
 def add_timestamp_data(data_by_timestamp, given_ts, fn, currText, fn_timestamps):
     if currText.startswith("->"): # it's a reply, must match with best client traffic
@@ -617,6 +620,10 @@ class CaptureMockDecorator(object):
                 setUpPython(self.mode, recordFile, replayFile, self.rcFiles, self.pythonAttrs)
                 interceptor = interceptPython(self.mode, recordFile, replayFile, self.rcFiles, self.pythonAttrs)
                 result = func(*funcargs, **funckw)
+                # Close the file handlers before attempting file operations (needed for Windows)
+                if interceptor:
+                    interceptor.resetIntercepts()
+                    interceptor = None
                 if self.mode == config.REPLAY:
                     self.checkMatching(recordFile, replayFile)
                 elif os.path.isfile(recordFile):
