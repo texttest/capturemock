@@ -1,7 +1,7 @@
 
 """ Generic front end module to all forms of Python interception"""
 
-import sys, os, logging, inspect, types, sysconfig
+import sys, os, logging, inspect, types, sysconfig, importlib
 from . import pythonclient, config
 import importlib.util
 
@@ -28,12 +28,12 @@ class CallStackChecker:
             self.excludeLevel -= delta
             if callback:
                 self.inCallback = False
-                
+
     def findStandardLibDirs(self):
         # might be the same path
         dirs = { sysconfig.get_path("stdlib"), sysconfig.get_path("platstdlib") }
         return [ os.path.normcase(os.path.realpath(d)) for d in dirs ]
-        
+
     def callerExcluded(self, stackDistance=1, callback=False):
         if (callback and self.excludeLevel < 0) or (not callback and self.excludeLevel > 0):
             # If we get called recursively, must call the real thing to avoid infinite loop...
@@ -41,15 +41,15 @@ class CallStackChecker:
 
         # Don't intercept if we've been called from within the standard library
         self.excludeLevel += 1
-        
-        framerecord = inspect.stack()[stackDistance]
-        fileName = framerecord[1]
+
+        frame = sys._getframe(stackDistance)
+        fileName = frame.f_code.co_filename
         dirName = self.getDirectory(fileName)
         moduleName = self.getModuleName(fileName)
-        moduleNames = set([ moduleName, os.path.basename(dirName) ])
-        self.logger.debug("Checking call from " + dirName + ", modules " + repr(moduleNames))
+        dirBaseName = os.path.basename(dirName)
+        self.logger.debug("Checking call from " + dirName + ", modules " + repr({moduleName, dirBaseName}))
         self.excludeLevel -= 1
-        return dirName in self.stdlibDirs or len(moduleNames.intersection(self.ignoreModuleCalls)) > 0
+        return dirName in self.stdlibDirs or moduleName in self.ignoreModuleCalls or dirBaseName in self.ignoreModuleCalls
 
     def getModuleName(self, fileName):
         given = inspect.getmodulename(fileName)
@@ -68,11 +68,11 @@ class CallStackChecker:
     def moduleExcluded(self, modName, mod):
         if not hasattr(mod, "__file__") or mod.__file__ is None:
             return False
-        
+
         modFile = os.path.normcase(os.path.realpath(mod.__file__))
         return any((modFile.startswith(stdlibDir) for stdlibDir in self.stdlibDirs)) or \
-               modName.split(".")[0] in self.ignoreModuleCalls
-               
+               modName.partition(".")[0] in self.ignoreModuleCalls
+
 
 class ImportHandler:
     def __init__(self, moduleNames, callStackChecker, trafficHandler):
@@ -107,12 +107,13 @@ class ImportHandler:
         if not hasattr(oldModule, "__file__"):
             return subModNames
         dirName = os.path.dirname(self.getModuleFile(oldModule))
+        prefix = modName + "."
         for subModName, subMod in list(sys.modules.items()):
-            if subModName.startswith(modName + ".") and hasattr(subMod, "__file__") and \
+            if subModName.startswith(prefix) and hasattr(subMod, "__file__") and \
                    self.getModuleFile(subMod).startswith(dirName):
                 subModNames.append(subModName)
         return subModNames
-    
+
     def getModuleFile(self, mod):
         if hasattr(mod, "captureMockTarget"):
             return mod.captureMockTarget.__file__
@@ -147,10 +148,11 @@ class ImportHandler:
             return True
         elif "." in name:
             for modName in self.moduleNames:
-                if name.startswith(modName + "."):
+                # Check prefix with length comparison to avoid string concatenation each iteration
+                if name.startswith(modName) and len(name) > len(modName) and name[len(modName)] == '.':
                     return True
         return False
-        
+
     def find_spec(self, name, *args):
         if self.shouldIntercept(name):
             return importlib.util.spec_from_loader(name, self)
@@ -161,7 +163,7 @@ class ImportHandler:
 
     def createProxy(self, name):
         return pythonclient.ModuleProxy(name, self.trafficHandler, self.loadRealModule)
-    
+
     def loadRealModule(self, name):
         oldMod = None
         if name in sys.modules:
@@ -169,12 +171,7 @@ class ImportHandler:
             del sys.modules[name]
         sys.meta_path.remove(self)
         try:
-            # This is a bit weird, but it's apparently necessary in python 3...
-            # See http://bugs.python.org/issue6862
-            cmd = "import " + name + " as _realModule"
-            d = {}
-            exec(cmd, d)
-            _realModule = d["_realModule"]
+            _realModule = importlib.import_module(name)
         finally:
             sys.meta_path.insert(0, self)
             if name in sys.modules:
@@ -201,7 +198,7 @@ class ImportHandler:
             parentModule = sys.modules.get(parts[0])
             if parentModule is not None:
                 setattr(parentModule, parts[1], proxy)
-        
+
     def getImportedPackageSubmodules(self, name, realModule):
         submodules = []
         for other in self.interceptedNames:
@@ -226,7 +223,7 @@ class TransparentProxy:
 
     def __call__(self, *args, **kw):
         return self.obj(*args, **kw)
-        
+
     def __getattr__(self, name):
         return getattr(self.obj, name)
 
@@ -241,6 +238,7 @@ class InterceptHandler:
         self.replayInfo = replayinfo.ReplayInfo(mode, replayFile, self.rcHandler)
         self.recordFile = recordFile
         self.allAttrNames = self.findAttributeNames(mode, pythonAttrs)
+        self.trafficHandler = None
 
     def findAttributeNames(self, mode, pythonAttrs):
         rcAttrs = self.rcHandler.getIntercepts("python")
@@ -272,14 +270,14 @@ class InterceptHandler:
             return
         callStackChecker = CallStackChecker(self.rcHandler)
         from .pythontraffic import PythonTrafficHandler
-        trafficHandler = PythonTrafficHandler(self.replayInfo, self.recordFile, self.rcHandler,
-                                              callStackChecker, self.allAttrNames)
+        self.trafficHandler = PythonTrafficHandler(self.replayInfo, self.recordFile, self.rcHandler,
+                                                   callStackChecker, self.allAttrNames)
         if len(fullIntercepts):
-            import_handler = ImportHandler(fullIntercepts, callStackChecker, trafficHandler)
+            import_handler = ImportHandler(fullIntercepts, callStackChecker, self.trafficHandler)
             if import_handler not in sys.meta_path:
                 sys.meta_path.insert(0, import_handler)
         for moduleName, attributes in partialIntercepts.items():
-            self.interceptAttributes(moduleName, attributes, trafficHandler)
+            self.interceptAttributes(moduleName, attributes, self.trafficHandler)
 
     def splitByModule(self, attrName):
         if self.canImport(attrName):
@@ -295,7 +293,7 @@ class InterceptHandler:
 
     def canImport(self, moduleName):
         try:
-            exec("import " + moduleName)
+            importlib.import_module(moduleName)
             return True
         except ImportError:
             return False
@@ -304,7 +302,7 @@ class InterceptHandler:
         for attrName in attrNames:
             self.interceptAttribute(moduleName, trafficHandler,
                                     sys.modules.get(moduleName), attrName)
-            
+
     def interceptAttribute(self, proxyName, trafficHandler, realObj, attrName):
         parts = attrName.split(".", 1)
         currAttrName = parts[0]
@@ -338,3 +336,5 @@ class InterceptHandler:
                 item.reset()
         for realObj, attrName, origValue in self.attributesIntercepted:
             setattr(realObj, attrName, origValue)
+        if self.trafficHandler is not None:
+            self.trafficHandler.close()

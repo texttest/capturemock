@@ -23,7 +23,7 @@ class FTPTrafficHandler(FTPHandler):
             self.dispatcher.process(traffic, self.requestCount)
         if cmd != "LIST":
             FTPHandler.pre_process_command(self, line, cmd, arg)
-            
+
     def ftp_STOR(self, path, mode="w"):
         fn = os.path.basename(path)
         if fn == "CAPTUREMOCK_SHUTDOWN":
@@ -53,13 +53,13 @@ class FTPTrafficHandler(FTPHandler):
                 except FileExistsError:
                     pass
                 self.authorizer.add_user(self.username, arg, ftp_dir, perm='elradfmwMT')
-    
+
 
 class FtpTrafficServer:
     @classmethod
     def createServer(cls, address, port, dispatcher):
         return cls((address, port), dispatcher)
-    
+
     def __init__(self, address, dispatcher):
         self.count = 0
         self.dispatcher = dispatcher
@@ -70,14 +70,17 @@ class FtpTrafficServer:
     def getAddress(self):
         values = self.server.socket.getsockname()
         return self.host + ":" + str(values[1])
-        
+
     def run(self):
         self.server.serve_forever()
+
+    def shutdown(self):
+        self.server.close_all()
 
     @staticmethod
     def getTrafficClasses(incoming):
         return [ FtpClientTraffic, FtpServerTraffic, FtpListTraffic, FtpFileTraffic ]
-    
+
     @classmethod
     def sendTerminateMessage(cls, serverAddressStr):
         host, port = serverAddressStr.split(":")
@@ -123,11 +126,11 @@ class FtpClientTraffic(clientservertraffic.ClientSocketTraffic):
         else:
             response = self.serverFtp.sendcmd(self.text)
             return [ FtpServerTraffic(self.cmd, self.arg, response, handler=self.handler) ]
-                    
+
     @classmethod
     def isClientClass(cls):
         return True
-    
+
     def makeResponseTraffic(self, rawText, responseClass, rcHandler):
         if responseClass is FtpServerTraffic:
             return responseClass(self.cmd, self.arg, rawText, self.handler)
@@ -144,31 +147,31 @@ class FtpServerTraffic(clientservertraffic.ServerTraffic):
         self.cmd = cmd
         self.arg = arg
         self.handler = handler
-    
+
     def forwardToDestination(self):
         if self.handler:
             self.handler.handle_cmd_response(self.cmd, self.arg, self.text)
         return []
-    
+
 class FtpListTraffic(clientservertraffic.ServerTraffic):
     typeId = "LST"
     def __init__(self, lines, handler):
         clientservertraffic.ServerTraffic.__init__(self, pformat(lines), None)
         self.handler = handler
         self.lines = lines
-    
+
     def forwardToDestination(self):
         if self.handler:
             self.handler.push_dtp_data("\n".join(self.lines).encode(), cmd="LIST")
         return []
-    
+
 class FtpFileTraffic(clientservertraffic.ServerTraffic):
     typeId = "FIL"
     def __init__(self, fn, data=None):
         clientservertraffic.ServerTraffic.__init__(self, fn, None)
         self.fn = fn
         self.data = data
-    
+
     def forwardToDestination(self):
         recordDir = fileedittraffic.FileEditTraffic.recordFileEditDir
         if recordDir and self.data:
@@ -179,4 +182,3 @@ class FtpFileTraffic(clientservertraffic.ServerTraffic):
             with open(path, "wb") as f:
                 f.write(self.data)
         return []
-    
