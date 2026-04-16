@@ -864,17 +864,18 @@ class BinaryMessageConverter:
         # If we aren't a header, place the rest in a final field
         return not self.message_type.endswith("_header")
 
-    @classmethod
-    def pack(cls, fmt, data, diag):
+    def pack(self, fmt, data, diag):
         rawBytes = b""
         index = 0
         diag.debug("splitting format %s", fmt)
-        for converter in cls.split_format(fmt):
+        for converter in self.split_format(fmt):
             diag.debug("converting with %s", converter)
             curr_bytes = converter.pack(data, index, diag)
             diag.debug("Packed to %s", curr_bytes)
             rawBytes += curr_bytes
             index += converter.get_data_size()
+        if self.should_unpack_additional_data() and index < len(data):
+            rawBytes += bytes.fromhex(data[index])
         return rawBytes
 
     def parse(self, rawBytes, diag):
@@ -1081,6 +1082,7 @@ class TcpHeaderTrafficServer:
         self.client_passive = dispatcher.rcHandler.getboolean("client_passive", [ "general" ], False)
         self.replay_chain_pause = dispatcher.rcHandler.getfloat("replay_chain_pause", [ "general" ], 0.0)
         self.replay_chain_min_length = dispatcher.rcHandler.getfloat("replay_chain_min_length", [ "general" ], 2)
+        self.replay_chain_trigger_prefixes = dispatcher.rcHandler.getList("replay_chain_trigger_prefixes", [ "general" ])
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.settimeout(self.connection_timeout)
         self.socket.bind((address, port))
@@ -1123,9 +1125,18 @@ class TcpHeaderTrafficServer:
                 sock.close()
                 self.diag.debug(f"Sent synch status '{text}' to {synch_server}")
 
+    def is_replay_chain(self, i, text):
+        if i >= self.replay_chain_min_length - 1:
+            return True
+        
+        if self.replay_chain_trigger_prefixes:
+            return any(text.startswith(p) for p in self.replay_chain_trigger_prefixes)
+        else:
+            return False
+
     def send_replay_responses(self, responses):       
         for i, response in enumerate(responses):
-            if self.replay_chain_pause and (i >= self.replay_chain_min_length - 1):
+            if self.replay_chain_pause and self.is_replay_chain(i, response.text):
                 self.diag.debug(f"Sleeping for {self.replay_chain_pause} seconds between responses...")
                 time.sleep(self.replay_chain_pause)
             self.clientConverter.convert_and_send(response.text)
