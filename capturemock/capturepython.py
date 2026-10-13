@@ -182,6 +182,13 @@ class ImportHandler:
         self.interceptImportedPackageSubmodules(name, _realModule)
         return _realModule
 
+    def create_module(self, spec):
+        self.interceptedNames.add(spec.name)
+        return self.createProxy(spec.name)
+
+    def exec_module(self, module):
+        pass  # proxy module needs no further execution
+
     def reset(self):
         for modName in self.interceptedNames:
             if modName in sys.modules:
