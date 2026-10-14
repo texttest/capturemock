@@ -1,5 +1,5 @@
 """ Actual interception objects used by Python interception mechanism """
-import sys, types, inspect
+import sys, types, inspect, builtins
 
 class NameFinder(dict):
     def __init__(self, moduleProxy):
@@ -9,6 +9,7 @@ class NameFinder(dict):
         self["PythonProxy"] = PythonProxy
         self["ProxyMetaClass"] = ProxyMetaClass
         self["Instance"] = self.makeInstance
+        self["__builtins__"] = builtins  # avoid Py3.15 recursive __getitem__("__builtins__")
         self.makeNewClasses = False
         self.newClassNames = []
 
@@ -69,6 +70,9 @@ class NameFinder(dict):
 
     def __getitem__(self, name):
         if name not in self:
+            # Avoid endless recursion by treating special names as missing
+            if name.startswith("__") and name.endswith("__"):
+                raise KeyError(name)
             if self.makeNewClasses:
                 exec("class " + name + ": pass", self)
                 self.newClassNames.append(name)
