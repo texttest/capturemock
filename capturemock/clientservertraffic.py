@@ -6,11 +6,6 @@ from urllib.request import urlopen, Request
 from urllib.error import HTTPError
 from capturemock.fileedittraffic import FileEditTraffic
 
-try:
-    import xmlrpclib
-except ImportError:
-    import xmlrpc.client as xmlrpclib
-
 class ClientSocketTraffic(traffic.Traffic):
     destination = None
     broadcast = False
@@ -111,34 +106,6 @@ class ClientSocketTraffic(traffic.Traffic):
             return super().makeResponseTraffic(text, responseClass, rcHandler)
         else:
             return super().makeResponseTraffic(rawText, responseClass, rcHandler)
-
-
-class XmlRpcClientTraffic(ClientSocketTraffic):
-    def __init__(self, text="", responseFile=None, rcHandler=None, method=None, params=None):
-        if method is not None:
-            self.method = method
-            self.params = params
-            text = self.method + repr(params).replace(",)", ")")
-        ClientSocketTraffic.__init__(self, text, None, rcHandler)
-        if method is None: # replay 
-            self.method, paramText = text.rstrip().split("(", 1)
-            paramText = "(" + paramText
-            paramText = self.applyAlterationVariables(paramText)
-            if "," not in paramText and paramText != "()":
-                paramText = paramText[:-1] + ",)" # make proper tuple output
-            self.params = eval(paramText)
-
-    def forwardToServer(self):
-        try:
-            responseObject = getattr(self.destination, self.method)(*self.params)
-        except xmlrpclib.Fault as e:
-            responseObject = e
-
-        text = self.applyAlterations(self.fixMultilineStrings(responseObject))
-        return [ XmlRpcServerTraffic(text=text, responseObject=responseObject) ]
-
-    def getXmlRpcResponse(self):
-        return "" # not a response in the xmlrpc sense...
 
 
 class HTTPClientTraffic(ClientSocketTraffic):
@@ -384,25 +351,6 @@ class ServerTraffic(traffic.Traffic):
     direction = "->"
 
 
-class XmlRpcServerTraffic(ServerTraffic):
-    def __init__(self, text="", responseFile=None, rcHandler=None, responseObject=None):
-        if responseObject is not None:
-            self.responseObject = responseObject
-            if isinstance(responseObject, xmlrpclib.Fault):
-                text = "raise xmlrpclib.Fault(" + repr(responseObject.faultCode) + ", " + repr(responseObject.faultString) + ")"
-        else:
-            raiseException = text.startswith("raise ")
-            if raiseException:
-                text = text[6:]
-            self.responseObject = eval(text)
-        ServerTraffic.__init__(self, text, None, rcHandler)
-
-    def getXmlRpcResponse(self):
-        if isinstance(self.responseObject, xmlrpclib.Fault):
-            raise self.responseObject
-        else:
-            return self.responseObject
-        
 class HTTPServerTraffic(ServerTraffic):
     def __init__(self, status, text, body, headers, responseFile, handler):
         self.body = body
@@ -465,10 +413,4 @@ class ClassicServerStateTraffic(ServerStateTraffic):
     
 class HTTPServerStateTraffic(ServerStateTraffic):
     def __init__(self, dest, rcHandler):
-        ServerStateTraffic.__init__(self, "POST /capturemock/setServerLocation <address>", dest, None, rcHandler)            
-
-
-class XmlRpcServerStateTraffic(ServerStateTraffic):
-    def __init__(self, dest, rcHandler):
-        ServerStateTraffic.__init__(self, "setServerLocation(<address>)", xmlrpclib.ServerProxy(dest), None, rcHandler)
-
+        ServerStateTraffic.__init__(self, "POST /capturemock/setServerLocation <address>", dest, None, rcHandler)

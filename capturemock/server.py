@@ -14,8 +14,6 @@ from urllib.parse import urlparse, urlunparse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import TCPServer, StreamRequestHandler, UDPServer,\
     BaseRequestHandler
-from xmlrpc.client import Fault, ServerProxy
-from xmlrpc.server import SimpleXMLRPCServer
 import re
 import json
 from http.cookies import SimpleCookie
@@ -92,6 +90,7 @@ def stopServer(servAddr, protocol):
         from .ftptraffic import FtpTrafficServer
         FtpTrafficServer.sendTerminateMessage(servAddr)
     elif protocol == "xmlrpc":
+        from xmlrpc.client import ServerProxy
         s = ServerProxy(servAddr)
         s.shutdownCaptureMockServer()
     elif protocol == "amqp":
@@ -495,67 +494,6 @@ class HTTPTrafficServer(HTTPServer):
         return classes
 
 
-class XmlRpcTrafficServer(SimpleXMLRPCServer):
-    @classmethod
-    def createServer(cls, address, port, dispatcher):
-        server = cls((address, port), logRequests=False, use_builtin_types=True)
-        server.register_instance(XmlRpcDispatchInstance(dispatcher))
-        return server
-
-    def run(self):
-        self.serve_forever()
-
-    def getAddress(self):
-        host, port = self.socket.getsockname()
-        # hardcode http? Seems to be what you get...
-        return "http://" + host + ":" + str(port)
-
-    def setShutdownFlag(self):
-        # Not supposed to know about this variable, implementation detail of SocketServer
-        # But seems like the only way to shutdown the server from within a request
-        # Otherwise we have to start using ForkingMixin, ThreadingMixin etc which seems like overkill just to access a variable
-        self._BaseServer__shutdown_request = True
-
-    @staticmethod
-    def getTrafficClasses(incoming):
-        if incoming:
-            return [ clientservertraffic.XmlRpcServerStateTraffic, clientservertraffic.XmlRpcClientTraffic ]
-        else:
-            return [ clientservertraffic.XmlRpcServerTraffic, clientservertraffic.XmlRpcClientTraffic ]
-
-
-class XmlRpcDispatchInstance:
-    requestCount = 0
-    def __init__(self, dispatcher):
-        self.dispatcher = dispatcher
-
-    def convertBytes(self, param):
-        return str(param, getpreferredencoding()) if isinstance(param, bytes) else param
-
-    def _dispatch(self, method, binparams):
-        params = tuple([ self.convertBytes(param) for param in binparams ])
-        try:
-            self.dispatcher.diag.info("Received XMLRPC traffic " + method + repr(params))
-            XmlRpcDispatchInstance.requestCount += 1
-            if method == "shutdownCaptureMockServer":
-                self.dispatcher.server.setShutdownFlag()
-                return ""
-            elif method == "setServerLocation":
-                traffic = clientservertraffic.XmlRpcServerStateTraffic(params[0], rcHandler=self.dispatcher.rcHandler)
-            else:
-                traffic = clientservertraffic.XmlRpcClientTraffic(method=method, params=params, rcHandler=self.dispatcher.rcHandler)
-            responses = self.dispatcher.process(traffic, self.requestCount)
-            return responses[0].getXmlRpcResponse() if responses else ""
-        except Fault:
-            raise
-        except:
-            sys.stderr.write("Exception thrown while handling XMLRPC input :\n")
-            type, value, traceback = sys.exc_info()
-            from traceback import format_exception
-            exceptionString = "".join(format_exception(type, value, traceback))
-            sys.stderr.write(exceptionString)
-            return ""
-        
 class ServerDispatcherBase:
     def __init__(self, options):
         rcFiles = options.rcfiles.split(",") if options.rcfiles else []
@@ -587,6 +525,7 @@ class ServerDispatcherBase:
         elif protocol == "http":
             return HTTPTrafficServer
         elif protocol == "xmlrpc":
+            from capturemock.xmlrpctraffic import XmlRpcTrafficServer
             return XmlRpcTrafficServer
         elif protocol == "amqp":
             from capturemock.amqptraffic import AMQPTrafficServer

@@ -8,3 +8,5 @@ capturemock.py
 .project
 .pydevproject
 *.spec
+
+.vscode/
