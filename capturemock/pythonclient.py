@@ -168,7 +168,7 @@ class PythonProxy(object):
 
     def __setattr__(self, attrname, value):
         self.__dict__[attrname] = value
-        if not attrname.startswith("captureMock") and attrname not in [ "__file__", "__loader__", "__package__", "__spec__" ]:
+        if not attrname.startswith("captureMock") and attrname not in [ "__file__", "__loader__", "__package__", "__spec__", "__name__" ]:
             if self.captureMockTarget is not None:
                 setattr(self.captureMockTarget, attrname, value)
             # Don't record internally-set module setup when importing modules from packages
