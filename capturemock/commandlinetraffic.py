@@ -5,6 +5,12 @@ import sys
 from capturemock import traffic, fileedittraffic
 
 
+def isAbsolutePath(path):
+    # Since Python 3.13, os.path.isabs on Windows rejects paths with exactly one leading slash.
+    # But commands run via Cygwin/MSYS tools (e.g. scp) often get paths like /cygdrive/c/... which we must treat as absolute
+    return os.path.isabs(path) or (os.name == "nt" and path.startswith("/"))
+
+
 class CommandLineTraffic(traffic.Traffic):
     typeId = "CMD"
     socketId = "SUT_COMMAND_LINE"
@@ -117,12 +123,12 @@ class CommandLineTraffic(traffic.Traffic):
             self.diag.debug("Adding cwd " + repr(self.cmdCwd))
         for _, value in self.envVarsSet:
             for word in value.split():
-                if os.pathsep not in word and os.path.isabs(word):
+                if os.pathsep not in word and isAbsolutePath(word):
                     self.diag.debug("Adding environment path " + repr(word))
                     edits.append(word)
         for arg in self.cmdArgs[1:]:
             for word in self.getFileWordsFromArg(arg):
-                if os.path.isabs(word):
+                if isAbsolutePath(word):
                     self.diag.debug("Adding absolute path argument " + repr(word))
                     edits.append(word)
                 elif not changedCwd:
