@@ -6,17 +6,10 @@ from capturemock.replayinfo import ReplayInfo
 from capturemock.traffic import BaseTraffic
 from capturemock import recordfilehandler, cmdlineutils
 from capturemock import commandlinetraffic, fileedittraffic, clientservertraffic, customtraffic
-from locale import getpreferredencoding
 from collections import OrderedDict, namedtuple
 
-from urllib.request import urlopen
-from urllib.parse import urlparse, urlunparse
-from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import TCPServer, StreamRequestHandler, UDPServer,\
     BaseRequestHandler
-import re
-import json
-from http.cookies import SimpleCookie
 
 def getPython():
     if os.name == "nt":
@@ -81,6 +74,7 @@ def startServer(rcFiles,
 
 def stopServer(servAddr, protocol):
     if protocol == "http":
+        from urllib.request import urlopen
         try:
             urlopen(servAddr + "/capturemock/shutdownServer")
         except socket.error:
@@ -263,237 +257,6 @@ class ClassicUdpTrafficRequestHandler(BaseRequestHandler):
             wfile.write(("CAPTUREMOCK MISMATCH: " + str(e)).encode())
 
 
-class HTTPTrafficHandler(BaseHTTPRequestHandler):
-    dispatcher = None
-    redirects = {}
-    requestCount = 0
-    redirectLock = threading.Lock()
-    def read_data(self):
-        # Lifted from https://stackoverflow.com/questions/60895110/how-to-handle-chunked-encoding-in-python-basehttprequesthandler
-        # Weird that there is no builtin way to handle this
-        if 'Content-Length' in self.headers:
-            content_length = int(self.headers.get('Content-Length')) # <--- Gets the size of data
-            return self.rfile.read(content_length)
-        elif "chunked" in self.headers.get("Transfer-Encoding", ""):
-            data = b""
-            while True:
-                line = self.rfile.readline().strip()
-                chunk_length = int(line, 16)
-                if chunk_length != 0:
-                    data += self.rfile.read(chunk_length)
-
-                # Each chunk is followed by an additional empty newline
-                # that we have to consume.
-                self.rfile.readline()
-
-                # Finally, a chunk size of 0 is an end indication
-                if chunk_length == 0:
-                    return data
-    
-    def log_message(self, format, *args):
-        self.dispatcher.diag.debug(format % args)
-        
-    def get_local_path(self):
-        urldata = urlparse(self.path)
-        urldata = urldata._replace(scheme="", netloc="")
-        return urlunparse(urldata)
-    
-    def find_redirect_target_id(self):
-        cookie_header = self.headers.get('Cookie')
-        if cookie_header:
-            cookie = SimpleCookie(cookie_header)
-            morsel = cookie.get("capturemock_proxy_target")
-            if morsel:
-                return morsel.value
-        
-    def find_redirect_target(self, targetData):
-        server = self.find_redirect_server(targetData)
-        if server is not None:
-            return server + self.find_redirect_path(targetData)
-
-    def find_redirect_path(self, targetData):
-        replace = targetData.get("replace")
-        if not replace:
-            return self.path
-        
-        path = self.path
-        for regexp, repl in replace.items():
-            path = re.sub(regexp, repl.replace("$", "\\"), path)
-        return path
-            
-    def find_redirect_server(self, targetData):
-        matcher = targetData.get("matcher")
-        if len(matcher) == 1:
-            return list(matcher.values())[0]
-
-        targetId = self.find_redirect_target_id()
-        if targetId:
-            return matcher.get(targetId)
-        
-    def get_redirect_target_data(self):
-        for givenPath, targetData in self.redirects.items():
-            if self.path.startswith(givenPath):
-                return targetData
-    
-    def try_redirect(self):
-        targetData = self.get_redirect_target_data()
-        if targetData:
-            server = self.find_redirect_server(targetData)
-            if server is not None:
-                redirect_path = self.find_redirect_path(targetData)
-                target = server + redirect_path
-                # Authorization headers get remove by default so cannot just redirect. 
-                # Need to send them as a new default
-                auth = self.headers.get("Authorization")
-                if auth:
-                    fn = redirect_path.split("?")[0].replace("/", "_") + ".rc"
-                    if not os.path.isfile(fn):
-                        url = server + "/capturemock/addAlterations"
-                        with open(fn, "w") as f:
-                            f.write("[default_http_headers]\n")
-                            f.write("Authorization = " + auth + "\n")
-                        urlopen(url, data=os.path.abspath(fn).encode()).read()
-                        self.log_message("Forwarded auth to target %s, written file %s", target, fn)
-
-                self.send_response(307)
-                self.log_message("Redirecting! %s -> %s", self.path, target)
-                self.send_header('Location', target)
-            else:
-                # with redirect by auth, assume we are redirect-only, return 404 without match
-                print("FAILED to redirect!", file=sys.stderr)
-                print(self.path, file=sys.stderr)
-                print("target_id=", self.find_redirect_target_id(), file=sys.stderr)
-                self.send_response(404)
-            self.end_headers()
-            return True
-        return False
-
-    def do_GET(self):
-        if self.path == "/capturemock/shutdownServer":
-            self.send_response(200)
-            self.end_headers()
-            self.dispatcher.server.setShutdownFlag()
-        else:
-            if self.try_redirect():
-                return
-            
-            HTTPTrafficHandler.requestCount += 1
-            traffic = clientservertraffic.HTTPClientTraffic(responseFile=self.wfile, method="GET", path=self.get_local_path(), headers=self.headers, 
-                                                            rcHandler=self.dispatcher.rcHandler, handler=self)
-            self.dispatcher.process(traffic, self.requestCount)
-
-    def do_POST(self):
-        rawbytes = self.read_data()        
-        if self.path.startswith("/capturemock/sendPathRedirect/"):
-            redirectKey = "/".join(self.path.split("/")[3:])
-            target = rawbytes.decode(getpreferredencoding())
-            mapping = json.loads(target)
-            self.log_message("got path redirect %s -> %s", redirectKey, mapping)
-            with self.redirectLock:
-                if redirectKey in self.redirects and "matcher" in mapping:
-                    self.redirects[redirectKey]["matcher"].update(mapping.get("matcher"))
-                else:
-                    self.redirects[redirectKey] = mapping
-            self.send_response(200)
-            self.end_headers()
-            return
-        
-        if self.try_redirect():
-            return
-        
-        if self.path == "/capturemock/addAlterations":
-            rcFile = rawbytes.decode(getpreferredencoding())
-            self.dispatcher.rcHandler.addFile(rcFile)
-            self.send_response(200)
-            self.end_headers()
-            return
-        
-        HTTPTrafficHandler.requestCount += 1
-        if self.path == "/capturemock/setServerLocation":
-            text = rawbytes.decode(getpreferredencoding())
-            traffic = clientservertraffic.HTTPServerStateTraffic(text, rcHandler=self.dispatcher.rcHandler)
-            self.send_response(200)
-            self.end_headers()
-        else:
-            traffic = clientservertraffic.HTTPClientTraffic(rawbytes, self.wfile, method="POST", path=self.get_local_path(), headers=self.headers, 
-                                                            rcHandler=self.dispatcher.rcHandler, handler=self)
-        self.dispatcher.process(traffic, self.requestCount)
-        
-    def do_method_with_payload(self, method):
-        # Must always read the request, even if redirecting
-        rawbytes = self.read_data()
-        if self.try_redirect():
-            return
-        HTTPTrafficHandler.requestCount += 1
-        traffic = clientservertraffic.HTTPClientTraffic(rawbytes, self.wfile, method=method, path=self.get_local_path(), headers=self.headers, 
-                                                        rcHandler=self.dispatcher.rcHandler, handler=self)
-        self.dispatcher.process(traffic, self.requestCount)
-
-    def do_PATCH(self):
-        self.do_method_with_payload("PATCH")
-
-    def do_PUT(self):
-        self.do_method_with_payload("PUT")
-        
-    def do_DELETE(self):
-        if self.try_redirect():
-            return
-        HTTPTrafficHandler.requestCount += 1
-        traffic = clientservertraffic.HTTPClientTraffic(responseFile=self.wfile, method="DELETE", path=self.get_local_path(), headers=self.headers, 
-                                                        rcHandler=self.dispatcher.rcHandler, handler=self)
-        self.dispatcher.process(traffic, self.requestCount)
-    
-    def do_OPTIONS(self):
-        self.send_response(200, "ok")
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header("Access-Control-Allow-Headers", '*')
-        self.send_header('Access-Control-Allow-Methods', '*')
-        self.end_headers()
-        
-        
-        
-
-class HTTPTrafficServer(HTTPServer):
-    @classmethod
-    def createServer(cls, address, port, dispatcher):
-        HTTPTrafficHandler.dispatcher = dispatcher
-        return cls((address, port))
-    
-    def __init__(self, address):
-        # Default value of 5 isn't very much...
-        # There doesn't seem to be any disadvantage of allowing a longer queue, so we will increase it by a lot...
-        self.request_queue_size = 500
-        HTTPServer.__init__(self, address, HTTPTrafficHandler)
-    
-    def run(self):
-        self.serve_forever()
-
-    def getAddress(self):
-        host, port = self.socket.getsockname()
-        # hardcode http? Seems to be what you get...
-        return "http://" + host + ":" + str(port)
-
-    def setShutdownFlag(self):
-        # Not supposed to know about this variable, implementation detail of SocketServer
-        # But seems like the only way to shutdown the server from within a request
-        # Otherwise we have to start using ForkingMixin, ThreadingMixin etc which seems like overkill just to access a variable
-        self._BaseServer__shutdown_request = True
-
-    @staticmethod
-    def getTrafficClasses(incoming):
-        if incoming:
-            classes = [ clientservertraffic.HTTPServerStateTraffic, clientservertraffic.HTTPClientTraffic ]
-        else:
-            classes = [ clientservertraffic.HTTPServerTraffic, clientservertraffic.HTTPClientTraffic ]
-            try:
-                from capturemock.amqptraffic import AMQPResponseTraffic
-                classes.append(AMQPResponseTraffic)
-            except ImportError:
-                # If we haven't got the files installed, reasonable to assume there won't be any AMQP traffic
-                pass
-        return classes
-
-
 class ServerDispatcherBase:
     def __init__(self, options):
         rcFiles = options.rcfiles.split(",") if options.rcfiles else []
@@ -523,6 +286,7 @@ class ServerDispatcherBase:
             from capturemock.ftptraffic import FtpTrafficServer
             return FtpTrafficServer
         elif protocol == "http":
+            from capturemock.httptraffic import HTTPTrafficServer
             return HTTPTrafficServer
         elif protocol == "xmlrpc":
             from capturemock.xmlrpctraffic import XmlRpcTrafficServer
