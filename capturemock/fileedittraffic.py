@@ -1,6 +1,7 @@
 """ Capturing edits for files, currently only from command line traffic """
 
 from capturemock import traffic
+from capturemock.encodingutils import openRecordFile
 import os, logging, shutil
 
 class FileEditTraffic(traffic.ResponseTraffic):
@@ -88,12 +89,12 @@ class FileEditTraffic(traffic.ResponseTraffic):
                 print("Could not transfer " + srcPath + " to " + dstPath)
 
     def restoreLink(self, srcPath, dstPath):
-        linkTo = open(srcPath).read().strip()
+        linkTo = openRecordFile(srcPath).read().strip()
         if not os.path.islink(dstPath):
             os.symlink(linkTo, dstPath)
 
     def storeLinkAsFile(self, srcPath, dstPath):
-        writeFile = open(dstPath, "w")
+        writeFile = openRecordFile(dstPath, "w")
         # Record relative links as such
         writeFile.write(os.readlink(srcPath).replace(os.path.dirname(srcPath) + "/", "") + "\n")
         writeFile.close()

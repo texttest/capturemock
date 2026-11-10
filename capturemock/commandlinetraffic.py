@@ -27,7 +27,7 @@ class CommandLineTraffic(traffic.Traffic):
         self.commandName = os.path.basename(self.fullCommand)
         self.cmdArgs = [ self.commandName ] + argv[1:]
         self.asynchronousEdits = rcHandler.getboolean("asynchronous", self.getRcSections(), False)
-        self.encoding = self.getEncoding(rcHandler)
+        self.encoding, self.encodingError = self.getEncoding(rcHandler)
         self.envVarsSet, envVarsUnset = self.filterEnvironment(self.cmdEnviron, rcHandler)
         cmdString = " ".join(map(self.quoteArg, self.cmdArgs))
         text = self.getEnvString(self.envVarsSet, envVarsUnset) + cmdString
@@ -57,7 +57,14 @@ class CommandLineTraffic(traffic.Traffic):
     def getEncoding(self, rcHandler):
         # The encoding the real command writes its output in. Most command-line tools use the locale's
         encoding = rcHandler.get("encoding", self.getRcSections(), "locale")
-        return encodingutils.getLocaleEncoding() if encoding == "locale" else codecs.lookup(encoding).name
+        if encoding == "locale":
+            return encodingutils.getLocaleEncoding(), None
+        try:
+            return codecs.lookup(encoding).name, None
+        except LookupError:
+            # Report it to the system under test, as we do when the command isn't found
+            return encodingutils.getLocaleEncoding(), "ERROR: CaptureMock: unknown encoding '" + encoding + \
+                "' for command '" + self.commandName + "' in capturemockrc\n"
 
     def getEnvironmentVariables(self, rcHandler):
         return rcHandler.getList("environment", self.getRcSections())
@@ -172,6 +179,8 @@ class CommandLineTraffic(traffic.Traffic):
             return arg.split()
 
     def forwardToDestination(self):
+        if self.encodingError:
+            return self.makeResponse("", self.encodingError, 1)
         try:
             self.diag.debug("Running real command with args : " + repr(self.cmdArgs))
             proc = subprocess.Popen(self.cmdArgs, env=self.cmdEnviron, cwd=self.cmdCwd, 
@@ -192,11 +201,13 @@ class CommandLineTraffic(traffic.Traffic):
     def setEncoding(self, responses):
         # So that we send the output in the same encoding as the real command
         for response in responses:
-            if isinstance(response, CommandLineResponseTraffic):
+            if isinstance(response, (CommandLineResponseTraffic, SysExitTraffic)):
                 response.encoding = self.encoding
         return responses
 
     def filterReplay(self, trafficList):
+        if self.encodingError:
+            return self.makeResponse("", self.encodingError, 1)
         insertIndex = 0
         while len(trafficList) > insertIndex and isinstance(trafficList[insertIndex], fileedittraffic.FileEditTraffic):
             insertIndex += 1
@@ -236,11 +247,19 @@ class StderrTraffic(CommandLineResponseTraffic):
 
 class SysExitTraffic(traffic.ResponseTraffic):
     typeId = "EXC"
+    encoding = None # Set from the command, see CommandLineTraffic.setEncoding
     def __init__(self, status, *args):
         traffic.ResponseTraffic.__init__(self, str(status), *args)
         self.exitStatus = int(status)
     def hasInfo(self):
         return self.exitStatus != 0
+
+    def forwardToDestination(self):
+        # Also tell the intercept what encoding the output is in, which it needs if it is writing to a console
+        self.write(self.text + "|TT_CMD_SEP|" + self.encoding if self.encoding else self.text)
+        if self.responseFile:
+            self.responseFile.close()
+        return []
 
 
 # Only works on UNIX

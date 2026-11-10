@@ -43,10 +43,14 @@ def readFromSocket(sock):
     except error: # If we're interrupted, try again
         return sock.makefile("rb").read()
 
-def writeBytes(stream, data):
-    # The server has already encoded the output as the real command would have, so write the bytes as they are
+def writeBytes(stream, data, encoding):
+    # The server has already encoded the output as the real command would have, so write the bytes as they are.
+    # Except to a Windows console, which takes text rather than bytes
     stream.flush()
-    getattr(stream, "buffer", stream).write(data)
+    if encoding and os.name == "nt" and stream.isatty():
+        stream.write(data.decode(encoding, "replace").replace("\r\n", "\n"))
+    else:
+        getattr(stream, "buffer", stream).write(data)
     stream.flush()
 
 def getCommandLine(argv):
@@ -92,10 +96,12 @@ def interceptCommand():
     response = readFromSocket(sock)
     sock.close()
     try:
-        stdout, stderr, exitStr = response.split(b"|TT_CMD_SEP|")
+        parts = response.split(b"|TT_CMD_SEP|")
+        stdout, stderr, exitStr = parts[:3]
+        encoding = parts[3].decode() if len(parts) > 3 else None
         import sys
-        writeBytes(sys.stdout, stdout)
-        writeBytes(sys.stderr, stderr)
+        writeBytes(sys.stdout, stdout, encoding)
+        writeBytes(sys.stderr, stderr, encoding)
         exitCode = int(exitStr)
         if exitCode < 0 or (exitCode > 128 and exitCode <= 160):
             # process was killed (on UNIX...)

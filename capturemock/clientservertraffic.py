@@ -74,7 +74,8 @@ class ClientSocketTraffic(traffic.Traffic):
             except socket.timeout:
                 return responses
         else:
-            return [ sock.makefile().read() ]
+            # UTF-8, as we send the request
+            return [ sock.makefile("rb").read().decode("utf-8", "replace") ]
             
     def forwardToServer(self):
         sock = self.connectServerSocket()

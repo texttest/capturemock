@@ -4,7 +4,7 @@ from .fileedittraffic import FileEditTraffic
 from .id_mapping import ID_ALTERATIONS_RC_FILE
 from .config import CaptureMockReplayError, RECORD, REPLAY, REPLAY_OLD_RECORD_NEW
 from . import config, cmdlineutils
-from .encodingutils import openRecordFile, RECORD_ENCODING
+from .encodingutils import openRecordFile
 import os, sys, shutil, filecmp, subprocess, tempfile, types, time
 from functools import wraps
 from glob import glob

@@ -1120,7 +1120,7 @@ class TcpHeaderTrafficServer:
                 if self.serverConverter:
                     # if we're recording from a server, need to know this has been processed to avoid racing
                     sock.shutdown(socket.SHUT_WR)
-                    response = sock.makefile().read()
+                    response = sock.makefile("rb").read().decode("utf-8", "replace")
                     self.diag.debug(f"Got reply: {response}")
                 sock.close()
                 self.diag.debug(f"Sent synch status '{text}' to {synch_server}")

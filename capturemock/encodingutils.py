@@ -18,9 +18,10 @@ def openRecordFile(fileName, mode="r", **kw):
     return open(fileName, mode, encoding=RECORD_ENCODING, **kw)
 
 def openConfigFile(fileName, mode="r"):
-    # Config files are in the locale encoding, unless they have a byte order mark
+    # Config files are in the locale encoding, unless they have a byte order mark.
+    # When appending, keep to the encoding the file already has
     encoding = getLocaleEncoding()
-    if "r" in mode:
+    if "r" in mode or "a" in mode:
         try:
             with open(fileName, "rb") as f:
                 start = f.read(4)
@@ -32,7 +33,8 @@ def openConfigFile(fileName, mode="r"):
             if start.startswith(bom):
                 encoding = bomEncoding
                 break
-    return open(fileName, mode, encoding=encoding, errors="replace")
+    # Reading a file with the wrong encoding shouldn't stop us, but don't silently lose characters when writing
+    return open(fileName, mode, encoding=encoding, errors="replace" if "r" in mode else "strict")
 
 # Payloads such as HTTP and AMQP bodies are assumed to be UTF-8, as is usual nowadays. Anything else is recorded as hex
 def decodeBytes(rawBytes):
