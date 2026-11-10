@@ -284,6 +284,11 @@ class InstanceProxy(PythonProxy):
         return allbases[proxyPos + 1] # at least "object" should be there failing anything else
 
     def captureMockConvertToBoolean(self, methodName):
+        if isinstance(self, BaseException):
+            # Exceptions are always true: BaseException defines neither __bool__ nor __len__.
+            # Don't record the lookups. The traceback module truth-tests exceptions in Python <= 3.13
+            # but not in 3.14, so recording them would give version-dependent mock files.
+            return True
         try:
             return self.__getattr__(methodName)()
         except AttributeError:
