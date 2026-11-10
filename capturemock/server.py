@@ -25,11 +25,6 @@ def getPython():
     return sys.executable
 
 def getServer():
-    if getattr(sys, 'frozen', False): # from exe file, likely TextTest
-        # bundled with TextTest?
-        exeFile = os.path.join(os.path.dirname(sys.executable), "capturemock_server.exe")
-        if os.path.isfile(exeFile):
-            return [ exeFile ]
     return [getPython(), __file__]
 
 def startServer(rcFiles,

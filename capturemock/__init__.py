@@ -83,8 +83,6 @@ class CaptureMockManager:
         destFile = interceptName + ".exe"
         if sys.version_info.major == 3: # python 3, uses pyinstaller
             sourceFile = os.path.join(os.path.dirname(__file__), "capturemock_intercept.exe")
-            if not os.path.isfile(sourceFile) and getattr(sys, 'frozen', False): # from exe file, likely TextTest
-                sourceFile = os.path.join(os.path.dirname(sys.executable), "capturemock_intercept.exe")
         else: # python2, uses old exemaker executable
             file = open(interceptName + ".py", "w", encoding="utf-8")
             file.write("#!python.exe\nimport site\n")
