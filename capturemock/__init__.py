@@ -80,16 +80,9 @@ class CaptureMockManager:
         urlopen(setUrl, data=url.encode()).read()
         
     def makeWindowsIntercept(self, interceptName):
-        destFile = interceptName + ".exe"
-        if sys.version_info.major == 3: # python 3, uses pyinstaller
-            sourceFile = os.path.join(os.path.dirname(__file__), "capturemock_intercept.exe")
-        else: # python2, uses old exemaker executable
-            file = open(interceptName + ".py", "w", encoding="utf-8")
-            file.write("#!python.exe\nimport site\n")
-            file.write(self.fileContents)
-            file.close()
-            sourceFile = os.path.join(os.path.dirname(__file__), "python_script.exe")
-        shutil.copy(sourceFile, destFile)
+        # Built with PyInstaller from bin/capturemock_intercept.py
+        sourceFile = os.path.join(os.path.dirname(__file__), "capturemock_intercept.exe")
+        shutil.copy(sourceFile, interceptName + ".exe")
 
     def makePosixIntercept(self, interceptName):
         file = open(interceptName, "w", encoding="utf-8")
