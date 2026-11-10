@@ -1,6 +1,6 @@
 """ Traffic classes to do with captured command lines """
 
-import os, logging, subprocess
+import os, logging, subprocess, codecs
 import sys
 from capturemock import traffic, fileedittraffic, encodingutils
 
@@ -27,6 +27,7 @@ class CommandLineTraffic(traffic.Traffic):
         self.commandName = os.path.basename(self.fullCommand)
         self.cmdArgs = [ self.commandName ] + argv[1:]
         self.asynchronousEdits = rcHandler.getboolean("asynchronous", self.getRcSections(), False)
+        self.encoding = self.getEncoding(rcHandler)
         self.envVarsSet, envVarsUnset = self.filterEnvironment(self.cmdEnviron, rcHandler)
         cmdString = " ".join(map(self.quoteArg, self.cmdArgs))
         text = self.getEnvString(self.envVarsSet, envVarsUnset) + cmdString
@@ -52,6 +53,11 @@ class CommandLineTraffic(traffic.Traffic):
 
     def getRcSections(self):
         return [ self.commandName, "command line" ]
+
+    def getEncoding(self, rcHandler):
+        # The encoding the real command writes its output in. Most command-line tools use the locale's
+        encoding = rcHandler.get("encoding", self.getRcSections(), "locale")
+        return encodingutils.getLocaleEncoding() if encoding == "locale" else codecs.lookup(encoding).name
 
     def getEnvironmentVariables(self, rcHandler):
         return rcHandler.getList("environment", self.getRcSections())
@@ -170,7 +176,7 @@ class CommandLineTraffic(traffic.Traffic):
             self.diag.debug("Running real command with args : " + repr(self.cmdArgs))
             proc = subprocess.Popen(self.cmdArgs, env=self.cmdEnviron, cwd=self.cmdCwd, 
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
-                                    encoding=encodingutils.getLocaleEncoding(), errors="replace")
+                                    encoding=self.encoding, errors="replace")
             CommandLineKillTraffic.pidMap[self.proxyPid] = proc
             output, errors = proc.communicate()
             response = self.makeResponse(output, errors, proc.returncode)
@@ -180,8 +186,15 @@ class CommandLineTraffic(traffic.Traffic):
             return self.makeResponse("", "ERROR: CaptureMock Server could not find command '" + self.commandName + "' in PATH\n", 1)
 
     def makeResponse(self, output, errors, exitCode):
-        return [ StdoutTraffic(output, self.responseFile), StderrTraffic(errors, self.responseFile), \
-                 SysExitTraffic(exitCode, self.responseFile) ]
+        return self.setEncoding([ StdoutTraffic(output, self.responseFile), StderrTraffic(errors, self.responseFile), \
+                                  SysExitTraffic(exitCode, self.responseFile) ])
+
+    def setEncoding(self, responses):
+        # So that we send the output in the same encoding as the real command
+        for response in responses:
+            if isinstance(response, CommandLineResponseTraffic):
+                response.encoding = self.encoding
+        return responses
 
     def filterReplay(self, trafficList):
         insertIndex = 0
@@ -199,17 +212,19 @@ class CommandLineTraffic(traffic.Traffic):
         if len(trafficList) == insertIndex or not isinstance(trafficList[insertIndex], SysExitTraffic):
             trafficList.insert(insertIndex, SysExitTraffic("0", self.responseFile))
 
-        return trafficList
+        return self.setEncoding(trafficList)
 
 class CommandLineResponseTraffic(traffic.ResponseTraffic):
-    socketEncoding = encodingutils.getCommandClientEncoding()
+    encoding = "utf-8" # Set from the command, see CommandLineTraffic.setEncoding
     def __init__(self, text, *args):
         if text and not text.endswith("\n"):
             text += "\n"
         super(CommandLineResponseTraffic, self).__init__(text, *args)
 
     def forwardToDestination(self):
-        self.write(self.text + "|TT_CMD_SEP|")
+        # The intercept writes these bytes unchanged, so make the line endings native, as text-mode output would
+        text = self.text.replace("\n", os.linesep)
+        self.writeBytes(text.encode(self.encoding, "replace") + b"|TT_CMD_SEP|")
         return []
 
 

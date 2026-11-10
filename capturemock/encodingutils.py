@@ -2,7 +2,6 @@
 and Python version. Config (rc) files are read like TextTest's: as the locale encoding unless they have a byte order mark """
 import codecs
 import locale
-import os
 
 # Encoding of all record and replay files
 RECORD_ENCODING = "utf-8"
@@ -14,12 +13,6 @@ def getLocaleEncoding():
         return locale.getencoding()
     else:
         return locale.getpreferredencoding(False)
-
-def getCommandClientEncoding():
-    # The encoding the command-line intercept uses to read what we send and write it to the system under test.
-    # On Windows it is a frozen executable with an old Python, which uses the locale encoding.
-    # Elsewhere it is a script run by this Python, which uses its default encoding.
-    return getLocaleEncoding() if os.name == "nt" else locale.getpreferredencoding(False)
 
 def openRecordFile(fileName, mode="r", **kw):
     return open(fileName, mode, encoding=RECORD_ENCODING, **kw)

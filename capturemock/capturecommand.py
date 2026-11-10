@@ -39,9 +39,15 @@ def handleKill(sigNum, *args):
 def readFromSocket(sock):
     from socket import error
     try:
-        return sock.makefile().read()
+        return sock.makefile("rb").read()
     except error: # If we're interrupted, try again
-        return sock.makefile().read()
+        return sock.makefile("rb").read()
+
+def writeBytes(stream, data):
+    # The server has already encoded the output as the real command would have, so write the bytes as they are
+    stream.flush()
+    getattr(stream, "buffer", stream).write(data)
+    stream.flush()
 
 def getCommandLine(argv):
     if os.name == "posix":
@@ -86,12 +92,10 @@ def interceptCommand():
     response = readFromSocket(sock)
     sock.close()
     try:
-        stdout, stderr, exitStr = response.split("|TT_CMD_SEP|")
+        stdout, stderr, exitStr = response.split(b"|TT_CMD_SEP|")
         import sys
-        sys.stdout.write(stdout)
-        sys.stdout.flush()
-        sys.stderr.write(stderr)
-        sys.stderr.flush()
+        writeBytes(sys.stdout, stdout)
+        writeBytes(sys.stderr, stderr)
         exitCode = int(exitStr)
         if exitCode < 0 or (exitCode > 128 and exitCode <= 160):
             # process was killed (on UNIX...)
@@ -111,6 +115,7 @@ def interceptCommand():
             sys.exit(exitCode)
     except ValueError:
         import sys
+        response = response.decode("utf-8", "replace")
         if response.startswith("CAPTUREMOCK MISMATCH"):
             sys.stderr.write("Replayed calls do not match those recorded.\n" +
                              response.split(":", 1)[-1].strip() + "\n" +
