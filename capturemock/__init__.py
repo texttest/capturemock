@@ -247,6 +247,12 @@ def commandline():
     setUpServer(mode, options.record, options.replay,
                 recordEditDir=options.record_file_edits, replayEditDir=options.replay_file_edits,
                 rcFiles=rcFiles, interceptDir=interceptDir)
+    if os.name == "nt":
+        # On Windows, CreateProcess searches the directory of the running executable before PATH.
+        # From a venv that is the base Python install, so "python" would bypass the venv on PATH.
+        resolved = shutil.which(args[0])
+        if resolved:
+            args[0] = resolved
     subprocess.call(args)
     if os.path.exists(interceptDir):
         remove_dir_with_retry(interceptDir)

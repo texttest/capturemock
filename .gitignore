@@ -10,3 +10,5 @@ capturemock.py
 *.spec
 
 .vscode/
+
+CLAUDE.md
