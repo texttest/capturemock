@@ -1,6 +1,7 @@
 
 """ Very basic interface for appending to a file. Server version much more complex """
 import os
+from capturemock.encodingutils import RECORD_ENCODING
 
 class RecordFileHandler(object):
     def __init__(self, file):
@@ -27,7 +28,7 @@ class RecordFileHandler(object):
     def _ensure_open(self):
         """Open the file for writing if not already open and we have a file path."""
         if self._writeFile is None and self.file:
-            self._writeFile = open(self.file, "a", buffering=8192)
+            self._writeFile = open(self.file, "a", buffering=8192, encoding=RECORD_ENCODING)
 
     def record(self, text, truncationPoint=False):
         if self.file:

@@ -4,6 +4,7 @@ from .fileedittraffic import FileEditTraffic
 from .id_mapping import ID_ALTERATIONS_RC_FILE
 from .config import CaptureMockReplayError, RECORD, REPLAY, REPLAY_OLD_RECORD_NEW
 from . import config, cmdlineutils
+from .encodingutils import openRecordFile, RECORD_ENCODING
 import os, sys, shutil, filecmp, subprocess, tempfile, types, time
 from functools import wraps
 from glob import glob
@@ -85,7 +86,7 @@ class CaptureMockManager:
             if not os.path.isfile(sourceFile) and getattr(sys, 'frozen', False): # from exe file, likely TextTest
                 sourceFile = os.path.join(os.path.dirname(sys.executable), "capturemock_intercept.exe")
         else: # python2, uses old exemaker executable
-            file = open(interceptName + ".py", "w")
+            file = open(interceptName + ".py", "w", encoding="utf-8")
             file.write("#!python.exe\nimport site\n")
             file.write(self.fileContents)
             file.close()
@@ -93,7 +94,7 @@ class CaptureMockManager:
         shutil.copy(sourceFile, destFile)
 
     def makePosixIntercept(self, interceptName):
-        file = open(interceptName, "w")
+        file = open(interceptName, "w", encoding="utf-8")
         file.write("#!" + sys.executable + "\n")
         file.write(self.fileContents)
         file.close()
@@ -405,7 +406,7 @@ def create_map_by_timestamp(recorded_files, ignoredIndices={}):
         currText = ""
         curr_timestamp = None
         fn_timestamps = []
-        with open(fn) as f:
+        with openRecordFile(fn) as f:
             for line in f:
                 if line.startswith("<-") or line.startswith("->RMQ"):
                     if currText:
@@ -461,13 +462,13 @@ def add_prefixes_from_timestamp_map(data_by_timestamp, ignoredIndicesIn=None, se
                         os.rename(fn, fn + ".orig")
                     new_files.append(newFn)
                     currContext.add(fn, newFn)
-                with open(newFn, "a") as currFile:
+                with openRecordFile(newFn, "a") as currFile:
                     currFile.write(currText)
     return new_files
 
 def get_traffic_count(rpfn):
     count = 0
-    with open(rpfn) as f:
+    with openRecordFile(rpfn) as f:
         for line in f:
             if line.startswith("<-"):
                 count += 1
@@ -478,7 +479,7 @@ def find_recorded_position(rpfn, text, skip):
     count = 0
     searching = False
     curr_skip = 0
-    with open(rpfn) as f:
+    with openRecordFile(rpfn) as f:
         for line in f:
             if searching:
                 if line.startswith("<-") or line.startswith("->"):
@@ -498,7 +499,7 @@ def find_recorded_position(rpfn, text, skip):
 
 def read_first_traffic(rpfn):
     text = ""
-    with open(rpfn) as f:
+    with openRecordFile(rpfn) as f:
         for line in f:
             if text and (line.startswith("->") or line.startswith("<-")):
                 return text
@@ -506,7 +507,7 @@ def read_first_traffic(rpfn):
     return text
 
 def get_text_count(rpfn, text):
-    with open(rpfn) as f:
+    with openRecordFile(rpfn) as f:
         return f.read().count(text)
 
 def find_replay_files(stem, replayed_files, fn):
@@ -545,17 +546,17 @@ def find_replay_files(stem, replayed_files, fn):
 def open_new_record_file(replay_fns, repIndex, ext):
     curr_replay_fn, curr_replay_count = replay_fns[repIndex]
     new_record_fn = curr_replay_fn.rsplit(".", 1)[0] + "." + ext
-    new_record_file = open(new_record_fn, "w")
+    new_record_file = openRecordFile(new_record_fn, "w")
     return new_record_file, curr_replay_count
 
 def transform_to_amqp_client_replay(fn, new_fn):
     writeFile = None
     active = False
-    with open(fn) as f:
+    with openRecordFile(fn) as f:
         for line in f:
             if line.startswith("->RMQ"):
                 if writeFile is None:
-                    writeFile = open(new_fn, "w")
+                    writeFile = openRecordFile(new_fn, "w")
                 writeFile.write(line.replace("->", "<-"))
                 active = True
             elif line.startswith("<-") or line.startswith("->"):
@@ -575,7 +576,7 @@ def add_prefix_by_matching_replay(recorded_files, replayed_files, ext=None):
         if hasPrefix:
             # already prefixed, no division needed
             new_record_fn = fn.rsplit(".", 1)[0] + "." + ext
-            with open(new_record_fn, "w") as fw:
+            with openRecordFile(new_record_fn, "w") as fw:
                 for ts in sorted(timestamp_data.keys()):
                     currText = timestamp_data.get(ts).get(fn)
                     fw.write(currText)
@@ -670,7 +671,7 @@ class CaptureMockDecorator(object):
     def fileContentsEqual(self, fn1, fn2):
         bufsize = 8*1024
         # copied from filecmp.py, adding universal line ending support
-        with open(fn1, newline=None) as fp1, open(fn2, newline=None) as fp2:
+        with openRecordFile(fn1, newline=None) as fp1, openRecordFile(fn2, newline=None) as fp2:
             while True:
                 b1 = fp1.read(bufsize)
                 b2 = fp2.read(bufsize)

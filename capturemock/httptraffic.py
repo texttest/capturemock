@@ -2,7 +2,6 @@
 Kept separate so the http.* modules are only imported when server_protocol is http. """
 
 import os, sys, socket, threading, re, json
-from locale import getpreferredencoding
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError
 from urllib.parse import urlparse, urlunparse
@@ -378,7 +377,7 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
                     fn = redirect_path.split("?")[0].replace("/", "_") + ".rc"
                     if not os.path.isfile(fn):
                         url = server + "/capturemock/addAlterations"
-                        with open(fn, "w") as f:
+                        with encodingutils.openConfigFile(fn, "w") as f:
                             f.write("[default_http_headers]\n")
                             f.write("Authorization = " + auth + "\n")
                         urlopen(url, data=os.path.abspath(fn).encode()).read()
@@ -415,7 +414,7 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
         rawbytes = self.read_data()        
         if self.path.startswith("/capturemock/sendPathRedirect/"):
             redirectKey = "/".join(self.path.split("/")[3:])
-            target = rawbytes.decode(getpreferredencoding())
+            target = rawbytes.decode("utf-8")
             mapping = json.loads(target)
             self.log_message("got path redirect %s -> %s", redirectKey, mapping)
             with self.redirectLock:
@@ -431,7 +430,7 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
             return
         
         if self.path == "/capturemock/addAlterations":
-            rcFile = rawbytes.decode(getpreferredencoding())
+            rcFile = rawbytes.decode("utf-8")
             self.dispatcher.rcHandler.addFile(rcFile)
             self.send_response(200)
             self.end_headers()
@@ -439,7 +438,7 @@ class HTTPTrafficHandler(BaseHTTPRequestHandler):
         
         HTTPTrafficHandler.requestCount += 1
         if self.path == "/capturemock/setServerLocation":
-            text = rawbytes.decode(getpreferredencoding())
+            text = rawbytes.decode("utf-8")
             traffic = HTTPServerStateTraffic(text, rcHandler=self.dispatcher.rcHandler)
             self.send_response(200)
             self.end_headers()

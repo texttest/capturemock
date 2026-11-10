@@ -1,5 +1,4 @@
 import sys
-from locale import getpreferredencoding
 import xmlrpc.client as xmlrpclib  # name 'xmlrpclib' is also used by eval() of recorded responses
 from xmlrpc.server import SimpleXMLRPCServer
 from capturemock.clientservertraffic import ClientSocketTraffic, ServerTraffic, ServerStateTraffic
@@ -92,7 +91,7 @@ class XmlRpcDispatchInstance:
         self.dispatcher = dispatcher
 
     def convertBytes(self, param):
-        return str(param, getpreferredencoding()) if isinstance(param, bytes) else param
+        return str(param, "utf-8") if isinstance(param, bytes) else param
 
     def _dispatch(self, method, binparams):
         params = tuple([ self.convertBytes(param) for param in binparams ])

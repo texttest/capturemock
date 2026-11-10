@@ -6,6 +6,7 @@ except ImportError: # python3
     from ConfigParser import ConfigParser
     
 import os, sys, logging.config
+from capturemock import encodingutils
 
 REPLAY = 0
 RECORD = 1
@@ -25,10 +26,16 @@ class RcFileHandler:
                     sys.stderr.write("WARNING: RC file at " + rcFile + " does not exist, ignoring.\n")
         else:
             rcFiles = self.getPersonalPath("config")
-        self.parser.read(rcFiles)
+        self.readFiles(rcFiles)
 
     def addFile(self, rcFile):
-        self.parser.read(rcFile)
+        self.readFiles(rcFile)
+
+    def readFiles(self, rcFiles):
+        for rcFile in ([ rcFiles ] if isinstance(rcFiles, str) else rcFiles):
+            if os.path.isfile(rcFile):
+                with encodingutils.openConfigFile(rcFile) as f:
+                    self.parser.read_file(f, source=rcFile)
 
     def getPersonalPath(self, fileName):
         return os.path.join(os.path.expanduser("~/.capturemock"), fileName)

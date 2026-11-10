@@ -163,6 +163,7 @@ class BaseTraffic(object):
         return formatted_string
     
 class Traffic(BaseTraffic):
+    socketEncoding = "utf-8"
     def __init__(self, text, responseFile, *args, **kw):
         super(Traffic, self).__init__(text, *args, **kw)
         self.responseFile = responseFile
@@ -171,7 +172,7 @@ class Traffic(BaseTraffic):
         from socket import error
         if self.responseFile:
             try:
-                self.responseFile.write(message.encode())
+                self.responseFile.write(message.encode(self.socketEncoding, "replace"))
             except error:
                 # The system under test has died or is otherwise unresponsive
                 # Should handle this, probably. For now, ignoring it is better than stack dumps

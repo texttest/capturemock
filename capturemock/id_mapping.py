@@ -1,5 +1,6 @@
 
 import re, os
+from capturemock import encodingutils
 
 class IdFinder:
     def __init__(self, rcHandler, pattern_key):
@@ -23,7 +24,7 @@ class IdFinder:
                 return idMatch.group(0)
 
 def read_alterations_line(fn):
-    with open(fn) as f:
+    with encodingutils.openConfigFile(fn) as f:
         for line in f:
             if line.startswith("alterations ="):
                 return line.strip() + ","
@@ -35,7 +36,7 @@ def make_id_alterations_rc_file(id_mapping):
         alterations_line = read_alterations_line(fn)
     else:
         alterations_line = "alterations = "
-    with open(fn, "a") as f:
+    with encodingutils.openConfigFile(fn, "a") as f:
         f.write("[general]\n")
         f.write(alterations_line + ",".join(id_mapping) + "\n\n")
         for old_id, new_id in id_mapping.items():

@@ -2,7 +2,7 @@
 
 import os, logging, subprocess
 import sys
-from capturemock import traffic, fileedittraffic
+from capturemock import traffic, fileedittraffic, encodingutils
 
 
 def isAbsolutePath(path):
@@ -169,7 +169,8 @@ class CommandLineTraffic(traffic.Traffic):
         try:
             self.diag.debug("Running real command with args : " + repr(self.cmdArgs))
             proc = subprocess.Popen(self.cmdArgs, env=self.cmdEnviron, cwd=self.cmdCwd, 
-                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
+                                    encoding=encodingutils.getLocaleEncoding(), errors="replace")
             CommandLineKillTraffic.pidMap[self.proxyPid] = proc
             output, errors = proc.communicate()
             response = self.makeResponse(output, errors, proc.returncode)
@@ -201,6 +202,7 @@ class CommandLineTraffic(traffic.Traffic):
         return trafficList
 
 class CommandLineResponseTraffic(traffic.ResponseTraffic):
+    socketEncoding = encodingutils.getCommandClientEncoding()
     def __init__(self, text, *args):
         if text and not text.endswith("\n"):
             text += "\n"

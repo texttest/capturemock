@@ -10,6 +10,7 @@ except ImportError: # Python 2.6 and earlier
 
 from capturemock.traffic import BaseTraffic
 from capturemock import config, id_mapping
+from capturemock.encodingutils import RECORD_ENCODING
 
 class ReplayInfo:
     def __init__(self, mode, replayFile, rcHandler):
@@ -114,7 +115,7 @@ class ReplayInfo:
     def readIntoList(cls, replayFile):
         trafficList = []
         currTraffic = ""
-        with open(replayFile, newline=None) as f:
+        with open(replayFile, newline=None, encoding=RECORD_ENCODING) as f:
             for line in f:
                 prefix = line.split(":")[0]
                 if len(prefix) < 10 and (prefix.startswith("<-") or prefix[-5:-3] == "->"):
@@ -316,7 +317,7 @@ class ReplayedResponseHandler:
     
 
 def filterFileForReplay(itemInfo, replayFile):
-    with open(replayFile, newline=None) as f:
+    with open(replayFile, newline=None, encoding=RECORD_ENCODING) as f:
         return ReplayInfo.filterForReplay(itemInfo, f)
 
 def filterCommands(commands, replayFile):
