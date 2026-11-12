@@ -88,7 +88,9 @@ class ClientSocketTraffic(traffic.Traffic):
         else:
             sock.sendall(self.text.encode())
         try:
-            sock.shutdown(socket.SHUT_WR)
+            if not self.broadcast:
+                # Unconnected (broadcast) UDP sockets can't be shut down: Linux raises ENOTCONN
+                sock.shutdown(socket.SHUT_WR)
             responses = self.readResponses(sock)
             sock.close()
             alteredResponses = [ self.applyAlterations(resp) for resp in responses ]
