@@ -1,0 +1,83 @@
+name: self-tests
+
+on:
+  workflow_dispatch:  # run on manual trigger
+  push:               # run on push events
+  pull_request:       # run on pull requests
+  schedule:           # check once a week, maybe the dependencies are broken
+    - cron:  '25 1 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  run-tests:
+    strategy:
+      # Allow all other matrix-jobs to continue running, even if one of the jobs fails
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: [3.11, 3.12, 3.13, 3.14, 3.15]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: Cloning CaptureMock
+      uses: actions/checkout@v7
+      with:
+        path: capturemock
+
+    - name: Cloning SelfTests
+      uses: actions/checkout@v7
+      with:
+        repository: texttest/capturemock-selftest
+        path: capturemock-selftest
+
+    - name: Configuring Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: ${{ matrix.python }}
+        architecture: x64
+
+    # The venv is the TextTest "checkout": the tests run its capturemock script and its Python.
+    # TextTest itself goes in the same venv for convenience.
+    - name: Preparing Virtual Environment (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        python -m venv venv
+        venv/bin/pip install $PWD/capturemock texttest -r capturemock-selftest/requirements.txt
+
+    - name: Preparing Virtual Environment (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        python -m venv venv
+        venv\Scripts\pip.exe install $PWD/capturemock texttest -r capturemock-selftest/requirements.txt
+
+    - name: Running Linux Tests
+      if: runner.os == 'Linux'
+      run: |
+        venv/bin/texttest -c $PWD/venv -d $PWD/capturemock-selftest -a cpmock -b ci
+
+    - name: Compressing Test Results
+      if: failure() && runner.os == 'Linux'
+      run: |
+        zip -r ~/.texttest/ttt.zip ~/.texttest/tmp/
+
+    - name: Running Windows Tests
+      if: runner.os == 'Windows'
+      run: |
+        venv\Scripts\texttest.exe -c $PWD\venv -d $PWD\capturemock-selftest -a cpmock -b ci
+
+    - name: Compressing Test Results (Windows)
+      if: failure() && runner.os == 'Windows'
+      run: |
+        Compress-Archive -Path $HOME/.texttest/tmp -DestinationPath $HOME/.texttest/ttt.zip
+        dir $HOME/.texttest/tmp
+
+    - name: Uploading test results
+      if: failure()
+      uses: actions/upload-artifact@v7
+      with:
+        name: texttesttmp-${{ runner.os }}-Py${{ matrix.python }}
+        path: ~/.texttest/ttt.zip
+        if-no-files-found: warn
